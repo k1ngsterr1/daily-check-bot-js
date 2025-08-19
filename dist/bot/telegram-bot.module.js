@@ -13,6 +13,7 @@ const prisma_service_1 = require("../database/prisma.service");
 const user_service_1 = require("../services/user.service");
 const task_service_1 = require("../services/task.service");
 const openai_service_1 = require("../services/openai.service");
+const billing_service_1 = require("../services/billing.service");
 let TelegramBotModule = class TelegramBotModule {
 };
 exports.TelegramBotModule = TelegramBotModule;
@@ -24,6 +25,7 @@ exports.TelegramBotModule = TelegramBotModule = __decorate([
             user_service_1.UserService,
             task_service_1.TaskService,
             openai_service_1.OpenAIService,
+            billing_service_1.BillingService,
         ],
         exports: [telegram_bot_service_1.TelegramBotService],
     })

@@ -48,8 +48,20 @@ enum FocusSessionStatus {
 enum ReminderType {
   TASK
   HABIT
-  MOOD
-  CUSTOM
+  GENERAL
+}
+
+enum SubscriptionType {
+  FREE
+  PREMIUM
+  PREMIUM_PLUS
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
 }
 
 enum ReminderStatus {
@@ -127,6 +139,20 @@ model User {
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
+  // Billing & Subscription
+  subscriptionType    SubscriptionType @default(FREE) @map("subscription_type")
+  subscriptionStarted DateTime?        @map("subscription_started")
+  subscriptionEnds    DateTime?        @map("subscription_ends")
+  trialEnds           DateTime?        @map("trial_ends")
+  isTrialActive       Boolean          @default(true) @map("is_trial_active")
+  
+  // Usage limits (daily)
+  dailyRemindersUsed  Int              @default(0) @map("daily_reminders_used")
+  dailyTasksUsed      Int              @default(0) @map("daily_tasks_used")
+  dailyHabitsUsed     Int              @default(0) @map("daily_habits_used")
+  dailyAiQueriesUsed  Int              @default(0) @map("daily_ai_queries_used")
+  lastUsageReset      DateTime?        @map("last_usage_reset")
+
   // Relations
   tasks             Task[]
   habits            Habit[]
@@ -134,6 +160,7 @@ model User {
   focusSessions     FocusSession[]
   reminders         Reminder[]
   userAchievements  UserAchievement[]
+  payments          Payment[]
 
   @@map("users")
 }
@@ -292,4 +319,33 @@ model Reminder {
   user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("reminders")
+}
+
+model Payment {
+  id                String        @id @default(cuid())
+  userId            String        @map("user_id") @db.VarChar(50)
+  amount            Float
+  currency          String        @default("RUB")
+  status            PaymentStatus @default(PENDING)
+  subscriptionType  SubscriptionType @map("subscription_type")
+  
+  // Payment details
+  paymentMethod     String?       @map("payment_method")
+  transactionId     String?       @unique @map("transaction_id")
+  providerResponse  String?       @map("provider_response") // JSON string
+  
+  // Billing period
+  billingPeriodStart DateTime     @map("billing_period_start")
+  billingPeriodEnd   DateTime     @map("billing_period_end")
+  
+  // Timestamps
+  paidAt            DateTime?     @map("paid_at")
+  refundedAt        DateTime?     @map("refunded_at")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("payments")
 }

@@ -10,6 +10,7 @@ import { BotContext } from './bot-context.interface';
 import { UserService } from '../services/user.service';
 import { OpenAIService } from '../services/openai.service';
 import { TaskService } from '../services/task.service';
+import { BillingService } from '../services/billing.service';
 
 @Injectable()
 export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
@@ -21,6 +22,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     private readonly userService: UserService,
     private readonly openaiService: OpenAIService,
     private readonly taskService: TaskService,
+    private readonly billingService: BillingService,
   ) {
     const token = this.configService.get<string>('bot.token');
     if (!token) {
@@ -52,12 +54,24 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         ctx.userId = ctx.from.id.toString();
 
         // Ensure user exists in database
-        await this.userService.findOrCreateUser({
-          id: ctx.from.id.toString(),
-          username: ctx.from.username,
-          firstName: ctx.from.first_name,
-          lastName: ctx.from.last_name,
-        });
+        const existingUser = await this.userService
+          .findByTelegramId(ctx.from.id.toString())
+          .catch(() => null);
+
+        if (!existingUser) {
+          // Create new user
+          await this.userService.findOrCreateUser({
+            id: ctx.from.id.toString(),
+            username: ctx.from.username,
+            firstName: ctx.from.first_name,
+            lastName: ctx.from.last_name,
+          });
+
+          // Initialize trial period for new user
+          await this.billingService.initializeTrialForUser(
+            ctx.from.id.toString(),
+          );
+        }
       }
 
       // Add helper methods
@@ -700,6 +714,112 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       );
     });
 
+    // Billing handlers
+    this.bot.action('show_limits', async (ctx) => {
+      await ctx.answerCbQuery();
+      const subscriptionStatus =
+        await this.billingService.getSubscriptionStatus(ctx.userId);
+
+      const limitsText =
+        subscriptionStatus.limits.dailyReminders === -1
+          ? '∞ (безлимит)'
+          : subscriptionStatus.limits.dailyReminders.toString();
+      const aiLimitsText =
+        subscriptionStatus.limits.dailyAiQueries === -1
+          ? '∞ (безлимит)'
+          : subscriptionStatus.limits.dailyAiQueries.toString();
+
+      let statusMessage = '';
+      if (subscriptionStatus.isTrialActive) {
+        statusMessage = `🎁 **Пробный период:** ${subscriptionStatus.daysRemaining} дней осталось`;
+      } else {
+        statusMessage = `💎 **Подписка:** ${
+          subscriptionStatus.type === 'FREE'
+            ? 'Бесплатная'
+            : subscriptionStatus.type === 'PREMIUM'
+              ? 'Premium'
+              : 'Premium Plus'
+        }`;
+      }
+
+      await ctx.replyWithMarkdown(
+        `
+📊 *Ваши лимиты и использование*
+
+${statusMessage}
+
+**Текущее использование сегодня:**
+🔔 Напоминания: ${subscriptionStatus.usage.dailyReminders}/${limitsText}
+🧠 ИИ-запросы: ${subscriptionStatus.usage.dailyAiQueries}/${aiLimitsText}
+📝 Задачи: ${subscriptionStatus.usage.dailyTasks}/${subscriptionStatus.limits.dailyTasks === -1 ? '∞' : subscriptionStatus.limits.dailyTasks}
+🔄 Привычки: ${subscriptionStatus.usage.dailyHabits}/${subscriptionStatus.limits.dailyHabits === -1 ? '∞' : subscriptionStatus.limits.dailyHabits}
+
+**Доступные функции:**
+📊 Расширенная аналитика: ${subscriptionStatus.limits.advancedAnalytics ? '✅' : '❌'}
+🎨 Кастомные темы: ${subscriptionStatus.limits.customThemes ? '✅' : '❌'}
+🚀 Приоритетная поддержка: ${subscriptionStatus.limits.prioritySupport ? '✅' : '❌'}
+      `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '💎 Обновиться до Premium',
+                  callback_data: 'upgrade_premium',
+                },
+              ],
+              [{ text: '⬅️ Назад', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('upgrade_premium', async (ctx) => {
+      await ctx.answerCbQuery();
+      const trialInfo = await this.billingService.getTrialInfo(ctx.userId);
+
+      let trialText = '';
+      if (trialInfo.isTrialActive) {
+        trialText = `🎁 **У вас есть ${trialInfo.daysRemaining} дней пробного периода!**
+
+`;
+      }
+
+      await ctx.replyWithMarkdown(
+        `
+💎 *Обновление до Premium*
+
+${trialText}**Premium подписка включает:**
+
+🔔 **50 напоминаний** в день (сейчас 5)
+🧠 **100 ИИ-запросов** в день (сейчас 10)
+📝 **100 задач** в день (сейчас 10)
+🔄 **20 привычек** в день (сейчас 3)
+📊 **Расширенная аналитика**
+🎨 **Кастомные темы**
+⚡ **20 фокус-сессий** в день
+
+💰 **Стоимость:** 299₽/месяц
+
+**Premium Plus** (безлимитный план):
+∞ **Безлимитные** напоминания, задачи, привычки
+🚀 **Приоритетная поддержка**
+💰 **Стоимость:** 599₽/месяц
+
+*Система оплаты в разработке - скоро будет доступна!*
+      `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '📊 Мои лимиты', callback_data: 'show_limits' }],
+              [{ text: '⬅️ Назад', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    });
+
     this.bot.action('dependencies', async (ctx) => {
       await ctx.answerCbQuery();
       await ctx.replyWithMarkdown(
@@ -1184,8 +1304,37 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async startAddingTask(ctx: BotContext) {
+    // Check billing limits for tasks
+    const limitCheck = await this.billingService.checkUsageLimit(
+      ctx.userId,
+      'dailyTasks',
+    );
+
+    if (!limitCheck.allowed) {
+      await ctx.replyWithMarkdown(
+        limitCheck.message || '🚫 Превышен лимит задач',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '💎 Обновиться до Premium',
+                  callback_data: 'upgrade_premium',
+                },
+              ],
+              [{ text: '📊 Мои лимиты', callback_data: 'show_limits' }],
+              [{ text: '⬅️ Назад', callback_data: 'back_to_tasks' }],
+            ],
+          },
+        },
+      );
+      return;
+    }
+
     await ctx.replyWithMarkdown(`
 ➕ *Создание новой задачи*
+
+📊 **Задач сегодня:** ${limitCheck.current}/${limitCheck.limit === -1 ? '∞' : limitCheck.limit}
 
 📝 Напишите название задачи:
     `);
@@ -1202,17 +1351,27 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         priority: 'MEDIUM' as any,
       });
 
+      // Increment daily tasks counter
+      await this.billingService.incrementUsage(ctx.userId, 'dailyTasks');
+
       // Get current user stats to increment
       const user = await this.userService.findByTelegramId(ctx.userId);
       await this.userService.updateUserStats(ctx.userId, {
         totalTasks: user.totalTasks + 1,
       });
 
+      // Get current usage for display
+      const usageInfo = await this.billingService.checkUsageLimit(
+        ctx.userId,
+        'dailyTasks',
+      );
+
       await ctx.replyWithMarkdown(`
 ✅ *Задача создана!*
 
 📝 *${task.title}*
- XP за выполнение: ${task.xpReward}
+⚡ XP за выполнение: ${task.xpReward}
+📊 **Задач сегодня:** ${usageInfo.current}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit}
 
 Задача добавлена в ваш список!
       `);
@@ -1859,6 +2018,33 @@ ${recommendations}
 
   private async handleAIChatMessage(ctx: BotContext, message: string) {
     try {
+      // Check billing limits for AI queries
+      const limitCheck = await this.billingService.checkUsageLimit(
+        ctx.userId,
+        'dailyAiQueries',
+      );
+
+      if (!limitCheck.allowed) {
+        await ctx.replyWithMarkdown(
+          limitCheck.message || '🚫 Превышен лимит ИИ-запросов',
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: '💎 Обновиться до Premium',
+                    callback_data: 'upgrade_premium',
+                  },
+                ],
+                [{ text: '📊 Мои лимиты', callback_data: 'show_limits' }],
+                [{ text: '⬅️ Назад в меню', callback_data: 'back_to_menu' }],
+              ],
+            },
+          },
+        );
+        return;
+      }
+
       // Check if this is a reminder request
       const absoluteTimePatterns = [
         /напомни\s+мне\s+(.+?)\s+в\s+(\d{1,2}):(\d{2})/i,
@@ -1920,11 +2106,22 @@ ${recommendations}
 
       const response = await this.openaiService.getAIResponse(userContext);
 
+      // Increment AI usage counter
+      await this.billingService.incrementUsage(ctx.userId, 'dailyAiQueries');
+
+      // Get current usage for display
+      const usageInfo = await this.billingService.checkUsageLimit(
+        ctx.userId,
+        'dailyAiQueries',
+      );
+
       await ctx.replyWithMarkdown(
         `
 🧠 *ИИ-консультант отвечает:*
 
 ${response}
+
+📊 **ИИ-запросов сегодня:** ${usageInfo.current}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit}
 
 💡 *Есть ещё вопросы?* Просто напишите мне!
       `,
@@ -2044,6 +2241,32 @@ ${reminderText}`,
     try {
       const user = await this.userService.findByTelegramId(ctx.userId);
 
+      // Check billing limits for reminders
+      const limitCheck = await this.billingService.checkUsageLimit(
+        ctx.userId,
+        'dailyReminders',
+      );
+
+      if (!limitCheck.allowed) {
+        await ctx.replyWithMarkdown(
+          limitCheck.message || '🚫 Превышен лимит напоминаний',
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: '💎 Обновиться до Premium',
+                    callback_data: 'upgrade_premium',
+                  },
+                ],
+                [{ text: '📊 Мои лимиты', callback_data: 'show_limits' }],
+              ],
+            },
+          },
+        );
+        return;
+      }
+
       // Validate time
       const hourNum = parseInt(hours);
       const minuteNum = parseInt(minutes);
@@ -2083,11 +2306,20 @@ ${reminderText}`,
         }
       }, delay);
 
+      // Increment usage counter
+      await this.billingService.incrementUsage(ctx.userId, 'dailyReminders');
+
       const timeStr = `${hours.padStart(2, '0')}:${minutes.padStart(2, '0')}`;
       const dateStr = reminderDate.toLocaleDateString('ru-RU', {
         day: 'numeric',
         month: 'long',
       });
+
+      // Get current usage for display
+      const usageInfo = await this.billingService.checkUsageLimit(
+        ctx.userId,
+        'dailyReminders',
+      );
 
       await ctx.replyWithMarkdown(
         `
@@ -2096,6 +2328,8 @@ ${reminderText}`,
 📝 **Текст:** ${reminderText}
 ⏰ **Время:** ${timeStr}
 📅 **Дата:** ${dateStr}
+
+📊 **Использовано сегодня:** ${usageInfo.current}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit} напоминаний
 
 Я напомню вам в указанное время! 🔔
       `,

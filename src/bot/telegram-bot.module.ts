@@ -4,6 +4,7 @@ import { PrismaService } from '../database/prisma.service';
 import { UserService } from '../services/user.service';
 import { TaskService } from '../services/task.service';
 import { OpenAIService } from '../services/openai.service';
+import { BillingService } from '../services/billing.service';
 
 @Module({
   providers: [
@@ -12,6 +13,7 @@ import { OpenAIService } from '../services/openai.service';
     UserService,
     TaskService,
     OpenAIService,
+    BillingService,
   ],
   exports: [TelegramBotService],
 })

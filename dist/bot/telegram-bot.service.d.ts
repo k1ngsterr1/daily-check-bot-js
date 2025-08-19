@@ -5,14 +5,16 @@ import { BotContext } from './bot-context.interface';
 import { UserService } from '../services/user.service';
 import { OpenAIService } from '../services/openai.service';
 import { TaskService } from '../services/task.service';
+import { BillingService } from '../services/billing.service';
 export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     private readonly configService;
     private readonly userService;
     private readonly openaiService;
     private readonly taskService;
+    private readonly billingService;
     private readonly logger;
     private bot;
-    constructor(configService: ConfigService, userService: UserService, openaiService: OpenAIService, taskService: TaskService);
+    constructor(configService: ConfigService, userService: UserService, openaiService: OpenAIService, taskService: TaskService, billingService: BillingService);
     private setupMiddleware;
     private setupHandlers;
     onModuleInit(): Promise<void>;
