@@ -12,12 +12,19 @@ const telegram_bot_service_1 = require("./telegram-bot.service");
 const prisma_service_1 = require("../database/prisma.service");
 const user_service_1 = require("../services/user.service");
 const task_service_1 = require("../services/task.service");
+const openai_service_1 = require("../services/openai.service");
 let TelegramBotModule = class TelegramBotModule {
 };
 exports.TelegramBotModule = TelegramBotModule;
 exports.TelegramBotModule = TelegramBotModule = __decorate([
     (0, common_1.Module)({
-        providers: [telegram_bot_service_1.TelegramBotService, prisma_service_1.PrismaService, user_service_1.UserService, task_service_1.TaskService],
+        providers: [
+            telegram_bot_service_1.TelegramBotService,
+            prisma_service_1.PrismaService,
+            user_service_1.UserService,
+            task_service_1.TaskService,
+            openai_service_1.OpenAIService,
+        ],
         exports: [telegram_bot_service_1.TelegramBotService],
     })
 ], TelegramBotModule);

@@ -37,6 +37,7 @@ exports.AppModule = AppModule = __decorate([
             services_1.HabitService,
             services_1.MoodService,
             services_1.FocusService,
+            services_1.OpenAIService,
         ],
     })
 ], AppModule);

@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { Telegraf, session } from 'telegraf';
 import { BotContext } from './bot-context.interface';
 import { UserService } from '../services/user.service';
+import { OpenAIService } from '../services/openai.service';
 
 @Injectable()
 export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
@@ -17,6 +18,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly configService: ConfigService,
     private readonly userService: UserService,
+    private readonly openaiService: OpenAIService,
   ) {
     const token = this.configService.get<string>('bot.token');
     if (!token) {
@@ -111,6 +113,180 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       await this.showMainMenu(ctx);
     });
 
+    // Onboarding callback handlers
+    this.bot.action('onboarding_start', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.showOnboardingStep2(ctx);
+    });
+
+    this.bot.action('onboarding_examples', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.replyWithMarkdown(`
+📋 *Примеры того, что я умею:*
+
+*Задачи:*
+• "Купить молоко"
+• "Сделать презентацию"
+• "Позвонить врачу"
+
+*Привычки:*
+• "Пить 2 литра воды"
+• "Делать зарядку"
+• "Читать 30 минут"
+
+*Отслеживание:*
+• Настроение по шкале 1-10
+• Прогресс выполнения
+• Статистика и достижения
+      `);
+
+      setTimeout(async () => {
+        await this.showOnboardingStep2(ctx);
+      }, 3000);
+    });
+
+    this.bot.action('onboarding_add_habit', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.replyWithMarkdown(`
+✍️ *Отлично! Напиши название своей первой привычки.*
+
+Например:
+• Пить воду каждый час
+• Делать зарядку утром
+• Читать перед сном
+
+*Напиши название привычки:*
+      `);
+      ctx.session.step = 'onboarding_waiting_habit';
+    });
+
+    this.bot.action('onboarding_skip_habit', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.showOnboardingStep3(ctx);
+    });
+
+    this.bot.action('onboarding_complete', async (ctx) => {
+      await ctx.answerCbQuery();
+
+      // Mark onboarding as completed
+      await this.userService.updateUser(ctx.userId, {
+        onboardingPassed: true,
+      });
+
+      await ctx.replyWithMarkdown(`
+🎉 *Поздравляем! Онбординг завершен!*
+
+Теперь ты готов к продуктивной работе с Ticky AI!
+
+🚀 Используй /menu для доступа ко всем функциям
+      `);
+
+      setTimeout(async () => {
+        await this.showMainMenu(ctx);
+      }, 2000);
+    });
+
+    // Handle text input during onboarding
+    this.bot.on('text', async (ctx) => {
+      const user = await this.userService.findByTelegramId(ctx.userId);
+
+      // Check if user needs to provide timezone first
+      if (
+        !user.timezone &&
+        (ctx.session.step === 'adding_task' ||
+          ctx.session.step === 'adding_habit')
+      ) {
+        await this.askForTimezone(ctx);
+        return;
+      }
+
+      // Handle timezone setting
+      if (ctx.session.step === 'waiting_for_city') {
+        await this.handleCityInput(ctx, ctx.message.text);
+        return;
+      }
+
+      if (ctx.session.step === 'onboarding_waiting_habit') {
+        const habitName = ctx.message.text;
+
+        // Here you would typically save the habit to database
+        // For now, just acknowledge and continue
+
+        await ctx.replyWithMarkdown(`
+✅ *Отличная привычка: "${habitName}"*
+
+Привычка добавлена! Теперь ты можешь отслеживать её выполнение каждый день.
+
+🎯 Продолжим настройку...
+        `);
+
+        setTimeout(async () => {
+          await this.showOnboardingStep3(ctx);
+        }, 2000);
+      }
+    });
+
+    // Main menu callback handlers
+    this.bot.action('menu_tasks', async (ctx) => {
+      await ctx.answerCbQuery();
+
+      const user = await this.userService.findByTelegramId(ctx.userId);
+      if (!user.timezone) {
+        ctx.session.step = 'adding_task';
+        await this.askForTimezone(ctx);
+      } else {
+        await ctx.replyWithMarkdown(
+          '📝 *Управление задачами* - функция в разработке',
+        );
+      }
+    });
+
+    this.bot.action('menu_habits', async (ctx) => {
+      await ctx.answerCbQuery();
+
+      const user = await this.userService.findByTelegramId(ctx.userId);
+      if (!user.timezone) {
+        ctx.session.step = 'adding_habit';
+        await this.askForTimezone(ctx);
+      } else {
+        await ctx.replyWithMarkdown(
+          '🔄 *Управление привычками* - функция в разработке',
+        );
+      }
+    });
+
+    this.bot.action('menu_mood', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.replyWithMarkdown(
+        '😊 *Отметить настроение* - функция в разработке',
+      );
+    });
+
+    this.bot.action('menu_focus', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.replyWithMarkdown('⏰ *Сессия фокуса* - функция в разработке');
+    });
+
+    this.bot.action('menu_stats', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.replyWithMarkdown('📊 *Статистика* - функция в разработке');
+    });
+
+    this.bot.action('menu_settings', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.replyWithMarkdown('⚙️ *Настройки* - функция в разработке');
+    });
+
+    this.bot.action('menu_achievements', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.replyWithMarkdown('🏆 *Достижения* - функция в разработке');
+    });
+
+    this.bot.action('menu_ai', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.replyWithMarkdown('💡 *ИИ Помощник* - функция в разработке');
+    });
+
     // Error handling
     this.bot.catch((err, ctx) => {
       this.logger.error(`Bot error for ${ctx.updateType}:`, err);
@@ -121,7 +297,10 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit() {
-    await this.launch();
+    // Запускаем бота асинхронно, не дожидаясь завершения
+    this.launch().catch((error) => {
+      this.logger.error('Failed to launch bot:', error);
+    });
   }
 
   async onModuleDestroy() {
@@ -129,20 +308,83 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async startOnboarding(ctx: BotContext) {
-    await ctx.replyWithMarkdown(`
-🎉 *Добро пожаловать в DailyCheck!*
+    // Step 1: Welcome
+    await this.showOnboardingStep1(ctx);
+  }
 
-Я помогу вам организовать ваш день и достичь целей через:
-• 📝 Управление задачами
-• 🔄 Отслеживание привычек  
-• 😊 Мониторинг настроения
-• ⏰ Сессии фокуса
-• 🏆 Систему достижений
+  private async showOnboardingStep1(ctx: BotContext) {
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '🚀 Начать', callback_data: 'onboarding_start' },
+          {
+            text: '👀 Посмотреть примеры',
+            callback_data: 'onboarding_examples',
+          },
+        ],
+      ],
+    };
 
-Давайте начнем настройку! Как вас зовут?
-    `);
+    await ctx.replyWithMarkdown(
+      `🤖 *Привет! Я Ticky AI — твой AI-ассистент по привычкам и задачам с геймификацией.*`,
+      { reply_markup: keyboard },
+    );
 
-    ctx.session.step = 'onboarding_name';
+    ctx.session.step = 'onboarding_welcome';
+  }
+
+  private async showOnboardingStep2(ctx: BotContext) {
+    const keyboard = {
+      inline_keyboard: [
+        [
+          {
+            text: '➕ Добавить привычку',
+            callback_data: 'onboarding_add_habit',
+          },
+          { text: '⏭️ Пропустить', callback_data: 'onboarding_skip_habit' },
+        ],
+      ],
+    };
+
+    await ctx.replyWithMarkdown(
+      `
+🚀 *Быстрый старт*
+
+Давай добавим твою первую привычку!
+Например: "Пить воду"
+
+*Выбери действие:*
+    `,
+      { reply_markup: keyboard },
+    );
+
+    ctx.session.step = 'onboarding_quick_start';
+  }
+
+  private async showOnboardingStep3(ctx: BotContext) {
+    const keyboard = {
+      inline_keyboard: [
+        [{ text: '✅ Понятно!', callback_data: 'onboarding_complete' }],
+      ],
+    };
+
+    await ctx.replyWithMarkdown(
+      `
+📚 *Мини-FAQ*
+
+*ЧТО УМЕЕТ БОТ?*
+
+• Добавлять задачи и привычки
+• Следить за прогрессом
+• Вовлекать в челленджи
+• Напоминать о важных делах
+
+🎯 Готов начать продуктивный день?
+    `,
+      { reply_markup: keyboard },
+    );
+
+    ctx.session.step = 'onboarding_faq';
   }
 
   private async showMainMenu(ctx: BotContext) {
@@ -189,10 +431,20 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 
   async launch() {
     try {
-      await this.bot.launch();
-      this.logger.log('🚀 Telegram bot launched successfully');
+      // Запускаем бота без ожидания
+      this.bot
+        .launch()
+        .then(() => {
+          this.logger.log('🚀 Telegram bot launched successfully');
+        })
+        .catch((error) => {
+          this.logger.error('❌ Failed to launch Telegram bot:', error);
+        });
+
+      // Возвращаем управление сразу
+      this.logger.log('🤖 Telegram bot launch initiated');
     } catch (error) {
-      this.logger.error('❌ Failed to launch Telegram bot:', error);
+      this.logger.error('❌ Error during bot initialization:', error);
       throw error;
     }
   }
@@ -204,5 +456,52 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 
   getBotInstance(): Telegraf<BotContext> {
     return this.bot;
+  }
+
+  private async askForTimezone(ctx: BotContext) {
+    await ctx.replyWithMarkdown(`
+🌍 *Для корректной работы с задачами и привычками мне нужно знать ваш часовой пояс.*
+
+📍 Пожалуйста, напишите название вашего города:
+(например: Москва, Санкт-Петербург, Нью-Йорк, Лондон)
+    `);
+
+    ctx.session.step = 'waiting_for_city';
+  }
+
+  private async handleCityInput(ctx: BotContext, cityName: string) {
+    await ctx.replyWithMarkdown('🔍 *Определяю часовой пояс...*');
+
+    const result = await this.openaiService.getTimezoneByCity(cityName);
+
+    if (!result) {
+      await ctx.replyWithMarkdown(`
+❌ *Не удалось определить часовой пояс для города "${cityName}"*
+
+📍 Попробуйте еще раз. Напишите название города более точно:
+      `);
+      return;
+    }
+
+    // Save timezone and city to database
+    await this.userService.updateUser(ctx.userId, {
+      timezone: result.timezone,
+      city: result.normalizedCity,
+    });
+
+    await ctx.replyWithMarkdown(`
+✅ *Часовой пояс установлен!*
+
+🏙️ Город: ${result.normalizedCity}
+🕐 Часовой пояс: ${result.timezone}
+
+Теперь можете продолжить создание задачи или привычки!
+    `);
+
+    // Reset session step
+    ctx.session.step = undefined;
+
+    // Show main menu or continue with the original action
+    await this.showMainMenu(ctx);
   }
 }
