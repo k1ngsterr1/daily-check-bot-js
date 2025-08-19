@@ -49,8 +49,10 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private handleAIChatMessage;
     private handleRelativeReminderRequest;
     private handleReminderRequest;
+    private handleReminderTimeInput;
     private handleAudioMessage;
     private transcribeAudio;
     private processReminderFromText;
+    private isReminderWithoutTime;
     private isReminderRequest;
 }

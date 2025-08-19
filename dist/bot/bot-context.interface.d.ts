@@ -9,6 +9,8 @@ export interface BotContext extends Context {
         feedbackRating?: number;
         feedbackLiked?: string;
         aiChatMode?: boolean;
+        pendingReminder?: string;
+        waitingForReminderTime?: boolean;
     };
     userId: string;
     replyWithMarkdown(text: string, extra?: any): Promise<any>;

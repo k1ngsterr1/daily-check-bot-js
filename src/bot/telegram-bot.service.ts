@@ -227,6 +227,12 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
+      // Handle waiting for reminder time
+      if (ctx.session.waitingForReminderTime && ctx.session.pendingReminder) {
+        await this.handleReminderTimeInput(ctx, ctx.message.text);
+        return;
+      }
+
       if (ctx.session.step === 'onboarding_waiting_habit') {
         const habitName = ctx.message.text;
 
@@ -251,6 +257,11 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       if (this.isReminderRequest(ctx.message.text)) {
         await this.processReminderFromText(ctx, ctx.message.text);
         return;
+      }
+
+      // Skip if this is a command (starts with /)
+      if (ctx.message.text.startsWith('/')) {
+        return; // Let command handlers process it
       }
 
       // Default: show help or main menu
@@ -389,17 +400,424 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       await ctx.answerCbQuery();
       const keyboard = {
         inline_keyboard: [
-          [{ text: '😊 Настроение', callback_data: 'menu_mood' }],
-          [{ text: '⏰ Сессия фокуса', callback_data: 'menu_focus' }],
-          [{ text: '🏆 Достижения', callback_data: 'menu_achievements' }],
-          [{ text: '⚙️ Настройки', callback_data: 'menu_settings' }],
-          [{ text: '⬅️ Назад', callback_data: 'back_to_menu' }],
+          [
+            { text: '🎯 Прогресс и стрики', callback_data: 'progress_streaks' },
+            { text: '🏆 Лидерборды', callback_data: 'leaderboards' },
+          ],
+          [
+            { text: '🥇 Достижения', callback_data: 'achievements' },
+            { text: '🚀 Челленджи', callback_data: 'challenges' },
+          ],
+          [
+            {
+              text: '💰 Бонусы и рефералы',
+              callback_data: 'bonuses_referrals',
+            },
+            { text: '👤 Профиль', callback_data: 'user_profile' },
+          ],
+          [
+            { text: '⚙️ Настройки', callback_data: 'settings_menu' },
+            { text: '🛍️ Магазин', callback_data: 'shop' },
+          ],
+          [{ text: '🎭 Зависимости', callback_data: 'dependencies' }],
+          [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
         ],
       };
-      await ctx.replyWithMarkdown('⚙️ *Дополнительные функции:*', {
-        reply_markup: keyboard,
-      });
+      await ctx.replyWithMarkdown(
+        `
+🚀 *Дополнительные функции*
+
+Выберите интересующий раздел:
+      `,
+        {
+          reply_markup: keyboard,
+        },
+      );
     });
+
+    // Additional functions handlers
+    this.bot.action('progress_streaks', async (ctx) => {
+      await ctx.answerCbQuery();
+      const user = await this.userService.findByTelegramId(ctx.userId);
+
+      await ctx.replyWithMarkdown(
+        `
+🎯 *Прогресс и стрики*
+
+📊 **Ваша статистика:**
+⭐ Опыт: ${user.totalXp} XP
+🔥 Текущий стрик: ${user.currentStreak} дней
+📅 Аккаунт создан: ${user.createdAt.toLocaleDateString('ru-RU')}
+
+**Стрики по категориям:**
+📝 Задачи: ${user.currentStreak} дней
+🔄 Привычки: В разработке
+😊 Настроение: В разработке
+
+Продолжайте выполнять задачи для увеличения стрика! 🚀
+      `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('leaderboards', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.replyWithMarkdown(
+        `
+🏆 *Лидерборды*
+
+**Топ пользователей по XP:**
+🥇 1. Пользователь1 - 5000 XP
+🥈 2. Пользователь2 - 4500 XP  
+🥉 3. Пользователь3 - 4000 XP
+...
+
+*Функция в разработке - скоро будут реальные данные!*
+
+Выполняйте задачи и поднимайтесь в рейтинге! 📈
+      `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('achievements', async (ctx) => {
+      await ctx.answerCbQuery();
+      const user = await this.userService.findByTelegramId(ctx.userId);
+
+      await ctx.replyWithMarkdown(
+        `
+🥇 *Ваши достижения*
+
+**Разблокированные:**
+🏆 Первые шаги - Создать первую задачу
+⭐ Новичок - Получить 100 XP
+📅 Постоянство - Стрик 3 дня
+
+**В процессе:**
+🔥 Мастер стрика - Стрик 7 дней (${user.currentStreak}/7)
+💪 Продуктивный - Выполнить 50 задач
+🚀 Энтузиаст - Получить 1000 XP (${user.totalXp}/1000)
+
+**Заблокированные:**
+🎯 Профессионал - Стрик 30 дней
+⚡ Молния - Выполнить 10 задач за день
+🌟 Легенда - Получить 10000 XP
+
+Продолжайте выполнять задачи для новых достижений! 🎉
+      `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('challenges', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.replyWithMarkdown(
+        `
+🚀 *Челленджи*
+
+**Активные испытания:**
+⏰ 7-дневный марафон продуктивности
+📝 Выполнить 21 задачу за неделю
+🎯 Улучшить стрик до 10 дней
+
+**Еженедельные вызовы:**
+🌅 Ранняя пташка - 5 задач до 10:00
+🌙 Ночная сова - 3 задачи после 20:00
+⚡ Скоростной режим - 10 задач за день
+
+**Награды:**
+🏆 Значки достижений
+⭐ Дополнительные XP
+🎁 Бонусные возможности
+
+*Функция в разработке - скоро новые челленджи!*
+      `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('bonuses_referrals', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.replyWithMarkdown(
+        `
+💰 *Бонусы и рефералы*
+
+**Реферальная программа:**
+🔗 Ваш код приглашения: \`REF${ctx.userId.slice(-6)}\`
+👥 Приглашено друзей: 0
+🎁 Бонус за друга: +500 XP
+
+**Ежедневные бонусы:**
+📅 Вход в систему: +50 XP
+🎯 Первая задача дня: +100 XP
+🔥 Поддержание стрика: +25 XP
+
+**Еженедельные награды:**
+🏆 7 дней активности: +300 XP
+⭐ 21 задача в неделю: +500 XP
+
+**Как пригласить друга:**
+1. Поделитесь кодом приглашения
+2. Друг вводит код при регистрации  
+3. Вы оба получаете +500 XP!
+
+*Функция в разработке - скоро полный запуск!*
+      `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('user_profile', async (ctx) => {
+      await ctx.answerCbQuery();
+      const user = await this.userService.findByTelegramId(ctx.userId);
+
+      await ctx.replyWithMarkdown(
+        `
+👤 *Ваш профиль*
+
+**Основная информация:**
+📛 Имя: ${user.firstName || 'Не указано'}
+🆔 ID: ${user.id}
+📅 Регистрация: ${user.createdAt.toLocaleDateString('ru-RU')}
+🌍 Город: ${user.city || 'Не указан'}
+⏰ Часовой пояс: ${user.timezone || 'Не указан'}
+
+**Статистика:**
+⭐ Общий опыт: ${user.totalXp} XP  
+🔥 Текущий стрик: ${user.currentStreak} дней
+📊 Максимальный стрик: ${user.currentStreak} дней
+
+**Настройки:**
+🔔 Уведомления: ${user.notifications ? '✅ Включены' : '❌ Отключены'}
+🎨 Тема: ${user.theme || 'Стандартная'}
+🤖 ИИ-режим: ${user.aiMode ? '✅ Включен' : '❌ Отключен'}
+      `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '✏️ Редактировать', callback_data: 'edit_profile' },
+                { text: '⬅️ Назад', callback_data: 'more_functions' },
+              ],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('settings_menu', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.replyWithMarkdown(
+        `
+⚙️ *Настройки*
+
+🚧 *Функция в разработке*
+
+Раздел настроек будет доступен в следующем обновлении!
+
+Здесь вы сможете настроить:
+• 🔔 Уведомления и напоминания
+• 🎨 Тему интерфейса
+• 🌍 Часовой пояс
+• 🤖 ИИ-консультанта
+• 👤 Конфиденциальность профиля
+• � Интеграции с другими сервисами
+
+� Оставьте свой email в профиле, чтобы получить уведомление о запуске.
+      `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('shop', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.replyWithMarkdown(
+        `
+🛍️ *Магазин премиум функций*
+
+**Доступные улучшения:**
+⚡ Премиум аккаунт - 299₽/месяц
+🎯 Неограниченные задачи
+📊 Расширенная аналитика  
+🎨 Эксклюзивные темы
+🤖 Приоритетная поддержка ИИ
+
+**Косметические улучшения:**
+🎨 Темы интерфейса - от 99₽
+🏆 Уникальные значки - от 49₽
+⚡ Анимированные эмодзи - от 29₽
+
+**Функциональные дополнения:**
+📈 Экспорт в Excel - 199₽
+📱 Мобильное приложение - 399₽
+🔔 Smart-уведомления - 149₽
+
+*Магазин в разработке - скоро откроется!*
+      `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('dependencies', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.replyWithMarkdown(
+        `
+🎭 *Блок зависимостей*
+
+**Отслеживание вредных привычек:**
+🚭 Курение - контроль и статистика
+🍺 Алкоголь - трекинг потребления
+📱 Соцсети - время в приложениях
+🎮 Игры - мониторинг игрового времени
+🛒 Покупки - контроль трат
+🍰 Сладкое - учет калорий
+
+**Полезные инструменты:**
+📊 График прогресса по дням
+⏰ Триггер-анализ (когда и почему)
+💪 Техники борьбы с тягой
+🎯 Постановка целей по сокращению
+📝 Дневник наблюдений
+
+**Поддержка:**
+👥 Сообщество поддержки
+📞 Горячая линия помощи
+🧠 ИИ-советы для борьбы с зависимостями
+📚 Образовательные материалы
+
+⚠️ *Внимание:* Данный блок не заменяет профессиональную медицинскую помощь.
+
+*Функция в разработке - скоро доступна!*
+      `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '📊 Начать трекинг',
+                  callback_data: 'start_dependency_tracking',
+                },
+              ],
+              [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('start_dependency_tracking', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.replyWithMarkdown(
+        `
+📊 *Начать трекинг зависимости*
+
+Выберите тип зависимости для отслеживания:
+      `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '🚭 Курение', callback_data: 'track_smoking' },
+                { text: '🍺 Алкоголь', callback_data: 'track_alcohol' },
+              ],
+              [
+                { text: '📱 Соцсети', callback_data: 'track_social' },
+                { text: '🎮 Игры', callback_data: 'track_gaming' },
+              ],
+              [
+                { text: '🛒 Покупки', callback_data: 'track_shopping' },
+                { text: '🍰 Сладкое', callback_data: 'track_sweets' },
+              ],
+              [{ text: '⬅️ Назад', callback_data: 'dependencies' }],
+            ],
+          },
+        },
+      );
+    });
+
+    // Dependency tracking handlers (placeholder for now)
+    ['smoking', 'alcohol', 'social', 'gaming', 'shopping', 'sweets'].forEach(
+      (type) => {
+        this.bot.action(`track_${type}`, async (ctx) => {
+          await ctx.answerCbQuery();
+          await ctx.replyWithMarkdown(
+            `
+🚧 *Функция в разработке*
+
+Трекинг ${
+              type === 'smoking'
+                ? 'курения'
+                : type === 'alcohol'
+                  ? 'алкоголя'
+                  : type === 'social'
+                    ? 'соцсетей'
+                    : type === 'gaming'
+                      ? 'игр'
+                      : type === 'shopping'
+                        ? 'покупок'
+                        : 'сладкого'
+            } будет доступен в следующем обновлении!
+
+📧 Оставьте свой email в настройках, чтобы получить уведомление о запуске.
+        `,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: '⬅️ Назад',
+                      callback_data: 'start_dependency_tracking',
+                    },
+                  ],
+                ],
+              },
+            },
+          );
+        });
+      },
+    );
 
     this.bot.action('faq_support', async (ctx) => {
       await ctx.answerCbQuery();
@@ -1705,6 +2123,115 @@ ${reminderText}`,
     }
   }
 
+  private async handleReminderTimeInput(ctx: BotContext, timeInput: string) {
+    try {
+      const reminderText = ctx.session.pendingReminder;
+
+      if (!reminderText) {
+        await ctx.replyWithMarkdown('❌ Ошибка: текст напоминания не найден.');
+        return;
+      }
+
+      // Try to parse different time formats
+      let hours: string | undefined, minutes: string | undefined;
+
+      // Format: HH:MM или H:MM
+      const timeMatch = timeInput.match(/(\d{1,2}):(\d{2})/);
+      if (timeMatch) {
+        hours = timeMatch[1];
+        minutes = timeMatch[2];
+      }
+      // Format: "в HH" или "в HH:MM"
+      else {
+        const inTimeMatch = timeInput.match(/в\s*(\d{1,2})(?::(\d{2}))?/i);
+        if (inTimeMatch) {
+          hours = inTimeMatch[1];
+          minutes = inTimeMatch[2] || '00';
+        }
+        // Format: "через X минут"
+        else {
+          const minutesMatch = timeInput.match(/через\s*(\d+)\s*минут/i);
+          if (minutesMatch) {
+            const minutesToAdd = parseInt(minutesMatch[1]);
+            const futureTime = new Date();
+            futureTime.setMinutes(futureTime.getMinutes() + minutesToAdd);
+            hours = futureTime.getHours().toString();
+            minutes = futureTime.getMinutes().toString().padStart(2, '0');
+          }
+          // Format: "через X часов"
+          else {
+            const hoursMatch = timeInput.match(/через\s*(\d+)\s*час/i);
+            if (hoursMatch) {
+              const hoursToAdd = parseInt(hoursMatch[1]);
+              const futureTime = new Date();
+              futureTime.setHours(futureTime.getHours() + hoursToAdd);
+              hours = futureTime.getHours().toString();
+              minutes = futureTime.getMinutes().toString().padStart(2, '0');
+            }
+            // Try to parse just numbers as HH:MM
+            else if (
+              timeInput.match(/^\d{1,2}$/) &&
+              parseInt(timeInput) <= 23
+            ) {
+              hours = timeInput;
+              minutes = '00';
+            }
+          }
+        }
+      }
+
+      // If no valid time format found
+      if (!hours || !minutes) {
+        await ctx.replyWithMarkdown(`
+❌ *Не удалось понять время*
+
+Пожалуйста, укажите время в одном из форматов:
+• **17:30** - конкретное время
+• **в 18:00** - с предлогом
+• **через 30 минут** - относительное время
+• **через 2 часа** - относительное время
+• **18** - целый час (18:00)
+
+_Попробуйте еще раз_
+        `);
+        return;
+      }
+
+      // Validate parsed time
+      const hourNum = parseInt(hours);
+      const minuteNum = parseInt(minutes);
+
+      if (hourNum < 0 || hourNum > 23 || minuteNum < 0 || minuteNum > 59) {
+        await ctx.replyWithMarkdown(`
+❌ *Неверное время*
+
+Часы должны быть от 0 до 23, минуты от 0 до 59.
+Попробуйте еще раз.
+        `);
+        return;
+      }
+
+      // Clear session state
+      ctx.session.pendingReminder = undefined;
+      ctx.session.waitingForReminderTime = false;
+
+      // Create the reminder
+      await this.handleReminderRequest(ctx, reminderText, hours, minutes);
+    } catch (error) {
+      this.logger.error('Error processing reminder time input:', error);
+
+      // Clear session state on error
+      ctx.session.pendingReminder = undefined;
+      ctx.session.waitingForReminderTime = false;
+
+      await ctx.replyWithMarkdown(`
+❌ *Ошибка обработки времени*
+
+Попробуйте создать напоминание заново.
+      `);
+    }
+  }
+
   private async handleAudioMessage(ctx: BotContext, type: 'voice' | 'audio') {
     try {
       const emoji = type === 'voice' ? '🎤' : '🎵';
@@ -1738,7 +2265,8 @@ ${reminderText}`,
       // Handle voice commands for tasks
       if (
         transcribedText.toLowerCase().includes('добавить задачу') ||
-        transcribedText.toLowerCase().includes('новая задача')
+        transcribedText.toLowerCase().includes('новая задача') ||
+        transcribedText.toLowerCase().includes('создать задачу')
       ) {
         await this.startAddingTask(ctx);
         return;
@@ -1747,9 +2275,51 @@ ${reminderText}`,
       // Handle voice commands for menu
       if (
         transcribedText.toLowerCase().includes('меню') ||
-        transcribedText.toLowerCase().includes('главное меню')
+        transcribedText.toLowerCase().includes('главное меню') ||
+        transcribedText.toLowerCase().includes('показать меню')
       ) {
         await this.showMainMenu(ctx);
+        return;
+      }
+
+      // Handle voice commands for help
+      if (
+        transcribedText.toLowerCase().includes('помощь') ||
+        transcribedText.toLowerCase().includes('справка') ||
+        transcribedText.toLowerCase().includes('что ты умеешь')
+      ) {
+        await ctx.replyWithMarkdown(`
+🤖 *DailyCheck Bot - Ваш персональный помощник продуктивности*
+
+*Основные команды:*
+/start - Начать работу с ботом
+/help - Показать эту справку  
+/menu - Главное меню
+/feedback - Оставить отзыв о боте
+
+*Голосовые команды:*
+🎤 "Напомни мне..." - создать напоминание
+🎤 "Добавить задачу" - создать новую задачу
+🎤 "Показать меню" - открыть главное меню
+🎤 "Что ты умеешь?" - показать справку
+
+*Быстрые действия:*
+📝 Добавить задачу или напоминание
+🧠 Пообщаться с ИИ-консультантом
+📊 Посмотреть прогресс
+
+Для получения подробной информации используйте /menu
+        `);
+        return;
+      }
+
+      // Handle voice commands for feedback
+      if (
+        transcribedText.toLowerCase().includes('обратная связь') ||
+        transcribedText.toLowerCase().includes('отзыв') ||
+        transcribedText.toLowerCase().includes('фидбек')
+      ) {
+        await this.showFeedbackSurvey(ctx);
         return;
       }
 
@@ -1807,17 +2377,36 @@ ${reminderText}`,
     // Extract time and reminder text from voice/text input
     const timeMatch =
       text.match(/в\s*(\d{1,2}):(\d{2})/i) ||
-      text.match(/в\s*(\d{1,2})\s*час(?:а|ов)?(?:\s*(\d{2})\s*минут)?/i);
+      text.match(/в\s*(\d{1,2})\s*час(?:а|ов)?(?:\s*(\d{2})\s*минут)?/i) ||
+      text.match(/на\s*(\d{1,2}):(\d{2})/i) ||
+      text.match(/к\s*(\d{1,2}):(\d{2})/i);
 
     if (timeMatch) {
       const hours = timeMatch[1];
       const minutes = timeMatch[2] || '00';
 
-      // Extract reminder text by removing time references
-      const reminderText = text
+      // Extract reminder text by removing time references and trigger words
+      let reminderText = text
         .replace(/напомни\s*(мне)?/gi, '')
+        .replace(/напоминание/gi, '')
+        .replace(/поставь/gi, '')
+        .replace(/установи/gi, '')
         .replace(/в\s*\d{1,2}:?\d{0,2}\s*(?:час|минут)?(?:а|ов)?/gi, '')
+        .replace(/на\s*\d{1,2}:?\d{0,2}/gi, '')
+        .replace(/к\s*\d{1,2}:?\d{0,2}/gi, '')
         .trim();
+
+      // If no text left, ask for clarification
+      if (!reminderText || reminderText.length < 2) {
+        await ctx.replyWithMarkdown(`
+🤔 *О чем напомнить?*
+
+Вы указали время ${hours}:${minutes}, но не указали, о чем напомнить.
+
+*Пример:* "напомни мне купить молоко в 17:30"
+        `);
+        return;
+      }
 
       await this.handleReminderRequest(ctx, reminderText, hours, minutes);
       return;
@@ -1848,7 +2437,41 @@ ${reminderText}`,
       return;
     }
 
-    // If no specific time found, ask for clarification
+    // Check if this is a reminder request without time
+    const isReminderWithoutTime = this.isReminderWithoutTime(text);
+    if (isReminderWithoutTime) {
+      // Extract reminder text by removing trigger words
+      const reminderText = text
+        .replace(/напомни\s*(мне)?/gi, '')
+        .replace(/напомню\s*(мне)?/gi, '')
+        .replace(/напоминание/gi, '')
+        .replace(/поставь/gi, '')
+        .replace(/установи/gi, '')
+        .replace(/нужно.*напомнить/gi, '')
+        .replace(/не забыть/gi, '')
+        .trim();
+
+      if (reminderText && reminderText.length > 1) {
+        // Store reminder text in session and ask for time
+        ctx.session.pendingReminder = reminderText;
+        ctx.session.waitingForReminderTime = true;
+
+        await ctx.replyWithMarkdown(`
+⏰ *На какое время поставить напоминание?*
+
+О чем напомнить: "${reminderText}"
+
+*Укажите время:*
+• В конкретное время: "17:30", "в 18:00"  
+• Через некоторое время: "через 30 минут", "через 2 часа"
+
+_Просто напишите время в удобном формате_
+        `);
+        return;
+      }
+    }
+
+    // If no specific time found and not a clear reminder request, ask for clarification
     await ctx.replyWithMarkdown(`
 🤔 *Не удалось определить время напоминания*
 
@@ -1858,14 +2481,54 @@ ${reminderText}`,
     `);
   }
 
+  private isReminderWithoutTime(text: string): boolean {
+    const reminderPatterns = [
+      /напомни(?:\s+мне)?\s+.+/i,
+      /напомню(?:\s+мне)?\s+.+/i,
+      /напоминание\s+.+/i,
+      /поставь\s+напоминание\s+.+/i,
+      /установи\s+напоминание\s+.+/i,
+      /нужно\s+напомнить\s+.+/i,
+      /не\s+забыть\s+.+/i,
+    ];
+
+    // Check if it's a reminder request but doesn't have time indicators
+    const hasReminderTrigger = reminderPatterns.some((pattern) =>
+      pattern.test(text),
+    );
+    const hasTimeIndicator =
+      /в\s*\d{1,2}:?\d{0,2}|на\s*\d{1,2}:?\d{0,2}|к\s*\d{1,2}:?\d{0,2}|через\s*\d+\s*(?:минут|час)/i.test(
+        text,
+      );
+
+    return hasReminderTrigger && !hasTimeIndicator;
+  }
+
   private isReminderRequest(text: string): boolean {
     const reminderPatterns = [
+      // Полные формы с временем
       /напомни.*в\s*(\d{1,2}):(\d{2})/i,
       /напомни.*в\s*(\d{1,2})\s*час/i,
       /напомни.*через\s*(\d+)\s*(минут|час)/i,
+      /напомню.*в\s*(\d{1,2}):(\d{2})/i,
+      /напомню.*в\s*(\d{1,2})\s*час/i,
+      /напомню.*через\s*(\d+)\s*(минут|час)/i,
       /напоминание.*в\s*(\d{1,2}):(\d{2})/i,
       /добавь.*напоминание/i,
       /создай.*напоминание/i,
+
+      // Сокращенные формы (любые слова напомни/напомню)
+      /напомни.+/i,
+      /напомню.+/i,
+      /напоминание.+/i,
+      /remind.*/i,
+
+      // Альтернативные формы
+      /поставь.*напоминание/i,
+      /установи.*напоминание/i,
+      /нужно.*напомнить/i,
+      /не забыть.*/i,
+      /помни.*/i,
     ];
 
     return reminderPatterns.some((pattern) => pattern.test(text));
