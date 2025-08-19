@@ -8,6 +8,7 @@ export interface BotContext extends Context {
         tempData?: any;
         feedbackRating?: number;
         feedbackLiked?: string;
+        aiChatMode?: boolean;
     };
     userId: string;
     replyWithMarkdown(text: string, extra?: any): Promise<any>;

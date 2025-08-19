@@ -70,4 +70,35 @@ export class OpenAIService {
       return null;
     }
   }
+
+  async getAIResponse(prompt: string): Promise<string> {
+    try {
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Ты персональный ассистент по продуктивности. Даешь краткие, практичные советы на русском языке. Отвечай дружелюбно и мотивирующе.',
+          },
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        temperature: 0.7,
+        max_tokens: 500,
+      });
+
+      const content = response.choices[0]?.message?.content?.trim();
+      if (!content) {
+        throw new Error('Empty response from OpenAI');
+      }
+
+      return content;
+    } catch (error) {
+      this.logger.error('Error getting AI response:', error);
+      throw new Error('Не удалось получить ответ от ИИ-консультанта');
+    }
+  }
 }

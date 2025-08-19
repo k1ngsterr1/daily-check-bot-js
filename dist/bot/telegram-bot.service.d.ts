@@ -42,4 +42,11 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private handleFeedbackImprovement;
     private completeFeedbackSurvey;
     private completeFeedback;
+    private startAIChat;
+    private handleAIAnalyzeProfile;
+    private handleAITaskRecommendations;
+    private handleAICustomQuestion;
+    private handleAIChatMessage;
+    private handleRelativeReminderRequest;
+    private handleReminderRequest;
 }

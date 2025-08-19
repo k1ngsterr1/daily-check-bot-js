@@ -169,6 +169,10 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
         });
         this.bot.on('text', async (ctx) => {
             const user = await this.userService.findByTelegramId(ctx.userId);
+            if (ctx.session.aiChatMode) {
+                await this.handleAIChatMessage(ctx, ctx.message.text);
+                return;
+            }
             if (!user.timezone &&
                 (ctx.session.step === 'adding_task' ||
                     ctx.session.step === 'adding_habit')) {
@@ -292,7 +296,7 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
         });
         this.bot.action('ai_chat', async (ctx) => {
             await ctx.answerCbQuery();
-            await ctx.replyWithMarkdown('🧠 *Чат с ИИ* - функция в разработке');
+            await this.startAIChat(ctx);
         });
         this.bot.action('more_functions', async (ctx) => {
             await ctx.answerCbQuery();
@@ -337,6 +341,57 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
             await ctx.answerCbQuery();
             await this.showMainMenu(ctx);
         });
+        this.bot.action('ai_analyze_profile', async (ctx) => {
+            await this.handleAIAnalyzeProfile(ctx);
+        });
+        this.bot.action('ai_task_recommendations', async (ctx) => {
+            await this.handleAITaskRecommendations(ctx);
+        });
+        this.bot.action('ai_habit_help', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.replyWithMarkdown(`
+🎯 *Помощь с привычками*
+
+Функция в разработке! Скоро здесь будут персональные рекомендации по формированию полезных привычек.
+      `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
+                    ],
+                },
+            });
+        });
+        this.bot.action('ai_time_planning', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.replyWithMarkdown(`
+⏰ *Планирование времени*
+
+Функция в разработке! Здесь будут рекомендации по эффективному планированию времени.
+      `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
+                    ],
+                },
+            });
+        });
+        this.bot.action('ai_custom_question', async (ctx) => {
+            await this.handleAICustomQuestion(ctx);
+        });
+        this.bot.action('ai_back_menu', async (ctx) => {
+            await ctx.answerCbQuery();
+            await this.startAIChat(ctx);
+        });
+        this.bot.action('exit_ai_chat', async (ctx) => {
+            await ctx.answerCbQuery();
+            ctx.session.aiChatMode = false;
+            await ctx.replyWithMarkdown(`
+✅ *Чат с ИИ завершён*
+
+Спасибо за общение! Вы всегда можете вернуться к ИИ-консультанту через главное меню.
+      `);
+            await this.showMainMenu(ctx);
+        });
         this.bot.action('tasks_add', async (ctx) => {
             await ctx.answerCbQuery();
             await this.startAddingTask(ctx);
@@ -371,7 +426,12 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
         });
         this.bot.action(/^feedback_like_(.+)$/, async (ctx) => {
             const feature = ctx.match[1];
-            await this.handleFeedbackImprovement(ctx, feature);
+            if (!ctx.session.feedbackRating) {
+                await this.completeFeedbackSurvey(ctx, feature);
+            }
+            else {
+                await this.handleFeedbackImprovement(ctx, feature);
+            }
         });
         this.bot.action(/^feedback_improve_(.+)$/, async (ctx) => {
             const improvement = ctx.match[1];
@@ -919,6 +979,366 @@ ${ratingEmoji} Ваша оценка: ${rating}/5
     `);
         ctx.session.feedbackRating = undefined;
         ctx.session.feedbackLiked = undefined;
+    }
+    async startAIChat(ctx) {
+        await ctx.replyWithMarkdown(`
+🧠 *ИИ Консультант активирован!*
+
+Привет! Я ваш персональный ИИ-помощник по продуктивности. 
+
+Я проанализировал ваш профиль и готов дать персональные рекомендации по:
+📝 Управлению задачами
+🔄 Формированию привычек  
+⏰ Планированию времени
+🎯 Достижению целей
+📊 Повышению продуктивности
+
+*Задайте мне любой вопрос или выберите тему:*
+    `, {
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        {
+                            text: '📊 Анализ моего профиля',
+                            callback_data: 'ai_analyze_profile',
+                        },
+                    ],
+                    [
+                        {
+                            text: '💡 Рекомендации по задачам',
+                            callback_data: 'ai_task_recommendations',
+                        },
+                    ],
+                    [
+                        {
+                            text: '🎯 Помощь с привычками',
+                            callback_data: 'ai_habit_help',
+                        },
+                    ],
+                    [
+                        {
+                            text: '⏰ Планирование времени',
+                            callback_data: 'ai_time_planning',
+                        },
+                    ],
+                    [
+                        {
+                            text: '✍️ Задать свой вопрос',
+                            callback_data: 'ai_custom_question',
+                        },
+                    ],
+                    [{ text: '⬅️ Назад в меню', callback_data: 'back_to_menu' }],
+                ],
+            },
+        });
+        ctx.session.aiChatMode = true;
+    }
+    async handleAIAnalyzeProfile(ctx) {
+        await ctx.answerCbQuery();
+        const user = await this.userService.findByTelegramId(ctx.userId);
+        const tasks = await this.taskService.findTasksByUserId(ctx.userId);
+        const profileData = {
+            totalXp: user.totalXp,
+            currentStreak: user.currentStreak,
+            accountAge: Math.floor((Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24)),
+            totalTasks: tasks.length,
+            completedTasks: tasks.filter((task) => task.completedAt !== null).length,
+            timezone: user.timezone,
+            city: user.city,
+        };
+        const analysisPrompt = `
+Проанализируй профиль пользователя и дай персональные рекомендации:
+
+Данные пользователя:
+- Опыт: ${profileData.totalXp} XP
+- Текущий стрик: ${profileData.currentStreak} дней
+- Дней с ботом: ${profileData.accountAge}
+- Всего задач: ${profileData.totalTasks}
+- Выполнено задач: ${profileData.completedTasks}
+- Часовой пояс: ${profileData.timezone || 'не указан'}
+- Город: ${profileData.city || 'не указан'}
+
+Дай краткий анализ (до 300 слов) с конкретными рекомендациями по улучшению продуктивности.
+`;
+        try {
+            const analysis = await this.openaiService.getAIResponse(analysisPrompt);
+            await ctx.replyWithMarkdown(`
+🧠 *Анализ вашего профиля:*
+
+${analysis}
+
+💡 *Хотите обсудить что-то конкретное?* Просто напишите мне!
+      `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
+                        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                    ],
+                },
+            });
+        }
+        catch (error) {
+            await ctx.replyWithMarkdown(`
+❌ *Ошибка при анализе профиля*
+
+Извините, сейчас ИИ-анализ временно недоступен. Попробуйте позже.
+      `);
+        }
+    }
+    async handleAITaskRecommendations(ctx) {
+        await ctx.answerCbQuery();
+        const tasks = await this.taskService.findTasksByUserId(ctx.userId);
+        const activeTasks = tasks.filter((task) => task.completedAt === null);
+        const taskPrompt = `
+У пользователя ${activeTasks.length} активных задач: ${activeTasks.map((t) => t.title).join(', ')}
+
+Дай рекомендации по:
+1. Приоритизации задач
+2. Планированию времени выполнения  
+3. Разбивке сложных задач
+4. Повышению мотивации
+
+Ответ до 250 слов.
+`;
+        try {
+            const recommendations = await this.openaiService.getAIResponse(taskPrompt);
+            await ctx.replyWithMarkdown(`
+💡 *Рекомендации по вашим задачам:*
+
+${recommendations}
+
+*Есть вопросы?* Напишите мне!
+      `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
+                    ],
+                },
+            });
+        }
+        catch (error) {
+            await ctx.replyWithMarkdown(`
+❌ *Ошибка получения рекомендаций*
+
+ИИ-консультант временно недоступен. Попробуйте позже.
+      `);
+        }
+    }
+    async handleAICustomQuestion(ctx) {
+        await ctx.answerCbQuery();
+        await ctx.replyWithMarkdown(`
+✍️ *Режим свободного общения*
+
+Напишите мне любой вопрос о продуктивности, управлении временем, мотивации или планировании. 
+
+Я учту ваш профиль и дам персональный совет!
+
+*Пример вопросов:*
+• "Как мне лучше планировать утро?"
+• "Почему я прокрастинирую?"
+• "Как выработать привычку рано вставать?"
+    `, {
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
+                ],
+            },
+        });
+        ctx.session.aiChatMode = true;
+    }
+    async handleAIChatMessage(ctx, message) {
+        try {
+            const absoluteTimePatterns = [
+                /напомни\s+мне\s+(.+?)\s+в\s+(\d{1,2}):(\d{2})/i,
+                /напомни\s+(.+?)\s+в\s+(\d{1,2}):(\d{2})/i,
+                /напоминание\s+(.+?)\s+в\s+(\d{1,2}):(\d{2})/i,
+                /поставь\s+напоминание\s+(.+?)\s+на\s+(\d{1,2}):(\d{2})/i,
+            ];
+            const relativeTimePatterns = [
+                /напомни\s+мне\s+(.+?)\s+через\s+(\d+)\s+минут/i,
+                /напомни\s+(.+?)\s+через\s+(\d+)\s+минут/i,
+                /напоминание\s+(.+?)\s+через\s+(\d+)\s+минут/i,
+            ];
+            let reminderMatch = null;
+            for (const pattern of absoluteTimePatterns) {
+                reminderMatch = message.match(pattern);
+                if (reminderMatch) {
+                    const [, reminderText, hours, minutes] = reminderMatch;
+                    await this.handleReminderRequest(ctx, reminderText, hours, minutes);
+                    return;
+                }
+            }
+            for (const pattern of relativeTimePatterns) {
+                reminderMatch = message.match(pattern);
+                if (reminderMatch) {
+                    const [, reminderText, minutesFromNow] = reminderMatch;
+                    await this.handleRelativeReminderRequest(ctx, reminderText, parseInt(minutesFromNow));
+                    return;
+                }
+            }
+            await ctx.replyWithMarkdown('🤔 *Анализирую ваш вопрос...*');
+            const user = await this.userService.findByTelegramId(ctx.userId);
+            const tasks = await this.taskService.findTasksByUserId(ctx.userId);
+            const activeTasks = tasks.filter((task) => task.completedAt === null);
+            const userContext = `
+Контекст пользователя:
+- Опыт: ${user.totalXp} XP
+- Стрик: ${user.currentStreak} дней
+- Активных задач: ${activeTasks.length}
+- Часовой пояс: ${user.timezone || 'не указан'}
+- Город: ${user.city || 'не указан'}
+
+Вопрос пользователя: ${message}
+
+Дай персональный совет, учитывая этот контекст.
+      `;
+            const response = await this.openaiService.getAIResponse(userContext);
+            await ctx.replyWithMarkdown(`
+🧠 *ИИ-консультант отвечает:*
+
+${response}
+
+💡 *Есть ещё вопросы?* Просто напишите мне!
+      `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
+                        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                        [{ text: '❌ Выйти из чата', callback_data: 'exit_ai_chat' }],
+                    ],
+                },
+            });
+        }
+        catch (error) {
+            await ctx.replyWithMarkdown(`
+❌ *Ошибка ИИ-консультанта*
+
+Извините, сейчас не могу ответить на ваш вопрос. Попробуйте позже или задайте другой вопрос.
+      `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
+                    ],
+                },
+            });
+        }
+    }
+    async handleRelativeReminderRequest(ctx, reminderText, minutesFromNow) {
+        try {
+            const user = await this.userService.findByTelegramId(ctx.userId);
+            if (minutesFromNow <= 0 || minutesFromNow > 1440) {
+                await ctx.replyWithMarkdown(`
+❌ *Неверное время*
+
+Пожалуйста, укажите от 1 до 1440 минут (максимум 24 часа)
+        `);
+                return;
+            }
+            const now = new Date();
+            const reminderDate = new Date(now.getTime() + minutesFromNow * 60 * 1000);
+            setTimeout(async () => {
+                try {
+                    await ctx.telegram.sendMessage(ctx.userId, `🔔 *Напоминание!*
+
+${reminderText}`, { parse_mode: 'Markdown' });
+                }
+                catch (error) {
+                    this.logger.error('Error sending reminder:', error);
+                }
+            }, minutesFromNow * 60 * 1000);
+            const timeStr = reminderDate.toLocaleTimeString('ru-RU', {
+                hour: '2-digit',
+                minute: '2-digit',
+            });
+            await ctx.replyWithMarkdown(`
+✅ *Напоминание установлено!*
+
+📝 **Текст:** ${reminderText}
+⏰ **Время:** через ${minutesFromNow} минут (в ${timeStr})
+
+Я напомню вам в указанное время! 🔔
+      `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
+                        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                    ],
+                },
+            });
+            await this.userService.updateUser(ctx.userId, {
+                totalXp: user.totalXp + 5,
+            });
+        }
+        catch (error) {
+            this.logger.error('Error creating relative reminder:', error);
+            await ctx.replyWithMarkdown(`
+❌ *Ошибка создания напоминания*
+
+Не удалось создать напоминание. Попробуйте ещё раз.
+      `);
+        }
+    }
+    async handleReminderRequest(ctx, reminderText, hours, minutes) {
+        try {
+            const user = await this.userService.findByTelegramId(ctx.userId);
+            const hourNum = parseInt(hours);
+            const minuteNum = parseInt(minutes);
+            if (hourNum < 0 || hourNum > 23 || minuteNum < 0 || minuteNum > 59) {
+                await ctx.replyWithMarkdown(`
+❌ *Неверное время*
+
+Пожалуйста, укажите корректное время в формате ЧЧ:ММ (например, 17:30)
+        `);
+                return;
+            }
+            const now = new Date();
+            const reminderDate = new Date();
+            reminderDate.setHours(hourNum, minuteNum, 0, 0);
+            if (reminderDate <= now) {
+                reminderDate.setDate(reminderDate.getDate() + 1);
+            }
+            const delay = reminderDate.getTime() - now.getTime();
+            setTimeout(async () => {
+                try {
+                    await ctx.telegram.sendMessage(ctx.userId, `🔔 *Напоминание!*\n\n${reminderText}`, { parse_mode: 'Markdown' });
+                }
+                catch (error) {
+                    this.logger.error('Error sending reminder:', error);
+                }
+            }, delay);
+            const timeStr = `${hours.padStart(2, '0')}:${minutes.padStart(2, '0')}`;
+            const dateStr = reminderDate.toLocaleDateString('ru-RU', {
+                day: 'numeric',
+                month: 'long',
+            });
+            await ctx.replyWithMarkdown(`
+✅ *Напоминание установлено!*
+
+📝 **Текст:** ${reminderText}
+⏰ **Время:** ${timeStr}
+📅 **Дата:** ${dateStr}
+
+Я напомню вам в указанное время! 🔔
+      `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
+                        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                    ],
+                },
+            });
+            await this.userService.updateUser(ctx.userId, {
+                totalXp: user.totalXp + 5,
+            });
+        }
+        catch (error) {
+            this.logger.error('Error creating reminder:', error);
+            await ctx.replyWithMarkdown(`
+❌ *Ошибка создания напоминания*
+
+Не удалось создать напоминание. Попробуйте ещё раз.
+      `);
+        }
     }
 };
 exports.TelegramBotService = TelegramBotService;

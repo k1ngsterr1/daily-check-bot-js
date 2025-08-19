@@ -9,6 +9,7 @@ export interface BotContext extends Context {
     tempData?: any;
     feedbackRating?: number;
     feedbackLiked?: string;
+    aiChatMode?: boolean;
   };
 
   // User info

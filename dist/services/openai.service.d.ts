@@ -8,4 +8,5 @@ export declare class OpenAIService {
         timezone: string;
         normalizedCity: string;
     } | null>;
+    getAIResponse(prompt: string): Promise<string>;
 }
