@@ -14,6 +14,7 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private readonly billingService;
     private readonly logger;
     private bot;
+    private activePomodoroSessions;
     constructor(configService: ConfigService, userService: UserService, openaiService: OpenAIService, taskService: TaskService, billingService: BillingService);
     private setupMiddleware;
     private setupHandlers;
@@ -57,4 +58,7 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private processReminderFromText;
     private isReminderWithoutTime;
     private isReminderRequest;
+    private showHabitsMenu;
+    private showMoodMenu;
+    private showFocusSession;
 }

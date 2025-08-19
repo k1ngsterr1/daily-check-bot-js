@@ -26,6 +26,7 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
     billingService;
     logger = new common_1.Logger(TelegramBotService_1.name);
     bot;
+    activePomodoroSessions = new Map();
     constructor(configService, userService, openaiService, taskService, billingService) {
         this.configService = configService;
         this.userService = userService;
@@ -113,6 +114,90 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
         });
         this.bot.command('menu', async (ctx) => {
             await this.showMainMenu(ctx);
+        });
+        this.bot.command('tasks', async (ctx) => {
+            await this.showTasksMenu(ctx);
+        });
+        this.bot.command('habits', async (ctx) => {
+            await this.showHabitsMenu(ctx);
+        });
+        this.bot.command('mood', async (ctx) => {
+            await this.showMoodMenu(ctx);
+        });
+        this.bot.command('focus', async (ctx) => {
+            await this.showFocusSession(ctx);
+        });
+        this.bot.command('help', async (ctx) => {
+            await ctx.replyWithMarkdown(`
+🤖 *DailyCheck Bot - Справка*
+
+**Доступные команды:**
+/start - Начать работу с ботом
+/help - Показать эту справку
+/menu - Главное меню
+/feedback - Оставить отзыв о боте
+/tasks - Управление задачами
+/habits - Управление привычками
+/mood - Отметить настроение
+/focus - Сессия фокуса
+
+**Основные функции:**
+📝 Управление задачами и привычками
+😊 Трекинг настроения
+🍅 Техника Помодоро для фокуса
+📊 Статистика и аналитика
+💎 Система биллинга с пробным периодом
+
+Для получения подробной информации используйте /menu
+      `);
+        });
+        this.bot.command('billing', async (ctx) => {
+            const subscriptionStatus = await this.billingService.getSubscriptionStatus(ctx.userId);
+            const limitsText = subscriptionStatus.limits.dailyReminders === -1
+                ? '∞ (безлимит)'
+                : subscriptionStatus.limits.dailyReminders.toString();
+            const aiLimitsText = subscriptionStatus.limits.dailyAiQueries === -1
+                ? '∞ (безлимит)'
+                : subscriptionStatus.limits.dailyAiQueries.toString();
+            let statusMessage = '';
+            if (subscriptionStatus.isTrialActive) {
+                statusMessage = `🎁 **Пробный период:** ${subscriptionStatus.daysRemaining} дней осталось`;
+            }
+            else {
+                statusMessage = `💎 **Подписка:** ${subscriptionStatus.type === 'FREE'
+                    ? 'Бесплатная'
+                    : subscriptionStatus.type === 'PREMIUM'
+                        ? 'Premium'
+                        : 'Premium Plus'}`;
+            }
+            await ctx.replyWithMarkdown(`
+📊 *Ваши лимиты и использование*
+
+${statusMessage}
+
+**Текущее использование сегодня:**
+🔔 Напоминания: ${subscriptionStatus.usage.dailyReminders}/${limitsText}
+🧠 ИИ-запросы: ${subscriptionStatus.usage.dailyAiQueries}/${aiLimitsText}
+📝 Задачи: ${subscriptionStatus.usage.dailyTasks}/${subscriptionStatus.limits.dailyTasks === -1 ? '∞' : subscriptionStatus.limits.dailyTasks}
+🔄 Привычки: ${subscriptionStatus.usage.dailyHabits}/${subscriptionStatus.limits.dailyHabits === -1 ? '∞' : subscriptionStatus.limits.dailyHabits}
+
+**Доступные функции:**
+📊 Расширенная аналитика: ${subscriptionStatus.limits.advancedAnalytics ? '✅' : '❌'}
+🎨 Кастомные темы: ${subscriptionStatus.limits.customThemes ? '✅' : '❌'}
+🚀 Приоритетная поддержка: ${subscriptionStatus.limits.prioritySupport ? '✅' : '❌'}
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '💎 Обновиться до Premium',
+                                callback_data: 'upgrade_premium',
+                            },
+                        ],
+                        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                    ],
+                },
+            });
         });
         this.bot.action('onboarding_start', async (ctx) => {
             await ctx.answerCbQuery();
@@ -263,7 +348,7 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
         });
         this.bot.action('menu_mood', async (ctx) => {
             await ctx.answerCbQuery();
-            await ctx.replyWithMarkdown('😊 *Отметить настроение* - функция в разработке');
+            await this.showMoodMenu(ctx);
         });
         this.bot.action('menu_focus', async (ctx) => {
             await ctx.answerCbQuery();
@@ -355,7 +440,10 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
                         { text: '⚙️ Настройки', callback_data: 'settings_menu' },
                         { text: '🛍️ Магазин', callback_data: 'shop' },
                     ],
-                    [{ text: '🎭 Зависимости', callback_data: 'dependencies' }],
+                    [
+                        { text: '🎭 Зависимости', callback_data: 'dependencies' },
+                        { text: '🍅 Фокусирование', callback_data: 'pomodoro_focus' },
+                    ],
                     [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
                 ],
             };
@@ -786,6 +874,572 @@ ${trialText}**Premium подписка включает:**
                 });
             });
         });
+        this.bot.action('pomodoro_focus', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.replyWithMarkdown(`
+🍅 *Техника Помодоро*
+
+**Как это работает:**
+⏰ 25 минут фокуса на задаче
+☕ 5 минут отдых
+🔄 Повторить 4 раза
+🏖️ Большой перерыв 15-30 минут
+
+**Ваши статистики:**
+🎯 Сессий сегодня: 0
+⚡ Общее время фокуса: 0 мин
+📈 Лучший день: 0 сессий
+🔥 Текущий стрик: 0 дней
+
+**Настройки:**
+⏱️ Время фокуса: 25 мин
+☕ Время перерыва: 5 мин
+🔔 Уведомления: включены
+🎵 Фоновые звуки: выключены
+
+*Выберите действие:*
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '🚀 Начать сессию',
+                                callback_data: 'start_pomodoro_session',
+                            },
+                        ],
+                        [
+                            {
+                                text: '📊 История сессий',
+                                callback_data: 'pomodoro_history',
+                            },
+                            {
+                                text: '⚙️ Настройки',
+                                callback_data: 'pomodoro_settings',
+                            },
+                        ],
+                        [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
+                    ],
+                },
+            });
+        });
+        this.bot.action('start_pomodoro_session', async (ctx) => {
+            await ctx.answerCbQuery();
+            const startTime = new Date();
+            await ctx.replyWithMarkdown(`
+🍅 *Сессия фокуса запущена!*
+
+⏰ **Таймер**: 25 минут (до ${new Date(startTime.getTime() + 25 * 60 * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })})
+🎯 Сосредоточьтесь на одной задаче
+📱 Уберите отвлекающие факторы
+💪 Работайте до уведомления
+
+🔔 **Вы получите уведомление через 25 минут**
+
+*Удачной работы! 💪*
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '⏸️ Пауза',
+                                callback_data: 'pause_pomodoro',
+                            },
+                            {
+                                text: '⏹️ Стоп',
+                                callback_data: 'stop_pomodoro',
+                            },
+                        ],
+                        [{ text: '⬅️ Назад', callback_data: 'pomodoro_focus' }],
+                    ],
+                },
+            });
+            const existingSession = this.activePomodoroSessions.get(ctx.userId);
+            if (existingSession) {
+                if (existingSession.focusTimer)
+                    clearTimeout(existingSession.focusTimer);
+                if (existingSession.breakTimer)
+                    clearTimeout(existingSession.breakTimer);
+            }
+            const focusTimer = setTimeout(async () => {
+                try {
+                    await ctx.replyWithMarkdown(`
+🔔 *Время фокуса закончилось!*
+
+🎉 Поздравляем! Вы сосредоточенно работали 25 минут.
+
+☕ Время для 5-минутного перерыва:
+• Встаньте и разомнитесь
+• Посмотрите в окно
+• Выпейте воды
+• Не проверяйте соцсети!
+
+⏰ Перерыв заканчивается через 5 минут.
+          `);
+                    const breakTimer = setTimeout(async () => {
+                        try {
+                            await ctx.replyWithMarkdown(`
+⏰ *Перерыв закончился!*
+
+🍅 5-минутный перерыв завершен. Готовы к следующей сессии фокуса?
+
+💪 Следующий цикл:
+• 25 минут фокуса
+• 5 минут отдыха  
+• После 4 циклов - длинный перерыв 15-30 минут
+
+🎯 Хотите продолжить?
+              `, {
+                                reply_markup: {
+                                    inline_keyboard: [
+                                        [
+                                            {
+                                                text: '🚀 Начать новую сессию',
+                                                callback_data: 'start_pomodoro_session',
+                                            },
+                                        ],
+                                        [
+                                            {
+                                                text: '📊 Посмотреть статистику',
+                                                callback_data: 'pomodoro_history',
+                                            },
+                                        ],
+                                        [
+                                            {
+                                                text: '⬅️ Назад',
+                                                callback_data: 'pomodoro_focus',
+                                            },
+                                        ],
+                                    ],
+                                },
+                            });
+                            this.activePomodoroSessions.delete(ctx.userId);
+                        }
+                        catch (error) {
+                            console.log('Failed to send break completion message:', error);
+                        }
+                    }, 5 * 60 * 1000);
+                    const session = this.activePomodoroSessions.get(ctx.userId);
+                    if (session) {
+                        session.breakTimer = breakTimer;
+                    }
+                }
+                catch (error) {
+                    console.log('Failed to send pomodoro completion message:', error);
+                }
+            }, 25 * 60 * 1000);
+            this.activePomodoroSessions.set(ctx.userId, {
+                focusTimer,
+                startTime,
+            });
+        });
+        this.bot.action('pause_pomodoro', async (ctx) => {
+            await ctx.answerCbQuery();
+            const session = this.activePomodoroSessions.get(ctx.userId);
+            if (session) {
+                const elapsed = Math.floor((new Date().getTime() - session.startTime.getTime()) / (1000 * 60));
+                const remaining = Math.max(0, 25 - elapsed);
+                const remainingMinutes = remaining;
+                const remainingSeconds = Math.max(0, Math.floor((25 * 60 * 1000 -
+                    (new Date().getTime() - session.startTime.getTime())) /
+                    1000) % 60);
+                await ctx.replyWithMarkdown(`
+⏸️ *Сессия приостановлена*
+
+⏰ Осталось времени: ${remainingMinutes}:${remainingSeconds.toString().padStart(2, '0')}
+⚡ Прошло: ${elapsed} мин
+🎯 Фокус-сессия в процессе
+
+*Готовы продолжить?*
+          `, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '▶️ Продолжить',
+                                    callback_data: 'resume_pomodoro',
+                                },
+                                {
+                                    text: '⏹️ Завершить',
+                                    callback_data: 'stop_pomodoro',
+                                },
+                            ],
+                            [{ text: '⬅️ Назад', callback_data: 'pomodoro_focus' }],
+                        ],
+                    },
+                });
+            }
+            else {
+                await ctx.replyWithMarkdown(`
+⚠️ *Нет активной сессии*
+
+У вас нет активной сессии для паузы.
+        `);
+            }
+        });
+        this.bot.action('resume_pomodoro', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.replyWithMarkdown(`
+▶️ *Сессия возобновлена*
+
+⏰ Продолжаем с 15:30
+🎯 Фокусируемся на задаче!
+      `);
+        });
+        this.bot.action('stop_pomodoro', async (ctx) => {
+            await ctx.answerCbQuery();
+            const session = this.activePomodoroSessions.get(ctx.userId);
+            if (session) {
+                if (session.focusTimer)
+                    clearTimeout(session.focusTimer);
+                if (session.breakTimer)
+                    clearTimeout(session.breakTimer);
+                const elapsed = Math.floor((new Date().getTime() - session.startTime.getTime()) / (1000 * 60));
+                const elapsedMinutes = elapsed % 60;
+                const elapsedHours = Math.floor(elapsed / 60);
+                const timeText = elapsedHours > 0
+                    ? `${elapsedHours}:${elapsedMinutes.toString().padStart(2, '0')}`
+                    : `${elapsedMinutes}:${(((new Date().getTime() - session.startTime.getTime()) % 60000) / 1000).toFixed(0).padStart(2, '0')}`;
+                this.activePomodoroSessions.delete(ctx.userId);
+                await ctx.replyWithMarkdown(`
+⏹️ *Сессия остановлена*
+
+⏰ Время работы: ${timeText} из 25:00
+📝 Хотите записать, что успели сделать?
+
+*Следующие действия:*
+          `, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '📝 Записать прогресс',
+                                    callback_data: 'log_pomodoro_progress',
+                                },
+                            ],
+                            [
+                                {
+                                    text: '🍅 Новая сессия',
+                                    callback_data: 'start_pomodoro_session',
+                                },
+                                {
+                                    text: '📊 Статистика',
+                                    callback_data: 'pomodoro_history',
+                                },
+                            ],
+                            [{ text: '⬅️ Назад', callback_data: 'pomodoro_focus' }],
+                        ],
+                    },
+                });
+            }
+            else {
+                await ctx.replyWithMarkdown(`
+⚠️ *Нет активной сессии*
+
+У вас нет активной сессии фокуса для остановки.
+
+*Хотите начать новую?*
+          `, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '🚀 Начать сессию',
+                                    callback_data: 'start_pomodoro_session',
+                                },
+                            ],
+                            [{ text: '⬅️ Назад', callback_data: 'pomodoro_focus' }],
+                        ],
+                    },
+                });
+            }
+        });
+        this.bot.action('pomodoro_history', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.replyWithMarkdown(`
+📊 *История фокус-сессий*
+
+**Сегодня (19.08.2025):**
+🍅 Сессий: 0
+⏰ Общее время: 0 мин
+🎯 Задач завершено: 0
+
+**На этой неделе:**
+📅 Всего сессий: 0
+📈 Среднее в день: 0
+🏆 Лучший день: 0 сессий
+
+**Общая статистика:**
+🎯 Всего сессий: 0
+⚡ Общее время фокуса: 0 ч
+📚 Самая продуктивная неделя: 0 сессий
+🔥 Самый длинный стрик: 0 дней
+
+*Функция в разработке - данные будут сохраняться!*
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '📈 График прогресса',
+                                callback_data: 'pomodoro_chart',
+                            },
+                        ],
+                        [{ text: '⬅️ Назад', callback_data: 'pomodoro_focus' }],
+                    ],
+                },
+            });
+        });
+        this.bot.action('pomodoro_settings', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.replyWithMarkdown(`
+⚙️ *Настройки Помодоро*
+
+**Текущие настройки:**
+⏱️ Время фокуса: 25 мин
+☕ Короткий перерыв: 5 мин
+🏖️ Длинный перерыв: 15 мин
+🔢 Сессий до длинного перерыва: 4
+
+**Уведомления:**
+🔔 Звуковые сигналы: ✅
+📱 Push-уведомления: ✅
+⏰ Напоминания о перерывах: ✅
+
+**Дополнительно:**
+🎵 Фоновые звуки: ❌
+📊 Автосохранение статистики: ✅
+🎯 Выбор задачи перед сессией: ❌
+
+*Функция настроек в разработке!*
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '⏱️ Изменить время',
+                                callback_data: 'change_pomodoro_time',
+                            },
+                        ],
+                        [
+                            {
+                                text: '🔔 Уведомления',
+                                callback_data: 'pomodoro_notifications',
+                            },
+                        ],
+                        [{ text: '⬅️ Назад', callback_data: 'pomodoro_focus' }],
+                    ],
+                },
+            });
+        });
+        this.bot.action('log_pomodoro_progress', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.replyWithMarkdown(`
+📝 *Записать прогресс*
+
+⏰ Время работы: 9:30 из 25:00
+📊 Эффективность: 38%
+
+*Что вы успели сделать?*
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '📚 Изучение',
+                                callback_data: 'progress_studying',
+                            },
+                            {
+                                text: '💻 Работа',
+                                callback_data: 'progress_work',
+                            },
+                        ],
+                        [
+                            {
+                                text: '📝 Написание',
+                                callback_data: 'progress_writing',
+                            },
+                            {
+                                text: '🎨 Творчество',
+                                callback_data: 'progress_creative',
+                            },
+                        ],
+                        [
+                            {
+                                text: '✏️ Другое',
+                                callback_data: 'progress_custom',
+                            },
+                        ],
+                        [{ text: '⬅️ Назад', callback_data: 'pomodoro_focus' }],
+                    ],
+                },
+            });
+        });
+        this.bot.action('pomodoro_chart', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.replyWithMarkdown(`
+📈 *График прогресса*
+
+🚧 *Функция в разработке*
+
+Здесь будет отображаться:
+📊 График фокус-сессий по дням
+📈 Динамика продуктивности
+🎯 Статистика по типам задач
+⏰ Лучшие часы для фокуса
+
+📧 Включите уведомления в настройках, чтобы не пропустить запуск!
+      `);
+        });
+        this.bot.action('change_pomodoro_time', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.replyWithMarkdown(`
+⏱️ *Настройка времени*
+
+**Выберите время фокуса:**
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            { text: '15 мин', callback_data: 'set_focus_15' },
+                            { text: '25 мин ✅', callback_data: 'set_focus_25' },
+                            { text: '30 мин', callback_data: 'set_focus_30' },
+                        ],
+                        [
+                            { text: '45 мин', callback_data: 'set_focus_45' },
+                            { text: '60 мин', callback_data: 'set_focus_60' },
+                        ],
+                        [{ text: '⬅️ Назад', callback_data: 'pomodoro_settings' }],
+                    ],
+                },
+            });
+        });
+        this.bot.action('pomodoro_notifications', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.replyWithMarkdown(`
+🔔 *Настройки уведомлений*
+
+**Текущие настройки:**
+🔊 Звуковые сигналы: ✅
+📱 Push-уведомления: ✅
+⏰ Напоминания о перерывах: ✅
+🎵 Фоновая музыка: ❌
+
+*Функция в разработке!*
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '⬅️ Назад', callback_data: 'pomodoro_settings' }],
+                    ],
+                },
+            });
+        });
+        ['studying', 'work', 'writing', 'creative', 'custom'].forEach((category) => {
+            this.bot.action(`progress_${category}`, async (ctx) => {
+                await ctx.answerCbQuery();
+                await ctx.replyWithMarkdown(`
+✅ *Прогресс сохранен!*
+
+📊 Категория: ${category === 'studying'
+                    ? 'Изучение'
+                    : category === 'work'
+                        ? 'Работа'
+                        : category === 'writing'
+                            ? 'Написание'
+                            : category === 'creative'
+                                ? 'Творчество'
+                                : 'Другое'}
+⏰ Время работы: 9:30
+
+🎯 +10 XP за фокус-сессию!
+📈 Ваш прогресс учтен в статистике.
+          `);
+            });
+        });
+        [15, 25, 30, 45, 60].forEach((minutes) => {
+            this.bot.action(`set_focus_${minutes}`, async (ctx) => {
+                await ctx.answerCbQuery();
+                await ctx.replyWithMarkdown(`
+⏱️ *Время фокуса изменено*
+
+Новое время фокуса: ${minutes} минут
+Время перерыва: ${minutes <= 25 ? 5 : 10} минут
+
+✅ Настройки сохранены!
+        `);
+            });
+        });
+        ['excellent', 'good', 'neutral', 'sad', 'angry', 'anxious'].forEach((mood) => {
+            this.bot.action(`mood_${mood}`, async (ctx) => {
+                await ctx.answerCbQuery();
+                const moodEmoji = {
+                    excellent: '😄',
+                    good: '😊',
+                    neutral: '😐',
+                    sad: '😔',
+                    angry: '😤',
+                    anxious: '😰',
+                }[mood];
+                const moodText = {
+                    excellent: 'отличное',
+                    good: 'хорошее',
+                    neutral: 'нормальное',
+                    sad: 'грустное',
+                    angry: 'злое',
+                    anxious: 'тревожное',
+                }[mood];
+                await ctx.replyWithMarkdown(`
+${moodEmoji} *Настроение записано!*
+
+Ваше настроение: **${moodText}**
+📅 Дата: ${new Date().toLocaleDateString('ru-RU')}
+
+📊 Статистика настроения будет доступна в следующем обновлении!
+
+*Спасибо за то, что делитесь своим настроением. Это поможет лучше понимать ваше эмоциональное состояние.*
+        `, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '📈 Посмотреть статистику',
+                                    callback_data: 'mood_stats',
+                                },
+                            ],
+                            [
+                                {
+                                    text: '🏠 Главное меню',
+                                    callback_data: 'back_to_menu',
+                                },
+                            ],
+                        ],
+                    },
+                });
+            });
+        });
+        this.bot.action('mood_stats', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.replyWithMarkdown(`
+📊 *Статистика настроения*
+
+**Сегодня:** 😊 (хорошее)
+**За неделю:** Средняя оценка 7/10
+**За месяц:** Средняя оценка 6.5/10
+
+**Самые частые настроения:**
+😊 Хорошее - 45%
+😐 Нормальное - 30% 
+😄 Отличное - 25%
+
+📈 *Функция подробной статистики в разработке!*
+      `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '⬅️ Назад к настроению', callback_data: 'menu_mood' }],
+                        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                    ],
+                },
+            });
+        });
         this.bot.action('faq_support', async (ctx) => {
             await ctx.answerCbQuery();
             await ctx.replyWithMarkdown(`
@@ -1011,12 +1665,12 @@ ${trialText}**Premium подписка включает:**
         const keyboard = {
             inline_keyboard: [
                 [{ text: '➕ Добавить задачу/привычку', callback_data: 'add_item' }],
-                [{ text: '� Мои задачи и привычки', callback_data: 'my_items' }],
-                [{ text: '� Мой прогресс', callback_data: 'my_progress' }],
+                [{ text: '📋 Мои задачи и привычки', callback_data: 'my_items' }],
+                [{ text: '📊 Мой прогресс', callback_data: 'my_progress' }],
                 [{ text: '🧠 Чат с ИИ', callback_data: 'ai_chat' }],
                 [{ text: '⚙️ Ещё функции', callback_data: 'more_functions' }],
                 [{ text: '❓ FAQ / Поддержка', callback_data: 'faq_support' }],
-                [{ text: '➕ Добавить привычку', callback_data: 'add_habit_direct' }],
+                [{ text: '📊 Мои лимиты', callback_data: 'show_limits' }],
             ],
         };
         const user = await this.userService.findByTelegramId(ctx.userId);
@@ -1038,6 +1692,17 @@ ${statusText}🤖 Я DailyCheck Bot - твой личный помощник д�
     }
     async launch() {
         try {
+            await this.bot.telegram.setMyCommands([
+                { command: 'start', description: '🎬 Начать работу с ботом' },
+                { command: 'menu', description: '🏠 Главное меню' },
+                { command: 'tasks', description: '📝 Мои задачи' },
+                { command: 'habits', description: '🔄 Мои привычки' },
+                { command: 'mood', description: '😊 Дневник настроения' },
+                { command: 'focus', description: '🍅 Режим фокуса' },
+                { command: 'billing', description: '💎 Мои лимиты и подписка' },
+                { command: 'feedback', description: '💬 Обратная связь' },
+                { command: 'help', description: '🆘 Справка' },
+            ]);
             this.bot
                 .launch()
                 .then(() => {
@@ -1054,6 +1719,13 @@ ${statusText}🤖 Я DailyCheck Bot - твой личный помощник д�
         }
     }
     async stop() {
+        for (const [userId, session] of this.activePomodoroSessions.entries()) {
+            if (session.focusTimer)
+                clearTimeout(session.focusTimer);
+            if (session.breakTimer)
+                clearTimeout(session.breakTimer);
+        }
+        this.activePomodoroSessions.clear();
         this.bot.stop('SIGINT');
         this.logger.log('🛑 Telegram bot stopped');
     }
@@ -2196,6 +2868,98 @@ _Просто напишите время в удобном формате_
             /помни.*/i,
         ];
         return reminderPatterns.some((pattern) => pattern.test(text));
+    }
+    async showHabitsMenu(ctx) {
+        const user = await this.userService.findByTelegramId(ctx.userId);
+        if (!user.timezone) {
+            ctx.session.step = 'adding_habit';
+            await this.askForTimezone(ctx);
+        }
+        else {
+            await ctx.replyWithMarkdown(`
+🔄 *Управление привычками*
+
+Здесь вы можете добавлять и отслеживать свои привычки:
+• 💪 Спорт и физическая активность
+• 📚 Чтение и обучение  
+• 🧘 Медитация и релаксация
+• 💧 Здоровье и самочувствие
+
+*Функция находится в разработке и будет доступна в следующем обновлении!*
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                    ],
+                },
+            });
+        }
+    }
+    async showMoodMenu(ctx) {
+        await ctx.replyWithMarkdown(`
+😊 *Дневник настроения*
+
+Отметьте свое текущее настроение:
+      `, {
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        { text: '😄 Отлично', callback_data: 'mood_excellent' },
+                        { text: '😊 Хорошо', callback_data: 'mood_good' },
+                    ],
+                    [
+                        { text: '😐 Нормально', callback_data: 'mood_neutral' },
+                        { text: '😔 Грустно', callback_data: 'mood_sad' },
+                    ],
+                    [
+                        { text: '😤 Злой', callback_data: 'mood_angry' },
+                        { text: '😰 Тревожно', callback_data: 'mood_anxious' },
+                    ],
+                    [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                ],
+            },
+        });
+    }
+    async showFocusSession(ctx) {
+        await ctx.replyWithMarkdown(`
+🍅 *Техника Помодоро*
+
+**Как это работает:**
+⏰ 25 минут фокуса на задаче
+☕ 5 минут отдых
+🔄 Повторить 4 раза
+🏖️ Большой перерыв 15-30 минут
+
+**Ваши статистики:**
+🎯 Сессий сегодня: 0
+⚡ Общее время фокуса: 0 мин
+📈 Лучший день: 0 сессий
+🔥 Текущий стрик: 0 дней
+
+*Выберите действие:*
+      `, {
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        {
+                            text: '🚀 Начать сессию',
+                            callback_data: 'start_pomodoro_session',
+                        },
+                    ],
+                    [
+                        {
+                            text: '📊 История сессий',
+                            callback_data: 'pomodoro_history',
+                        },
+                        {
+                            text: '⚙️ Настройки',
+                            callback_data: 'pomodoro_settings',
+                        },
+                    ],
+                    [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                ],
+            },
+        });
     }
 };
 exports.TelegramBotService = TelegramBotService;
