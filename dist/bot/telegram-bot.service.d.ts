@@ -6,16 +6,18 @@ import { UserService } from '../services/user.service';
 import { OpenAIService } from '../services/openai.service';
 import { TaskService } from '../services/task.service';
 import { BillingService } from '../services/billing.service';
+import { AiContextService } from '../services/ai-context.service';
 export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     private readonly configService;
     private readonly userService;
     private readonly openaiService;
     private readonly taskService;
     private readonly billingService;
+    private readonly aiContextService;
     private readonly logger;
     private bot;
     private activePomodoroSessions;
-    constructor(configService: ConfigService, userService: UserService, openaiService: OpenAIService, taskService: TaskService, billingService: BillingService);
+    constructor(configService: ConfigService, userService: UserService, openaiService: OpenAIService, taskService: TaskService, billingService: BillingService, aiContextService: AiContextService);
     private setupMiddleware;
     private setupHandlers;
     onModuleInit(): Promise<void>;
@@ -58,7 +60,11 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private processReminderFromText;
     private isReminderWithoutTime;
     private isReminderRequest;
+    private showTasksAIAdvice;
+    private showHabitsAIAdvice;
     private showHabitsMenu;
     private showMoodMenu;
+    private showMoodAIAnalysis;
     private showFocusSession;
+    private showFocusAITips;
 }

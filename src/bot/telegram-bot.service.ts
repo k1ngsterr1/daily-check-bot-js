@@ -11,6 +11,7 @@ import { UserService } from '../services/user.service';
 import { OpenAIService } from '../services/openai.service';
 import { TaskService } from '../services/task.service';
 import { BillingService } from '../services/billing.service';
+import { AiContextService } from '../services/ai-context.service';
 
 @Injectable()
 export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
@@ -31,6 +32,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     private readonly openaiService: OpenAIService,
     private readonly taskService: TaskService,
     private readonly billingService: BillingService,
+    private readonly aiContextService: AiContextService,
   ) {
     const token = this.configService.get<string>('bot.token');
     if (!token) {
@@ -438,6 +440,12 @@ ${statusMessage}
           '🔄 *Управление привычками* - функция в разработке',
         );
       }
+    });
+
+    // Handle AI advice for habits
+    this.bot.action('habits_ai_advice', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.showHabitsAIAdvice(ctx);
     });
 
     this.bot.action('menu_mood', async (ctx) => {
@@ -1597,6 +1605,12 @@ ${trialText}**Premium подписка включает:**
       );
     });
 
+    // Handle AI tips for focus
+    this.bot.action('focus_ai_tips', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.showFocusAITips(ctx);
+    });
+
     // Progress category handlers
     ['studying', 'work', 'writing', 'creative', 'custom'].forEach(
       (category) => {
@@ -1697,6 +1711,12 @@ ${moodEmoji} *Настроение записано!*
         });
       },
     );
+
+    // Handle AI analysis for mood
+    this.bot.action('mood_ai_analysis', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.showMoodAIAnalysis(ctx);
+    });
 
     this.bot.action('mood_stats', async (ctx) => {
       await ctx.answerCbQuery();
@@ -1838,6 +1858,12 @@ ${moodEmoji} *Настроение записано!*
     this.bot.action('tasks_today', async (ctx) => {
       await ctx.answerCbQuery();
       await this.showTodayTasks(ctx);
+    });
+
+    // Handle AI advice for tasks
+    this.bot.action('tasks_ai_advice', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.showTasksAIAdvice(ctx);
     });
 
     // Handle task completion
@@ -2107,6 +2133,7 @@ ${statusText}🤖 Я DailyCheck Bot - твой личный помощник д�
           { text: '📋 Все задачи', callback_data: 'tasks_list' },
         ],
         [{ text: '📅 Задачи на сегодня', callback_data: 'tasks_today' }],
+        [{ text: '🤖 AI-совет по задачам', callback_data: 'tasks_ai_advice' }],
         [{ text: '🔙 Назад в меню', callback_data: 'back_to_main' }],
       ],
     };
@@ -2904,25 +2931,13 @@ ${recommendations}
 
       await ctx.replyWithMarkdown('🤔 *Анализирую ваш вопрос...*');
 
-      const user = await this.userService.findByTelegramId(ctx.userId);
-      const tasks = await this.taskService.findTasksByUserId(ctx.userId);
-      const activeTasks = tasks.filter((task) => task.completedAt === null);
-
-      // Create context for AI
-      const userContext = `
-Контекст пользователя:
-- Опыт: ${user.totalXp} XP
-- Стрик: ${user.currentStreak} дней
-- Активных задач: ${activeTasks.length}
-- Часовой пояс: ${user.timezone || 'не указан'}
-- Город: ${user.city || 'не указан'}
-
-Вопрос пользователя: ${message}
-
-Дай персональный совет, учитывая этот контекст.
-      `;
-
-      const response = await this.openaiService.getAIResponse(userContext);
+      // Получаем персонализированный ответ через AI Context Service
+      const personalizedResponse =
+        await this.aiContextService.generatePersonalizedMessage(
+          ctx.userId,
+          'motivation',
+          message,
+        );
 
       // Increment AI usage counter
       await this.billingService.incrementUsage(ctx.userId, 'dailyAiQueries');
@@ -2937,7 +2952,7 @@ ${recommendations}
         `
 🧠 *ИИ-консультант отвечает:*
 
-${response}
+${personalizedResponse}
 
 📊 **ИИ-запросов сегодня:** ${usageInfo.current}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit}
 
@@ -3586,6 +3601,99 @@ _Просто напишите время в удобном формате_
     return reminderPatterns.some((pattern) => pattern.test(text));
   }
 
+  private async showTasksAIAdvice(ctx: BotContext) {
+    try {
+      await ctx.replyWithMarkdown('🤔 *Анализирую ваши задачи...*');
+
+      // Получаем персонализированный совет по задачам
+      const aiAdvice = await this.aiContextService.generatePersonalizedMessage(
+        ctx.userId,
+        'task_suggestion',
+        '',
+      );
+
+      await ctx.replyWithMarkdown(
+        `
+🤖 *AI-совет по задачам:*
+
+${aiAdvice}
+
+💡 *Хотите ещё советы?* Просто напишите мне в чат!
+        `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '📝 Добавить задачу', callback_data: 'tasks_add' }],
+              [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
+            ],
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.error('Error getting AI advice for tasks:', error);
+      await ctx.replyWithMarkdown(
+        `
+❌ *Не удалось получить AI-совет*
+
+Попробуйте позже или напишите мне напрямую в чат!
+        `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
+            ],
+          },
+        },
+      );
+    }
+  }
+
+  private async showHabitsAIAdvice(ctx: BotContext) {
+    try {
+      await ctx.replyWithMarkdown('🤔 *Анализирую ваши привычки...*');
+
+      // Получаем персонализированный совет по привычкам
+      const aiAdvice = await this.aiContextService.generatePersonalizedMessage(
+        ctx.userId,
+        'habit_advice',
+        '',
+      );
+
+      await ctx.replyWithMarkdown(
+        `
+🤖 *AI-совет по привычкам:*
+
+${aiAdvice}
+
+💡 *Хотите ещё советы?* Просто напишите мне в чат!
+        `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔙 Назад к привычкам', callback_data: 'menu_habits' }],
+            ],
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.error('Error getting AI advice for habits:', error);
+      await ctx.replyWithMarkdown(
+        `
+❌ *Не удалось получить AI-совет*
+
+Попробуйте позже или напишите мне напрямую в чат!
+        `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔙 Назад к привычкам', callback_data: 'menu_habits' }],
+            ],
+          },
+        },
+      );
+    }
+  }
+
   // Command handler methods
   private async showHabitsMenu(ctx: BotContext) {
     const user = await this.userService.findByTelegramId(ctx.userId);
@@ -3608,6 +3716,12 @@ _Просто напишите время в удобном формате_
         {
           reply_markup: {
             inline_keyboard: [
+              [
+                {
+                  text: '🤖 AI-совет по привычкам',
+                  callback_data: 'habits_ai_advice',
+                },
+              ],
               [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
             ],
           },
@@ -3638,11 +3752,65 @@ _Просто напишите время в удобном формате_
               { text: '😤 Злой', callback_data: 'mood_angry' },
               { text: '😰 Тревожно', callback_data: 'mood_anxious' },
             ],
+            [
+              {
+                text: '🤖 AI-анализ настроения',
+                callback_data: 'mood_ai_analysis',
+              },
+            ],
             [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
           ],
         },
       },
     );
+  }
+
+  private async showMoodAIAnalysis(ctx: BotContext) {
+    try {
+      await ctx.replyWithMarkdown('🤔 *Анализирую ваше настроение...*');
+
+      // Получаем персонализированный анализ настроения
+      const aiAnalysis =
+        await this.aiContextService.generatePersonalizedMessage(
+          ctx.userId,
+          'mood_analysis',
+          '',
+        );
+
+      await ctx.replyWithMarkdown(
+        `
+🤖 *AI-анализ настроения:*
+
+${aiAnalysis}
+
+💡 *Хотите персональные советы?* Просто напишите мне в чат!
+        `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '😊 Отметить настроение', callback_data: 'menu_mood' }],
+              [{ text: '🔙 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.error('Error getting AI mood analysis:', error);
+      await ctx.replyWithMarkdown(
+        `
+❌ *Не удалось получить AI-анализ*
+
+Попробуйте позже или напишите мне напрямую в чат!
+        `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔙 К настроению', callback_data: 'menu_mood' }],
+            ],
+          },
+        },
+      );
+    }
   }
 
   private async showFocusSession(ctx: BotContext) {
@@ -3683,10 +3851,68 @@ _Просто напишите время в удобном формате_
                 callback_data: 'pomodoro_settings',
               },
             ],
+            [
+              {
+                text: '🤖 AI-советы по фокусу',
+                callback_data: 'focus_ai_tips',
+              },
+            ],
             [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
           ],
         },
       },
     );
+  }
+
+  private async showFocusAITips(ctx: BotContext) {
+    try {
+      await ctx.replyWithMarkdown('🤔 *Анализирую ваши паттерны фокуса...*');
+
+      // Получаем персонализированные советы по фокусу
+      const aiTips = await this.aiContextService.generatePersonalizedMessage(
+        ctx.userId,
+        'focus_tips',
+        '',
+      );
+
+      await ctx.replyWithMarkdown(
+        `
+🤖 *AI-советы по фокусу:*
+
+${aiTips}
+
+💡 *Хотите персональную помощь?* Просто напишите мне в чат!
+        `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '🚀 Начать сессию',
+                  callback_data: 'start_pomodoro_session',
+                },
+              ],
+              [{ text: '🔙 К фокус-сессиям', callback_data: 'menu_focus' }],
+            ],
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.error('Error getting AI focus tips:', error);
+      await ctx.replyWithMarkdown(
+        `
+❌ *Не удалось получить AI-советы*
+
+Попробуйте позже или напишите мне напрямую в чат!
+        `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔙 К фокус-сессиям', callback_data: 'menu_focus' }],
+            ],
+          },
+        },
+      );
+    }
   }
 }

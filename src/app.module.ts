@@ -10,6 +10,7 @@ import {
   MoodService,
   FocusService,
   OpenAIService,
+  AiContextService,
 } from './services';
 import { TelegramBotModule } from './bot/telegram-bot.module';
 
@@ -30,6 +31,7 @@ import { TelegramBotModule } from './bot/telegram-bot.module';
     MoodService,
     FocusService,
     OpenAIService,
+    AiContextService,
   ],
 })
 export class AppModule {}
