@@ -247,6 +247,96 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
             await ctx.answerCbQuery();
             await ctx.replyWithMarkdown('💡 *ИИ Помощник* - функция в разработке');
         });
+        this.bot.action('add_item', async (ctx) => {
+            await ctx.answerCbQuery();
+            const keyboard = {
+                inline_keyboard: [
+                    [{ text: '📝 Добавить задачу', callback_data: 'tasks_add' }],
+                    [{ text: '🔄 Добавить привычку', callback_data: 'habits_add' }],
+                    [{ text: '⬅️ Назад', callback_data: 'back_to_menu' }],
+                ],
+            };
+            await ctx.replyWithMarkdown('➕ *Что хотите добавить?*', {
+                reply_markup: keyboard,
+            });
+        });
+        this.bot.action('my_items', async (ctx) => {
+            await ctx.answerCbQuery();
+            const keyboard = {
+                inline_keyboard: [
+                    [{ text: '📝 Мои задачи', callback_data: 'tasks_list' }],
+                    [{ text: '🔄 Мои привычки', callback_data: 'habits_list' }],
+                    [{ text: '⬅️ Назад', callback_data: 'back_to_menu' }],
+                ],
+            };
+            await ctx.replyWithMarkdown('📋 *Что хотите посмотреть?*', {
+                reply_markup: keyboard,
+            });
+        });
+        this.bot.action('my_progress', async (ctx) => {
+            await ctx.answerCbQuery();
+            const user = await this.userService.findByTelegramId(ctx.userId);
+            await ctx.replyWithMarkdown(`
+📈 *Ваш прогресс*
+
+👤 **Профиль:**
+⭐ Опыт: ${user.totalXp} XP
+
+📊 **Статистика:**
+
+ Текущий стрик: ${user.currentStreak} дней
+📅 Аккаунт создан: ${user.createdAt.toLocaleDateString('ru-RU')}
+
+Продолжайте в том же духе! 🚀
+      `);
+        });
+        this.bot.action('ai_chat', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.replyWithMarkdown('🧠 *Чат с ИИ* - функция в разработке');
+        });
+        this.bot.action('more_functions', async (ctx) => {
+            await ctx.answerCbQuery();
+            const keyboard = {
+                inline_keyboard: [
+                    [{ text: '😊 Настроение', callback_data: 'menu_mood' }],
+                    [{ text: '⏰ Сессия фокуса', callback_data: 'menu_focus' }],
+                    [{ text: '🏆 Достижения', callback_data: 'menu_achievements' }],
+                    [{ text: '⚙️ Настройки', callback_data: 'menu_settings' }],
+                    [{ text: '⬅️ Назад', callback_data: 'back_to_menu' }],
+                ],
+            };
+            await ctx.replyWithMarkdown('⚙️ *Дополнительные функции:*', {
+                reply_markup: keyboard,
+            });
+        });
+        this.bot.action('faq_support', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.replyWithMarkdown(`
+❓ *FAQ / Поддержка*
+
+*Часто задаваемые вопросы:*
+
+**Как добавить задачу?**
+Нажмите "➕ Добавить задачу/привычку" → "📝 Добавить задачу"
+
+**Как отметить выполнение?**
+Перейдите в "📋 Мои задачи" и нажмите ✅ рядом с задачей
+
+**Как работает система XP?**
+За выполнение задач вы получаете опыт и повышаете уровень
+
+**Нужна помощь?**
+Напишите /feedback для связи с разработчиками
+      `);
+        });
+        this.bot.action('add_habit_direct', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.replyWithMarkdown('🔄 *Добавление привычек* - функция в разработке');
+        });
+        this.bot.action('back_to_menu', async (ctx) => {
+            await ctx.answerCbQuery();
+            await this.showMainMenu(ctx);
+        });
         this.bot.action('tasks_add', async (ctx) => {
             await ctx.answerCbQuery();
             await this.startAddingTask(ctx);
@@ -273,7 +363,7 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
             await this.showMainMenu(ctx);
         });
         this.bot.command('feedback', async (ctx) => {
-            await this.showFeedbackRequest(ctx);
+            await this.showFeedbackSurvey(ctx);
         });
         this.bot.action(/^feedback_rating_(\d+)$/, async (ctx) => {
             const rating = parseInt(ctx.match[1]);
@@ -295,7 +385,12 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
                 ctx.session.step = 'waiting_for_custom_feedback';
             }
             else {
-                await this.completeFeedback(ctx, improvement);
+                if (ctx.session.feedbackRating) {
+                    await this.completeFeedback(ctx, improvement);
+                }
+                else {
+                    await this.completeFeedbackSurvey(ctx, improvement);
+                }
             }
         });
         this.bot.action('feedback_later', async (ctx) => {
@@ -382,37 +477,20 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
     async showMainMenu(ctx) {
         const keyboard = {
             inline_keyboard: [
-                [
-                    { text: '📝 Задачи', callback_data: 'menu_tasks' },
-                    { text: '🔄 Привычки', callback_data: 'menu_habits' },
-                ],
-                [
-                    { text: '😊 Настроение', callback_data: 'menu_mood' },
-                    { text: '⏰ Фокус', callback_data: 'menu_focus' },
-                ],
-                [
-                    { text: '📊 Статистика', callback_data: 'menu_stats' },
-                    { text: '⚙️ Настройки', callback_data: 'menu_settings' },
-                ],
-                [
-                    { text: '🏆 Достижения', callback_data: 'menu_achievements' },
-                    { text: '💡 ИИ Помощник', callback_data: 'menu_ai' },
-                ],
+                [{ text: '➕ Добавить задачу/привычку', callback_data: 'add_item' }],
+                [{ text: '� Мои задачи и привычки', callback_data: 'my_items' }],
+                [{ text: '� Мой прогресс', callback_data: 'my_progress' }],
+                [{ text: '🧠 Чат с ИИ', callback_data: 'ai_chat' }],
+                [{ text: '⚙️ Ещё функции', callback_data: 'more_functions' }],
+                [{ text: '❓ FAQ / Поддержка', callback_data: 'faq_support' }],
+                [{ text: '➕ Добавить привычку', callback_data: 'add_habit_direct' }],
             ],
         };
         const user = await this.userService.findByTelegramId(ctx.userId);
         await ctx.replyWithMarkdown(`
-🎯 *Главное меню DailyCheck*
+👋 *Привет, ${this.userService.getDisplayName(user)}!*
 
-Привет, ${this.userService.getDisplayName(user)}! 👋
-
-*Ваша статистика сегодня:*
-📝 Задач выполнено: ${user.todayTasks}
-🔄 Привычек выполнено: ${user.todayHabits}
-⚡ Уровень: ${user.level} (XP: ${user.totalXp})
-🔥 Стрик: ${user.currentStreak} дней
-
-Что будем делать?
+🤖 Я DailyCheck Bot - твой личный помощник для управления привычками и задачами.
     `, { reply_markup: keyboard });
         setTimeout(() => this.checkAndShowFeedbackRequest(ctx), 2000);
     }
@@ -698,6 +776,30 @@ ${progressBar} ${Math.round(progress * 100)}%
             await this.showFeedbackRequest(ctx);
         }
     }
+    async showFeedbackSurvey(ctx) {
+        const keyboard = {
+            inline_keyboard: [
+                [
+                    { text: '🎯 Удобство', callback_data: 'feedback_like_convenience' },
+                    { text: '🚀 Много функций', callback_data: 'feedback_like_features' },
+                ],
+                [
+                    {
+                        text: '🎮 Геймификация',
+                        callback_data: 'feedback_like_gamification',
+                    },
+                    { text: '🔧 Другое', callback_data: 'feedback_like_other' },
+                ],
+            ],
+        };
+        await ctx.replyWithMarkdown(`
+💭 *Мини-опрос*
+
+👍 *Что вам нравится?*
+
+Выберите, что вас больше всего привлекает в боте:
+      `, { reply_markup: keyboard });
+    }
     async showFeedbackRequest(ctx) {
         const keyboard = {
             inline_keyboard: [
@@ -775,6 +877,28 @@ ${progressBar} ${Math.round(progress * 100)}%
 
 Выберите, что можно сделать лучше:
       `, { reply_markup: keyboard });
+    }
+    async completeFeedbackSurvey(ctx, improvement) {
+        await ctx.answerCbQuery();
+        await this.userService.updateUser(ctx.userId, {
+            feedbackGiven: true,
+        });
+        const improvements = {
+            convenience: '🎯 Удобство',
+            features: '🚀 Много функций',
+            gamification: '🎮 Геймификация',
+            other: '🔧 Другое',
+        };
+        const improvementText = improvements[improvement] || improvement;
+        await ctx.replyWithMarkdown(`
+✨ *Спасибо за участие в опросе!*
+
+Вы выбрали: ${improvementText}
+
+Ваше мнение поможет нам стать лучше! 💝
+
+Продолжайте пользоваться ботом и достигайте новых целей! 🚀
+    `);
     }
     async completeFeedback(ctx, improvement) {
         await ctx.answerCbQuery();

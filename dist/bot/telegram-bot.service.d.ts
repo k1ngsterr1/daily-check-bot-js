@@ -36,8 +36,10 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private handleCityInput;
     private createProgressBar;
     private checkAndShowFeedbackRequest;
+    private showFeedbackSurvey;
     private showFeedbackRequest;
     private handleFeedbackRating;
     private handleFeedbackImprovement;
+    private completeFeedbackSurvey;
     private completeFeedback;
 }
