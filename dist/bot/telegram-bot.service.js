@@ -1020,10 +1020,19 @@ ${trialText}**Premium подписка включает:**
             ],
         };
         const user = await this.userService.findByTelegramId(ctx.userId);
+        const trialInfo = await this.billingService.getTrialInfo(ctx.userId);
+        const subscriptionStatus = await this.billingService.getSubscriptionStatus(ctx.userId);
+        let statusText = '';
+        if (trialInfo.isTrialActive) {
+            statusText = `🎁 **Пробный период:** ${trialInfo.daysRemaining} дней осталось\n`;
+        }
+        else if (subscriptionStatus.type !== 'FREE') {
+            statusText = `💎 **${subscriptionStatus.type === 'PREMIUM' ? 'Premium' : 'Premium Plus'}**\n`;
+        }
         await ctx.replyWithMarkdown(`
 👋 *Привет, ${this.userService.getDisplayName(user)}!*
 
-🤖 Я DailyCheck Bot - твой личный помощник для управления привычками и задачами.
+${statusText}🤖 Я DailyCheck Bot - твой личный помощник для управления привычками и задачами.
     `, { reply_markup: keyboard });
         setTimeout(() => this.checkAndShowFeedbackRequest(ctx), 2000);
     }
