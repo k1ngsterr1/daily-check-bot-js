@@ -6,6 +6,7 @@ import { TaskService } from '../services/task.service';
 import { OpenAIService } from '../services/openai.service';
 import { BillingService } from '../services/billing.service';
 import { AiContextService } from '../services/ai-context.service';
+import { PaymentService } from '../services/payment.service';
 
 @Module({
   providers: [
@@ -16,6 +17,7 @@ import { AiContextService } from '../services/ai-context.service';
     OpenAIService,
     BillingService,
     AiContextService,
+    PaymentService,
   ],
   exports: [TelegramBotService],
 })

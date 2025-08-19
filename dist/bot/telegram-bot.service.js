@@ -19,6 +19,7 @@ const openai_service_1 = require("../services/openai.service");
 const task_service_1 = require("../services/task.service");
 const billing_service_1 = require("../services/billing.service");
 const ai_context_service_1 = require("../services/ai-context.service");
+const payment_service_1 = require("../services/payment.service");
 let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
     configService;
     userService;
@@ -26,16 +27,18 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
     taskService;
     billingService;
     aiContextService;
+    paymentService;
     logger = new common_1.Logger(TelegramBotService_1.name);
     bot;
     activePomodoroSessions = new Map();
-    constructor(configService, userService, openaiService, taskService, billingService, aiContextService) {
+    constructor(configService, userService, openaiService, taskService, billingService, aiContextService, paymentService) {
         this.configService = configService;
         this.userService = userService;
         this.openaiService = openaiService;
         this.taskService = taskService;
         this.billingService = billingService;
         this.aiContextService = aiContextService;
+        this.paymentService = paymentService;
         const token = this.configService.get('bot.token');
         if (!token) {
             throw new Error('BOT_TOKEN is not provided');
@@ -769,15 +772,49 @@ ${trialText}**Premium подписка включает:**
 🚀 **Приоритетная поддержка**
 💰 **Стоимость:** 599₽/месяц
 
-*Система оплаты в разработке - скоро будет доступна!*
+Выберите план подписки:
       `, {
                 reply_markup: {
                     inline_keyboard: [
+                        [
+                            { text: '💎 Premium - 299₽', callback_data: 'buy_premium' },
+                            {
+                                text: '🚀 Premium Plus - 599₽',
+                                callback_data: 'buy_premium_plus',
+                            },
+                        ],
                         [{ text: '📊 Мои лимиты', callback_data: 'show_limits' }],
                         [{ text: '⬅️ Назад', callback_data: 'back_to_menu' }],
                     ],
                 },
             });
+        });
+        this.bot.action('buy_premium', async (ctx) => {
+            await ctx.answerCbQuery();
+            await this.createPayment(ctx, 'PREMIUM');
+        });
+        this.bot.action('buy_premium_plus', async (ctx) => {
+            await ctx.answerCbQuery();
+            await this.createPayment(ctx, 'PREMIUM_PLUS');
+        });
+        this.bot.action(/^check_payment_(.+)$/, async (ctx) => {
+            await ctx.answerCbQuery();
+            const paymentId = ctx.match[1];
+            try {
+                const status = await this.paymentService.checkPaymentStatus(paymentId);
+                if (status === 'succeeded') {
+                    await ctx.replyWithMarkdown('✅ *Платеж успешно завершен!*\n\nВаша подписка активирована.');
+                }
+                else if (status === 'canceled') {
+                    await ctx.replyWithMarkdown('❌ *Платеж отменен*\n\nПопробуйте оформить подписку заново.');
+                }
+                else {
+                    await ctx.replyWithMarkdown('⏳ *Платеж в обработке*\n\nПожалуйста, подождите или проверьте позже.');
+                }
+            }
+            catch (error) {
+                await ctx.replyWithMarkdown('❌ *Ошибка при проверке платежа*\n\nПопробуйте позже.');
+            }
         });
         this.bot.action('dependencies', async (ctx) => {
             await ctx.answerCbQuery();
@@ -3124,6 +3161,63 @@ ${aiTips}
             });
         }
     }
+    async createPayment(ctx, subscriptionType) {
+        try {
+            const plans = this.paymentService.getSubscriptionPlans();
+            const plan = plans[subscriptionType];
+            await ctx.replyWithMarkdown('💳 *Создаю платеж...*');
+            const paymentResult = await this.paymentService.createPayment({
+                userId: ctx.userId,
+                amount: plan.amount,
+                description: plan.description,
+                subscriptionType: subscriptionType,
+                returnUrl: 'https://t.me/daily_check_bot',
+            });
+            await ctx.replyWithMarkdown(`
+💎 *Оплата ${subscriptionType === 'PREMIUM' ? 'Premium' : 'Premium Plus'}*
+
+💰 **Сумма:** ${plan.amount}₽
+📅 **Период:** ${plan.period}
+
+**Что включено:**
+${plan.features.map((feature) => `• ${feature}`).join('\n')}
+
+🔗 Для оплаты перейдите по ссылке ниже:
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '💳 Оплатить',
+                                url: paymentResult.confirmationUrl,
+                            },
+                        ],
+                        [
+                            {
+                                text: '🔄 Проверить оплату',
+                                callback_data: `check_payment_${paymentResult.paymentId}`,
+                            },
+                        ],
+                        [{ text: '⬅️ Назад', callback_data: 'upgrade_premium' }],
+                    ],
+                },
+            });
+        }
+        catch (error) {
+            this.logger.error('Error creating payment:', error);
+            await ctx.replyWithMarkdown(`
+❌ *Ошибка создания платежа*
+
+Попробуйте позже или свяжитесь с поддержкой.
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '⬅️ Назад', callback_data: 'upgrade_premium' }],
+                    ],
+                },
+            });
+        }
+    }
 };
 exports.TelegramBotService = TelegramBotService;
 exports.TelegramBotService = TelegramBotService = TelegramBotService_1 = __decorate([
@@ -3133,6 +3227,7 @@ exports.TelegramBotService = TelegramBotService = TelegramBotService_1 = __decor
         openai_service_1.OpenAIService,
         task_service_1.TaskService,
         billing_service_1.BillingService,
-        ai_context_service_1.AiContextService])
+        ai_context_service_1.AiContextService,
+        payment_service_1.PaymentService])
 ], TelegramBotService);
 //# sourceMappingURL=telegram-bot.service.js.map

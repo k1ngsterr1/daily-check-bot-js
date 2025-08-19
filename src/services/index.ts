@@ -5,4 +5,5 @@ export { MoodService } from './mood.service';
 export { FocusService } from './focus.service';
 export { OpenAIService } from './openai.service';
 export { AiContextService } from './ai-context.service';
+export { PaymentService } from './payment.service';
 export { BillingService } from './billing.service';

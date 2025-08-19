@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.BillingService = exports.AiContextService = exports.OpenAIService = exports.FocusService = exports.MoodService = exports.HabitService = exports.TaskService = exports.UserService = void 0;
+exports.BillingService = exports.PaymentService = exports.AiContextService = exports.OpenAIService = exports.FocusService = exports.MoodService = exports.HabitService = exports.TaskService = exports.UserService = void 0;
 var user_service_1 = require("./user.service");
 Object.defineProperty(exports, "UserService", { enumerable: true, get: function () { return user_service_1.UserService; } });
 var task_service_1 = require("./task.service");
@@ -15,6 +15,8 @@ var openai_service_1 = require("./openai.service");
 Object.defineProperty(exports, "OpenAIService", { enumerable: true, get: function () { return openai_service_1.OpenAIService; } });
 var ai_context_service_1 = require("./ai-context.service");
 Object.defineProperty(exports, "AiContextService", { enumerable: true, get: function () { return ai_context_service_1.AiContextService; } });
+var payment_service_1 = require("./payment.service");
+Object.defineProperty(exports, "PaymentService", { enumerable: true, get: function () { return payment_service_1.PaymentService; } });
 var billing_service_1 = require("./billing.service");
 Object.defineProperty(exports, "BillingService", { enumerable: true, get: function () { return billing_service_1.BillingService; } });
 //# sourceMappingURL=index.js.map

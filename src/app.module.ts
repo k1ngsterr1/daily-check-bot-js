@@ -11,6 +11,7 @@ import {
   FocusService,
   OpenAIService,
   AiContextService,
+  PaymentService,
 } from './services';
 import { TelegramBotModule } from './bot/telegram-bot.module';
 
@@ -32,6 +33,7 @@ import { TelegramBotModule } from './bot/telegram-bot.module';
     FocusService,
     OpenAIService,
     AiContextService,
+    PaymentService,
   ],
 })
 export class AppModule {}
