@@ -7,6 +7,8 @@ export interface BotContext extends Context {
     waitingForInput?: boolean;
     currentAction?: string;
     tempData?: any;
+    feedbackRating?: number;
+    feedbackLiked?: string;
   };
 
   // User info

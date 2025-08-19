@@ -4,13 +4,15 @@ import { Telegraf } from 'telegraf';
 import { BotContext } from './bot-context.interface';
 import { UserService } from '../services/user.service';
 import { OpenAIService } from '../services/openai.service';
+import { TaskService } from '../services/task.service';
 export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     private readonly configService;
     private readonly userService;
     private readonly openaiService;
+    private readonly taskService;
     private readonly logger;
     private bot;
-    constructor(configService: ConfigService, userService: UserService, openaiService: OpenAIService);
+    constructor(configService: ConfigService, userService: UserService, openaiService: OpenAIService, taskService: TaskService);
     private setupMiddleware;
     private setupHandlers;
     onModuleInit(): Promise<void>;
@@ -23,6 +25,19 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     launch(): Promise<void>;
     stop(): Promise<void>;
     getBotInstance(): Telegraf<BotContext>;
+    private showTasksMenu;
+    private startAddingTask;
+    private handleTaskCreation;
+    private showTasksList;
+    private showTodayTasks;
+    private completeTask;
+    private getPriorityEmoji;
     private askForTimezone;
     private handleCityInput;
+    private createProgressBar;
+    private checkAndShowFeedbackRequest;
+    private showFeedbackRequest;
+    private handleFeedbackRating;
+    private handleFeedbackImprovement;
+    private completeFeedback;
 }

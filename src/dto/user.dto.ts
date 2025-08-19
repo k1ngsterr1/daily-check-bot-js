@@ -1,4 +1,4 @@
-import { IsString, IsOptional } from 'class-validator';
+import { IsString, IsOptional, IsBoolean } from 'class-validator';
 
 export class CreateUserDto {
   @IsString()
@@ -37,6 +37,14 @@ export class UpdateUserDto {
   @IsOptional()
   @IsString()
   city?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  onboardingPassed?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  feedbackGiven?: boolean;
 }
 
 export class UpdateUserStatsDto {

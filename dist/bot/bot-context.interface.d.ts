@@ -6,6 +6,8 @@ export interface BotContext extends Context {
         waitingForInput?: boolean;
         currentAction?: string;
         tempData?: any;
+        feedbackRating?: number;
+        feedbackLiked?: string;
     };
     userId: string;
     replyWithMarkdown(text: string, extra?: any): Promise<any>;

@@ -77,6 +77,7 @@ model User {
   theme             String   @default("default")
   notifications     Boolean  @default(true)
   onboardingPassed  Boolean  @default(false) @map("onboarding_passed")
+  feedbackGiven     Boolean  @default(false) @map("feedback_given")
   aiMode            Boolean  @default(true) @map("ai_mode")
   dryMode           Boolean  @default(false) @map("dry_mode")
   showAnimations    Boolean  @default(true) @map("show_animations")

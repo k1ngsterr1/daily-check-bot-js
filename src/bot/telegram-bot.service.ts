@@ -9,6 +9,7 @@ import { Telegraf, session } from 'telegraf';
 import { BotContext } from './bot-context.interface';
 import { UserService } from '../services/user.service';
 import { OpenAIService } from '../services/openai.service';
+import { TaskService } from '../services/task.service';
 
 @Injectable()
 export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
@@ -19,6 +20,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     private readonly configService: ConfigService,
     private readonly userService: UserService,
     private readonly openaiService: OpenAIService,
+    private readonly taskService: TaskService,
   ) {
     const token = this.configService.get<string>('bot.token');
     if (!token) {
@@ -90,6 +92,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 /start - Начать работу с ботом
 /help - Показать эту справку
 /menu - Главное меню
+/feedback - Оставить отзыв о боте
 /tasks - Управление задачами
 /habits - Управление привычками
 /mood - Отметить настроение
@@ -206,6 +209,18 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
+      // Handle task creation
+      if (ctx.session.step === 'waiting_for_task_title') {
+        await this.handleTaskCreation(ctx, ctx.message.text);
+        return;
+      }
+
+      // Handle custom feedback
+      if (ctx.session.step === 'waiting_for_custom_feedback') {
+        await this.completeFeedback(ctx, ctx.message.text);
+        return;
+      }
+
       if (ctx.session.step === 'onboarding_waiting_habit') {
         const habitName = ctx.message.text;
 
@@ -235,9 +250,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         ctx.session.step = 'adding_task';
         await this.askForTimezone(ctx);
       } else {
-        await ctx.replyWithMarkdown(
-          '📝 *Управление задачами* - функция в разработке',
-        );
+        await this.showTasksMenu(ctx);
       }
     });
 
@@ -285,6 +298,80 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     this.bot.action('menu_ai', async (ctx) => {
       await ctx.answerCbQuery();
       await ctx.replyWithMarkdown('💡 *ИИ Помощник* - функция в разработке');
+    });
+
+    // Task management handlers
+    this.bot.action('tasks_add', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.startAddingTask(ctx);
+    });
+
+    this.bot.action('tasks_list', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.showTasksList(ctx);
+    });
+
+    this.bot.action('tasks_today', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.showTodayTasks(ctx);
+    });
+
+    // Handle task completion
+    this.bot.action(/^task_complete_(.+)$/, async (ctx) => {
+      await ctx.answerCbQuery();
+      const taskId = ctx.match[1];
+      await this.completeTask(ctx, taskId);
+    });
+
+    // Handle back to tasks menu
+    this.bot.action('back_to_tasks', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.showTasksMenu(ctx);
+    });
+
+    // Handle back to main menu
+    this.bot.action('back_to_main', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.showMainMenu(ctx);
+    });
+
+    // Feedback system handlers
+    this.bot.command('feedback', async (ctx) => {
+      await this.showFeedbackRequest(ctx);
+    });
+
+    this.bot.action(/^feedback_rating_(\d+)$/, async (ctx) => {
+      const rating = parseInt(ctx.match[1]);
+      await this.handleFeedbackRating(ctx, rating);
+    });
+
+    this.bot.action(/^feedback_like_(.+)$/, async (ctx) => {
+      const feature = ctx.match[1];
+      await this.handleFeedbackImprovement(ctx, feature);
+    });
+
+    this.bot.action(/^feedback_improve_(.+)$/, async (ctx) => {
+      const improvement = ctx.match[1];
+      if (improvement === 'custom') {
+        await ctx.answerCbQuery();
+        await ctx.replyWithMarkdown(`
+📝 *Напишите, что хотелось бы улучшить:*
+
+Опишите ваши пожелания...
+        `);
+        ctx.session.step = 'waiting_for_custom_feedback';
+      } else {
+        await this.completeFeedback(ctx, improvement);
+      }
+    });
+
+    this.bot.action('feedback_later', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.replyWithMarkdown(`
+🕐 *Хорошо, спросим позже!*
+
+Вы всегда можете оставить отзыв командой /feedback
+      `);
     });
 
     // Error handling
@@ -427,6 +514,9 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     `,
       { reply_markup: keyboard },
     );
+
+    // Check if we should show feedback request
+    setTimeout(() => this.checkAndShowFeedbackRequest(ctx), 2000);
   }
 
   async launch() {
@@ -456,6 +546,255 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 
   getBotInstance(): Telegraf<BotContext> {
     return this.bot;
+  }
+
+  // Task management methods
+  private async showTasksMenu(ctx: BotContext) {
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '➕ Добавить задачу', callback_data: 'tasks_add' },
+          { text: '📋 Все задачи', callback_data: 'tasks_list' },
+        ],
+        [{ text: '📅 Задачи на сегодня', callback_data: 'tasks_today' }],
+        [{ text: '🔙 Назад в меню', callback_data: 'back_to_main' }],
+      ],
+    };
+
+    await ctx.replyWithMarkdown(
+      `
+📝 *Управление задачами*
+
+Выберите действие:
+    `,
+      { reply_markup: keyboard },
+    );
+  }
+
+  private async startAddingTask(ctx: BotContext) {
+    await ctx.replyWithMarkdown(`
+➕ *Создание новой задачи*
+
+📝 Напишите название задачи:
+    `);
+
+    ctx.session.step = 'waiting_for_task_title';
+  }
+
+  private async handleTaskCreation(ctx: BotContext, taskTitle: string) {
+    try {
+      const task = await this.taskService.createTask({
+        userId: ctx.userId,
+        title: taskTitle.trim(),
+        description: '',
+        priority: 'MEDIUM' as any,
+      });
+
+      // Get current user stats to increment
+      const user = await this.userService.findByTelegramId(ctx.userId);
+      await this.userService.updateUserStats(ctx.userId, {
+        totalTasks: user.totalTasks + 1,
+      });
+
+      await ctx.replyWithMarkdown(`
+✅ *Задача создана!*
+
+📝 *${task.title}*
+ XP за выполнение: ${task.xpReward}
+
+Задача добавлена в ваш список!
+      `);
+
+      ctx.session.step = undefined;
+      setTimeout(() => this.showTasksMenu(ctx), 1500);
+    } catch (error) {
+      this.logger.error('Error creating task:', error);
+      await ctx.replyWithMarkdown(`
+❌ *Ошибка при создании задачи*
+
+Попробуйте еще раз или обратитесь к администратору.
+      `);
+      ctx.session.step = undefined;
+    }
+  }
+
+  private async showTasksList(ctx: BotContext) {
+    try {
+      const tasks = await this.taskService.findTasksByUserId(ctx.userId);
+
+      if (tasks.length === 0) {
+        await ctx.replyWithMarkdown(`
+📋 *Список задач пуст*
+
+У вас пока нет задач. Добавьте первую задачу!
+        `);
+        return;
+      }
+
+      const pendingTasks = tasks.filter(
+        (task) => task.status === 'PENDING' || task.status === 'IN_PROGRESS',
+      );
+      const completedTasks = tasks.filter(
+        (task) => task.status === 'COMPLETED',
+      );
+
+      let message = '📋 *Ваши задачи:*\n\n';
+
+      if (pendingTasks.length > 0) {
+        message += '*🔄 Активные задачи:*\n';
+        for (const task of pendingTasks) {
+          const priorityEmoji = this.getPriorityEmoji(task.priority);
+          message += `${priorityEmoji} ${task.title}\n`;
+          message += `    ${task.xpReward} XP\n\n`;
+        }
+      }
+
+      if (completedTasks.length > 0) {
+        message += '*✅ Выполненные задачи:*\n';
+        for (const task of completedTasks.slice(0, 5)) {
+          message += `✅ ~~${task.title}~~\n`;
+        }
+        if (completedTasks.length > 5) {
+          message += `   ... и еще ${completedTasks.length - 5} задач\n`;
+        }
+      }
+
+      // Create keyboard with task completion buttons
+      const keyboard = {
+        inline_keyboard: [
+          ...pendingTasks.slice(0, 5).map((task) => [
+            {
+              text: `✅ ${task.title.substring(0, 25)}${task.title.length > 25 ? '...' : ''}`,
+              callback_data: `task_complete_${task.id}`,
+            },
+          ]),
+          [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
+        ],
+      };
+
+      await ctx.replyWithMarkdown(message, { reply_markup: keyboard });
+    } catch (error) {
+      this.logger.error('Error showing tasks list:', error);
+      await ctx.replyWithMarkdown('❌ Ошибка при получении списка задач');
+    }
+  }
+
+  private async showTodayTasks(ctx: BotContext) {
+    try {
+      const tasks = await this.taskService.getTodayTasks(ctx.userId);
+
+      if (tasks.length === 0) {
+        await ctx.replyWithMarkdown(`
+📅 *Задачи на сегодня*
+
+На сегодня задач нет! 🎉
+        `);
+        return;
+      }
+
+      let message = '📅 *Задачи на сегодня:*\n\n';
+
+      for (const task of tasks) {
+        const statusEmoji = task.status === 'COMPLETED' ? '✅' : '🔄';
+        const priorityEmoji = this.getPriorityEmoji(task.priority);
+        message += `${statusEmoji} ${priorityEmoji} ${task.title}\n`;
+        if (task.status !== 'COMPLETED') {
+          message += `   🎯 ${task.xpReward} XP\n`;
+        }
+        message += '\n';
+      }
+
+      const pendingTasks = tasks.filter((task) => task.status !== 'COMPLETED');
+      const keyboard = {
+        inline_keyboard: [
+          ...pendingTasks.slice(0, 3).map((task) => [
+            {
+              text: `✅ ${task.title.substring(0, 25)}${task.title.length > 25 ? '...' : ''}`,
+              callback_data: `task_complete_${task.id}`,
+            },
+          ]),
+          [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
+        ],
+      };
+
+      await ctx.replyWithMarkdown(message, { reply_markup: keyboard });
+    } catch (error) {
+      this.logger.error('Error showing today tasks:', error);
+      await ctx.replyWithMarkdown('❌ Ошибка при получении задач на сегодня');
+    }
+  }
+
+  private async completeTask(ctx: BotContext, taskId: string) {
+    try {
+      const result = await this.taskService.completeTask(taskId, ctx.userId);
+
+      // Get current user stats to increment and check level up
+      const userBefore = await this.userService.findByTelegramId(ctx.userId);
+      const newTotalXp = userBefore.totalXp + result.xpGained;
+
+      await this.userService.updateUserStats(ctx.userId, {
+        completedTasks: userBefore.completedTasks + 1,
+        todayTasks: userBefore.todayTasks + 1,
+        xpGained: result.xpGained,
+      });
+
+      // Get updated user to check for level up
+      const userAfter = await this.userService.findByTelegramId(ctx.userId);
+      const leveledUp = userAfter.level > userBefore.level;
+
+      let message = `
+🎉 *Задача выполнена!*
+
+✅ ${result.task.title}
+🎯 Получено XP: +${result.xpGained}
+`;
+
+      if (leveledUp) {
+        message += `
+🎊 *ПОЗДРАВЛЯЕМ! НОВЫЙ УРОВЕНЬ!*
+⭐ Уровень: ${userAfter.level} (было: ${userBefore.level})
+🏆 Общий XP: ${userAfter.totalXp}
+`;
+      } else {
+        const xpToNext = this.userService.getXpToNextLevel(userAfter);
+        const progress = this.userService.getLevelProgressRatio(userAfter);
+        const progressBar = this.createProgressBar(progress);
+
+        message += `
+📊 Прогресс до следующего уровня:
+${progressBar} ${Math.round(progress * 100)}%
+🎯 Осталось XP до уровня ${userAfter.level + 1}: ${xpToNext}
+`;
+      }
+
+      message += '\nОтличная работа! 👏';
+
+      await ctx.replyWithMarkdown(message);
+
+      setTimeout(() => this.showTasksMenu(ctx), leveledUp ? 3000 : 2000);
+    } catch (error) {
+      this.logger.error('Error completing task:', error);
+      if (error.message.includes('already completed')) {
+        await ctx.replyWithMarkdown('ℹ️ Эта задача уже выполнена!');
+      } else {
+        await ctx.replyWithMarkdown('❌ Ошибка при выполнении задачи');
+      }
+    }
+  }
+
+  private getPriorityEmoji(priority: string): string {
+    switch (priority) {
+      case 'URGENT':
+        return '🔴';
+      case 'HIGH':
+        return '🟠';
+      case 'MEDIUM':
+        return '🟡';
+      case 'LOW':
+        return '🟢';
+      default:
+        return '⚪';
+    }
   }
 
   private async askForTimezone(ctx: BotContext) {
@@ -503,5 +842,151 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 
     // Show main menu or continue with the original action
     await this.showMainMenu(ctx);
+  }
+
+  // Gamification helpers
+  private createProgressBar(progress: number, length: number = 10): string {
+    const filled = Math.round(progress * length);
+    const empty = length - filled;
+    return '█'.repeat(filled) + '░'.repeat(empty);
+  }
+
+  // Feedback system methods
+  private async checkAndShowFeedbackRequest(ctx: BotContext) {
+    const user = await this.userService.findByTelegramId(ctx.userId);
+    const accountAge = Date.now() - user.createdAt.getTime();
+    const threeDaysInMs = 3 * 24 * 60 * 60 * 1000;
+
+    // Show feedback request after 3 days
+    if (accountAge >= threeDaysInMs && !user.feedbackGiven) {
+      await this.showFeedbackRequest(ctx);
+    }
+  }
+
+  private async showFeedbackRequest(ctx: BotContext) {
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '⭐️', callback_data: 'feedback_rating_5' },
+          { text: '😊', callback_data: 'feedback_rating_4' },
+          { text: '😐', callback_data: 'feedback_rating_3' },
+          { text: '😠', callback_data: 'feedback_rating_2' },
+        ],
+        [{ text: '⏰ Позже', callback_data: 'feedback_later' }],
+      ],
+    };
+
+    await ctx.replyWithMarkdown(
+      `
+💭 *Оцените ваш опыт использования бота*
+
+Как вам работа с Ticky AI? Ваше мнение поможет нам стать лучше!
+      `,
+      { reply_markup: keyboard },
+    );
+  }
+
+  private async handleFeedbackRating(ctx: BotContext, rating: number) {
+    await ctx.answerCbQuery();
+
+    ctx.session.feedbackRating = rating;
+
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '🎯 Удобство', callback_data: 'feedback_like_convenience' },
+          { text: '🚀 Много функций', callback_data: 'feedback_like_features' },
+        ],
+        [
+          {
+            text: '🎮 Геймификация',
+            callback_data: 'feedback_like_gamification',
+          },
+          { text: '🔧 Другое', callback_data: 'feedback_like_other' },
+        ],
+      ],
+    };
+
+    await ctx.replyWithMarkdown(
+      `
+👍 *Что вам больше всего нравится?*
+
+Выберите, что вас привлекает в боте:
+      `,
+      { reply_markup: keyboard },
+    );
+  }
+
+  private async handleFeedbackImprovement(
+    ctx: BotContext,
+    likedFeature: string,
+  ) {
+    await ctx.answerCbQuery();
+
+    ctx.session.feedbackLiked = likedFeature;
+
+    const keyboard = {
+      inline_keyboard: [
+        [
+          {
+            text: '🔧 Больше функций',
+            callback_data: 'feedback_improve_features',
+          },
+          { text: '🎨 Интерфейс', callback_data: 'feedback_improve_interface' },
+        ],
+        [
+          {
+            text: '⚡ Скорость работы',
+            callback_data: 'feedback_improve_speed',
+          },
+          {
+            text: '📝 Написать свое',
+            callback_data: 'feedback_improve_custom',
+          },
+        ],
+        [
+          {
+            text: '✅ Все устраивает',
+            callback_data: 'feedback_improve_nothing',
+          },
+        ],
+      ],
+    };
+
+    await ctx.replyWithMarkdown(
+      `
+💡 *Что хотелось бы улучшить?*
+
+Выберите, что можно сделать лучше:
+      `,
+      { reply_markup: keyboard },
+    );
+  }
+
+  private async completeFeedback(ctx: BotContext, improvement: string) {
+    await ctx.answerCbQuery();
+
+    // Save feedback to database
+    await this.userService.updateUser(ctx.userId, {
+      feedbackGiven: true,
+    });
+
+    const ratingEmojis = ['😠', '😠', '😐', '😊', '⭐️'];
+    const rating = ctx.session.feedbackRating || 3;
+    const ratingEmoji = ratingEmojis[rating - 1];
+
+    await ctx.replyWithMarkdown(`
+🙏 *Спасибо за обратную связь!*
+
+${ratingEmoji} Ваша оценка: ${rating}/5
+👍 Нравится: ${ctx.session.feedbackLiked || 'не указано'}
+💡 Улучшить: ${improvement}
+
+Ваше мнение очень важно для нас! 💚
+    `);
+
+    // Clear feedback session data
+    ctx.session.feedbackRating = undefined;
+    ctx.session.feedbackLiked = undefined;
   }
 }

@@ -10,6 +10,8 @@ export declare class UpdateUserDto {
     lastName?: string;
     timezone?: string;
     city?: string;
+    onboardingPassed?: boolean;
+    feedbackGiven?: boolean;
 }
 export declare class UpdateUserStatsDto {
     totalTasks?: number;

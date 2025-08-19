@@ -43,6 +43,8 @@ class UpdateUserDto {
     lastName;
     timezone;
     city;
+    onboardingPassed;
+    feedbackGiven;
 }
 exports.UpdateUserDto = UpdateUserDto;
 __decorate([
@@ -70,6 +72,16 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], UpdateUserDto.prototype, "city", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], UpdateUserDto.prototype, "onboardingPassed", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], UpdateUserDto.prototype, "feedbackGiven", void 0);
 class UpdateUserStatsDto {
     totalTasks;
     completedTasks;
