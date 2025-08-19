@@ -9,4 +9,5 @@ export declare class OpenAIService {
         normalizedCity: string;
     } | null>;
     getAIResponse(prompt: string): Promise<string>;
+    transcribeAudio(audioFile: File): Promise<string | null>;
 }

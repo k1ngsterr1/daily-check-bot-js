@@ -203,7 +203,25 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
                 setTimeout(async () => {
                     await this.showOnboardingStep3(ctx);
                 }, 2000);
+                return;
             }
+            if (this.isReminderRequest(ctx.message.text)) {
+                await this.processReminderFromText(ctx, ctx.message.text);
+                return;
+            }
+            await ctx.replyWithMarkdown(`
+🤔 *Не понимаю команду*
+
+Используйте /menu для вызова главного меню или /help для справки.
+
+💡 *Подсказка:* Вы можете написать "напомни мне..." с указанием времени для создания напоминания.
+      `);
+        });
+        this.bot.on('voice', async (ctx) => {
+            await this.handleAudioMessage(ctx, 'voice');
+        });
+        this.bot.on('audio', async (ctx) => {
+            await this.handleAudioMessage(ctx, 'audio');
         });
         this.bot.action('menu_tasks', async (ctx) => {
             await ctx.answerCbQuery();
@@ -1339,6 +1357,123 @@ ${reminderText}`, { parse_mode: 'Markdown' });
 Не удалось создать напоминание. Попробуйте ещё раз.
       `);
         }
+    }
+    async handleAudioMessage(ctx, type) {
+        try {
+            const emoji = type === 'voice' ? '🎤' : '🎵';
+            const messageType = type === 'voice' ? 'голосовое сообщение' : 'аудио файл';
+            await ctx.replyWithMarkdown(`${emoji} *Обрабатываю ${messageType}...*`);
+            const transcribedText = await this.transcribeAudio(ctx, type);
+            if (!transcribedText) {
+                await ctx.replyWithMarkdown(`❌ Не удалось распознать ${messageType}. Попробуйте еще раз.`);
+                return;
+            }
+            await ctx.replyWithMarkdown(`🎯 *Распознано:* "${transcribedText}"`);
+            if (ctx.session.aiChatMode) {
+                await this.handleAIChatMessage(ctx, transcribedText);
+                return;
+            }
+            if (this.isReminderRequest(transcribedText)) {
+                await this.processReminderFromText(ctx, transcribedText);
+                return;
+            }
+            if (transcribedText.toLowerCase().includes('добавить задачу') ||
+                transcribedText.toLowerCase().includes('новая задача')) {
+                await this.startAddingTask(ctx);
+                return;
+            }
+            if (transcribedText.toLowerCase().includes('меню') ||
+                transcribedText.toLowerCase().includes('главное меню')) {
+                await this.showMainMenu(ctx);
+                return;
+            }
+            await this.handleAIChatMessage(ctx, transcribedText);
+        }
+        catch (error) {
+            this.logger.error(`${type} message processing error:`, error);
+            await ctx.replyWithMarkdown(`❌ Произошла ошибка при обработке ${type === 'voice' ? 'голосового сообщения' : 'аудио файла'}.`);
+        }
+    }
+    async transcribeAudio(ctx, type) {
+        try {
+            if (!ctx.message) {
+                return null;
+            }
+            let fileId;
+            if (type === 'voice' && 'voice' in ctx.message) {
+                fileId = ctx.message.voice.file_id;
+            }
+            else if (type === 'audio' && 'audio' in ctx.message) {
+                fileId = ctx.message.audio.file_id;
+            }
+            else {
+                return null;
+            }
+            const fileLink = await ctx.telegram.getFileLink(fileId);
+            const response = await fetch(fileLink.href);
+            const buffer = await response.arrayBuffer();
+            const fileName = type === 'voice' ? 'voice.ogg' : 'audio.mp3';
+            const mimeType = type === 'voice' ? 'audio/ogg' : 'audio/mpeg';
+            const file = new File([buffer], fileName, { type: mimeType });
+            const transcription = await this.openaiService.transcribeAudio(file);
+            return transcription;
+        }
+        catch (error) {
+            this.logger.error(`Error transcribing ${type}:`, error);
+            return null;
+        }
+    }
+    async processReminderFromText(ctx, text) {
+        const timeMatch = text.match(/в\s*(\d{1,2}):(\d{2})/i) ||
+            text.match(/в\s*(\d{1,2})\s*час(?:а|ов)?(?:\s*(\d{2})\s*минут)?/i);
+        if (timeMatch) {
+            const hours = timeMatch[1];
+            const minutes = timeMatch[2] || '00';
+            const reminderText = text
+                .replace(/напомни\s*(мне)?/gi, '')
+                .replace(/в\s*\d{1,2}:?\d{0,2}\s*(?:час|минут)?(?:а|ов)?/gi, '')
+                .trim();
+            await this.handleReminderRequest(ctx, reminderText, hours, minutes);
+            return;
+        }
+        const relativeMatch = text.match(/через\s*(\d+)\s*(минут|час)/i);
+        if (relativeMatch) {
+            const amount = parseInt(relativeMatch[1]);
+            const unit = relativeMatch[2];
+            const now = new Date();
+            if (unit.includes('час')) {
+                now.setHours(now.getHours() + amount);
+            }
+            else {
+                now.setMinutes(now.getMinutes() + amount);
+            }
+            const hours = now.getHours().toString().padStart(2, '0');
+            const minutes = now.getMinutes().toString().padStart(2, '0');
+            const reminderText = text
+                .replace(/напомни\s*(мне)?/gi, '')
+                .replace(/через\s*\d+\s*(?:минут|час)(?:а|ов)?/gi, '')
+                .trim();
+            await this.handleReminderRequest(ctx, reminderText, hours, minutes);
+            return;
+        }
+        await ctx.replyWithMarkdown(`
+🤔 *Не удалось определить время напоминания*
+
+Пожалуйста, укажите время в формате:
+• "напомни купить молоко в 17:30"
+• "напомни позвонить маме через 30 минут"
+    `);
+    }
+    isReminderRequest(text) {
+        const reminderPatterns = [
+            /напомни.*в\s*(\d{1,2}):(\d{2})/i,
+            /напомни.*в\s*(\d{1,2})\s*час/i,
+            /напомни.*через\s*(\d+)\s*(минут|час)/i,
+            /напоминание.*в\s*(\d{1,2}):(\d{2})/i,
+            /добавь.*напоминание/i,
+            /создай.*напоминание/i,
+        ];
+        return reminderPatterns.some((pattern) => pattern.test(text));
     }
 };
 exports.TelegramBotService = TelegramBotService;

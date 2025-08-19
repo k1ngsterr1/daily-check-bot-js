@@ -244,7 +244,33 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         setTimeout(async () => {
           await this.showOnboardingStep3(ctx);
         }, 2000);
+        return;
       }
+
+      // Handle reminder requests in regular text mode
+      if (this.isReminderRequest(ctx.message.text)) {
+        await this.processReminderFromText(ctx, ctx.message.text);
+        return;
+      }
+
+      // Default: show help or main menu
+      await ctx.replyWithMarkdown(`
+🤔 *Не понимаю команду*
+
+Используйте /menu для вызова главного меню или /help для справки.
+
+💡 *Подсказка:* Вы можете написать "напомни мне..." с указанием времени для создания напоминания.
+      `);
+    });
+
+    // Handle voice messages
+    this.bot.on('voice', async (ctx) => {
+      await this.handleAudioMessage(ctx, 'voice');
+    });
+
+    // Handle audio files
+    this.bot.on('audio', async (ctx) => {
+      await this.handleAudioMessage(ctx, 'audio');
     });
 
     // Main menu callback handlers
@@ -1677,5 +1703,171 @@ ${reminderText}`,
 Не удалось создать напоминание. Попробуйте ещё раз.
       `);
     }
+  }
+
+  private async handleAudioMessage(ctx: BotContext, type: 'voice' | 'audio') {
+    try {
+      const emoji = type === 'voice' ? '🎤' : '🎵';
+      const messageType =
+        type === 'voice' ? 'голосовое сообщение' : 'аудио файл';
+
+      await ctx.replyWithMarkdown(`${emoji} *Обрабатываю ${messageType}...*`);
+
+      const transcribedText = await this.transcribeAudio(ctx, type);
+      if (!transcribedText) {
+        await ctx.replyWithMarkdown(
+          `❌ Не удалось распознать ${messageType}. Попробуйте еще раз.`,
+        );
+        return;
+      }
+
+      await ctx.replyWithMarkdown(`🎯 *Распознано:* "${transcribedText}"`);
+
+      // Handle AI Chat mode for audio messages
+      if (ctx.session.aiChatMode) {
+        await this.handleAIChatMessage(ctx, transcribedText);
+        return;
+      }
+
+      // Handle audio reminders
+      if (this.isReminderRequest(transcribedText)) {
+        await this.processReminderFromText(ctx, transcribedText);
+        return;
+      }
+
+      // Handle voice commands for tasks
+      if (
+        transcribedText.toLowerCase().includes('добавить задачу') ||
+        transcribedText.toLowerCase().includes('новая задача')
+      ) {
+        await this.startAddingTask(ctx);
+        return;
+      }
+
+      // Handle voice commands for menu
+      if (
+        transcribedText.toLowerCase().includes('меню') ||
+        transcribedText.toLowerCase().includes('главное меню')
+      ) {
+        await this.showMainMenu(ctx);
+        return;
+      }
+
+      // Default: treat as AI chat
+      await this.handleAIChatMessage(ctx, transcribedText);
+    } catch (error) {
+      this.logger.error(`${type} message processing error:`, error);
+      await ctx.replyWithMarkdown(
+        `❌ Произошла ошибка при обработке ${type === 'voice' ? 'голосового сообщения' : 'аудио файла'}.`,
+      );
+    }
+  }
+
+  private async transcribeAudio(
+    ctx: BotContext,
+    type: 'voice' | 'audio',
+  ): Promise<string | null> {
+    try {
+      // Check if message exists and has the right type
+      if (!ctx.message) {
+        return null;
+      }
+
+      let fileId: string;
+
+      if (type === 'voice' && 'voice' in ctx.message) {
+        fileId = ctx.message.voice.file_id;
+      } else if (type === 'audio' && 'audio' in ctx.message) {
+        fileId = ctx.message.audio.file_id;
+      } else {
+        return null;
+      }
+
+      // Get file info and download
+      const fileLink = await ctx.telegram.getFileLink(fileId);
+      const response = await fetch(fileLink.href);
+      const buffer = await response.arrayBuffer();
+
+      // Create a File object for OpenAI
+      const fileName = type === 'voice' ? 'voice.ogg' : 'audio.mp3';
+      const mimeType = type === 'voice' ? 'audio/ogg' : 'audio/mpeg';
+      const file = new File([buffer], fileName, { type: mimeType });
+
+      // Use OpenAI Whisper for transcription
+      const transcription = await this.openaiService.transcribeAudio(file);
+
+      return transcription;
+    } catch (error) {
+      this.logger.error(`Error transcribing ${type}:`, error);
+      return null;
+    }
+  }
+
+  private async processReminderFromText(ctx: BotContext, text: string) {
+    // Extract time and reminder text from voice/text input
+    const timeMatch =
+      text.match(/в\s*(\d{1,2}):(\d{2})/i) ||
+      text.match(/в\s*(\d{1,2})\s*час(?:а|ов)?(?:\s*(\d{2})\s*минут)?/i);
+
+    if (timeMatch) {
+      const hours = timeMatch[1];
+      const minutes = timeMatch[2] || '00';
+
+      // Extract reminder text by removing time references
+      const reminderText = text
+        .replace(/напомни\s*(мне)?/gi, '')
+        .replace(/в\s*\d{1,2}:?\d{0,2}\s*(?:час|минут)?(?:а|ов)?/gi, '')
+        .trim();
+
+      await this.handleReminderRequest(ctx, reminderText, hours, minutes);
+      return;
+    }
+
+    // Handle relative time (через X минут/часов)
+    const relativeMatch = text.match(/через\s*(\d+)\s*(минут|час)/i);
+    if (relativeMatch) {
+      const amount = parseInt(relativeMatch[1]);
+      const unit = relativeMatch[2];
+
+      const now = new Date();
+      if (unit.includes('час')) {
+        now.setHours(now.getHours() + amount);
+      } else {
+        now.setMinutes(now.getMinutes() + amount);
+      }
+
+      const hours = now.getHours().toString().padStart(2, '0');
+      const minutes = now.getMinutes().toString().padStart(2, '0');
+
+      const reminderText = text
+        .replace(/напомни\s*(мне)?/gi, '')
+        .replace(/через\s*\d+\s*(?:минут|час)(?:а|ов)?/gi, '')
+        .trim();
+
+      await this.handleReminderRequest(ctx, reminderText, hours, minutes);
+      return;
+    }
+
+    // If no specific time found, ask for clarification
+    await ctx.replyWithMarkdown(`
+🤔 *Не удалось определить время напоминания*
+
+Пожалуйста, укажите время в формате:
+• "напомни купить молоко в 17:30"
+• "напомни позвонить маме через 30 минут"
+    `);
+  }
+
+  private isReminderRequest(text: string): boolean {
+    const reminderPatterns = [
+      /напомни.*в\s*(\d{1,2}):(\d{2})/i,
+      /напомни.*в\s*(\d{1,2})\s*час/i,
+      /напомни.*через\s*(\d+)\s*(минут|час)/i,
+      /напоминание.*в\s*(\d{1,2}):(\d{2})/i,
+      /добавь.*напоминание/i,
+      /создай.*напоминание/i,
+    ];
+
+    return reminderPatterns.some((pattern) => pattern.test(text));
   }
 }

@@ -105,6 +105,21 @@ let OpenAIService = OpenAIService_1 = class OpenAIService {
             throw new Error('Не удалось получить ответ от ИИ-консультанта');
         }
     }
+    async transcribeAudio(audioFile) {
+        try {
+            const transcription = await this.openai.audio.transcriptions.create({
+                file: audioFile,
+                model: 'whisper-1',
+                language: 'ru',
+                response_format: 'text',
+            });
+            return transcription || null;
+        }
+        catch (error) {
+            this.logger.error('Error transcribing audio:', error);
+            return null;
+        }
+    }
 };
 exports.OpenAIService = OpenAIService;
 exports.OpenAIService = OpenAIService = OpenAIService_1 = __decorate([
