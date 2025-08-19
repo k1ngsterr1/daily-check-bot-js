@@ -114,10 +114,16 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 
         const user = await this.userService.findOrCreateUser(userData);
 
+        this.logger.log(
+          `User ${user.id} started bot. Onboarding passed: ${user.onboardingPassed}`,
+        );
+
         // Проверяем, прошел ли пользователь онбординг
         if (!user.onboardingPassed) {
+          this.logger.log(`Starting onboarding for user ${user.id}`);
           await this.startOnboarding(ctx);
         } else {
+          this.logger.log(`Showing main menu for user ${user.id}`);
           await this.showMainMenu(ctx);
         }
       } catch (error) {
@@ -266,6 +272,22 @@ ${statusMessage}
       );
     });
 
+    // Reset onboarding command (for testing)
+    this.bot.command('reset_onboarding', async (ctx) => {
+      try {
+        await this.userService.updateUser(ctx.userId, {
+          onboardingPassed: false,
+        });
+        await ctx.replyWithMarkdown(
+          '🔄 Онбординг сброшен. Используйте /start для прохождения заново.',
+        );
+        this.logger.log(`Onboarding reset for user ${ctx.userId}`);
+      } catch (error) {
+        this.logger.error('Error resetting onboarding:', error);
+        await ctx.replyWithMarkdown('❌ Ошибка при сбросе онбординга.');
+      }
+    });
+
     // Onboarding callback handlers
     this.bot.action('onboarding_start', async (ctx) => {
       await ctx.answerCbQuery();
@@ -321,22 +343,32 @@ ${statusMessage}
     this.bot.action('onboarding_complete', async (ctx) => {
       await ctx.answerCbQuery();
 
-      // Mark onboarding as completed
-      await this.userService.updateUser(ctx.userId, {
-        onboardingPassed: true,
-      });
+      try {
+        // Mark onboarding as completed
+        await this.userService.updateUser(ctx.userId, {
+          onboardingPassed: true,
+        });
 
-      await ctx.replyWithMarkdown(`
+        this.logger.log(`Onboarding completed for user ${ctx.userId}`);
+
+        await ctx.replyWithMarkdown(`
 🎉 *Поздравляем! Онбординг завершен!*
 
-Теперь ты готов к продуктивной работе с Ticky AI!
+Теперь ты готов к продуктивной работе с DailyCheck AI!
 
 🚀 Используй /menu для доступа ко всем функциям
-      `);
+        `);
 
-      setTimeout(async () => {
-        await this.showMainMenu(ctx);
-      }, 2000);
+        // Показываем главное меню
+        setTimeout(() => {
+          this.showMainMenu(ctx);
+        }, 2000);
+      } catch (error) {
+        this.logger.error('Error completing onboarding:', error);
+        await ctx.replyWithMarkdown(
+          '❌ Ошибка при завершении онбординга. Попробуйте еще раз.',
+        );
+      }
     });
 
     // Handle text input during onboarding

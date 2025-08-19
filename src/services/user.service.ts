@@ -65,6 +65,7 @@ export class UserService {
           username: userData.username,
           firstName: userData.firstName,
           lastName: userData.lastName,
+          onboardingPassed: false, // Явно устанавливаем, что онбординг не пройден
           lastActivity: new Date(),
           referralCode: this.generateReferralCode(),
         },
