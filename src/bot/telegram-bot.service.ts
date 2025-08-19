@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Telegraf, session } from 'telegraf';
+import { User } from '@prisma/client';
 import { BotContext } from './bot-context.interface';
 import { UserService } from '../services/user.service';
 import { OpenAIService } from '../services/openai.service';
@@ -102,12 +103,28 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
   private setupHandlers() {
     // Start command
     this.bot.start(async (ctx) => {
-      const user = await this.userService.findByTelegramId(ctx.userId);
+      try {
+        // Создаем или находим пользователя
+        const userData = {
+          id: ctx.from?.id.toString() || ctx.userId,
+          username: ctx.from?.username || undefined,
+          firstName: ctx.from?.first_name || undefined,
+          lastName: ctx.from?.last_name || undefined,
+        };
 
-      if (!user.onboardingPassed) {
-        await this.startOnboarding(ctx);
-      } else {
-        await this.showMainMenu(ctx);
+        const user = await this.userService.findOrCreateUser(userData);
+
+        // Проверяем, прошел ли пользователь онбординг
+        if (!user.onboardingPassed) {
+          await this.startOnboarding(ctx);
+        } else {
+          await this.showMainMenu(ctx);
+        }
+      } catch (error) {
+        this.logger.error('Error in start command:', error);
+        await ctx.replyWithMarkdown(
+          '❌ Произошла ошибка при запуске бота. Попробуйте еще раз.',
+        );
       }
     }); // Help command
     this.bot.help(async (ctx) => {
@@ -324,7 +341,7 @@ ${statusMessage}
 
     // Handle text input during onboarding
     this.bot.on('text', async (ctx) => {
-      const user = await this.userService.findByTelegramId(ctx.userId);
+      const user = await this.getOrCreateUser(ctx);
 
       // Handle AI Chat mode
       if (ctx.session.aiChatMode) {
@@ -2098,7 +2115,7 @@ ${moodEmoji} *Настроение записано!*
       ],
     };
 
-    const user = await this.userService.findByTelegramId(ctx.userId);
+    const user = await this.getOrCreateUser(ctx);
     const trialInfo = await this.billingService.getTrialInfo(ctx.userId);
     const subscriptionStatus = await this.billingService.getSubscriptionStatus(
       ctx.userId,
@@ -4031,6 +4048,25 @@ ${plan.features.map((feature) => `• ${feature}`).join('\n')}
           },
         },
       );
+    }
+  }
+
+  /**
+   * Безопасно получает пользователя, создавая его при необходимости
+   */
+  private async getOrCreateUser(ctx: BotContext): Promise<User> {
+    try {
+      return await this.userService.findByTelegramId(ctx.userId);
+    } catch (error) {
+      // Пользователь не найден, создаем его
+      const userData = {
+        id: ctx.from?.id.toString() || ctx.userId,
+        username: ctx.from?.username || undefined,
+        firstName: ctx.from?.first_name || undefined,
+        lastName: ctx.from?.last_name || undefined,
+      };
+
+      return await this.userService.findOrCreateUser(userData);
     }
   }
 }
