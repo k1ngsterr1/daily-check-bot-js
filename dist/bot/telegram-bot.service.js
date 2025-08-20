@@ -1632,11 +1632,18 @@ ${trialText}**Premium подписка включает:**
         });
         this.bot.action('start_pomodoro_session', async (ctx) => {
             await ctx.answerCbQuery();
+            const user = await this.getOrCreateUser(ctx);
+            if (!user.timezone) {
+                await this.askForTimezone(ctx);
+                return;
+            }
             const startTime = new Date();
+            const endTime = new Date(startTime.getTime() + 25 * 60 * 1000);
+            const endTimeFormatted = this.formatTimeWithTimezone(endTime, user.timezone);
             await ctx.replyWithMarkdown(`
 🍅 *Сессия фокуса запущена!*
 
-⏰ **Таймер**: 25 минут (до ${new Date(startTime.getTime() + 25 * 60 * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })})
+⏰ **Таймер**: 25 минут (до ${endTimeFormatted})
 🎯 Сосредоточьтесь на одной задаче
 📱 Уберите отвлекающие факторы
 💪 Работайте до уведомления
@@ -3328,10 +3335,7 @@ ${reminderText}`, { parse_mode: 'Markdown' });
                     this.logger.error('Error sending reminder:', error);
                 }
             }, minutesFromNow * 60 * 1000);
-            const timeStr = reminderDate.toLocaleTimeString('ru-RU', {
-                hour: '2-digit',
-                minute: '2-digit',
-            });
+            const timeStr = this.formatTimeWithTimezone(reminderDate, user?.timezone);
             await ctx.replyWithMarkdown(`
 ✅ *Напоминание установлено!*
 
@@ -4341,6 +4345,13 @@ ${this.getItemActivationMessage(itemType)}`, {
                     [{ text: '🔙 Ввести город вручную', callback_data: 'input_city' }],
                 ],
             },
+        });
+    }
+    formatTimeWithTimezone(date, timezone) {
+        return date.toLocaleTimeString('ru-RU', {
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: timezone || 'Europe/Moscow',
         });
     }
 };

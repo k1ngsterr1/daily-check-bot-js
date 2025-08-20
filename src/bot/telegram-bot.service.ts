@@ -2034,12 +2034,28 @@ ${trialText}**Premium подписка включает:**
     this.bot.action('start_pomodoro_session', async (ctx) => {
       await ctx.answerCbQuery();
 
+      const user = await this.getOrCreateUser(ctx);
+
+      // Check if user needs to provide timezone first
+      if (!user.timezone) {
+        await this.askForTimezone(ctx);
+        return;
+      }
+
       const startTime = new Date();
+      const endTime = new Date(startTime.getTime() + 25 * 60 * 1000);
+
+      // Format time according to user's timezone
+      const endTimeFormatted = this.formatTimeWithTimezone(
+        endTime,
+        user.timezone,
+      );
+
       await ctx.replyWithMarkdown(
         `
 🍅 *Сессия фокуса запущена!*
 
-⏰ **Таймер**: 25 минут (до ${new Date(startTime.getTime() + 25 * 60 * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })})
+⏰ **Таймер**: 25 минут (до ${endTimeFormatted})
 🎯 Сосредоточьтесь на одной задаче
 📱 Уберите отвлекающие факторы
 💪 Работайте до уведомления
@@ -4180,10 +4196,7 @@ ${reminderText}`,
         minutesFromNow * 60 * 1000,
       );
 
-      const timeStr = reminderDate.toLocaleTimeString('ru-RU', {
-        hour: '2-digit',
-        minute: '2-digit',
-      });
+      const timeStr = this.formatTimeWithTimezone(reminderDate, user?.timezone);
 
       await ctx.replyWithMarkdown(
         `
@@ -5506,5 +5519,16 @@ ${this.getItemActivationMessage(itemType)}`,
         },
       },
     );
+  }
+
+  /**
+   * Format time string with user's timezone
+   */
+  private formatTimeWithTimezone(date: Date, timezone?: string | null): string {
+    return date.toLocaleTimeString('ru-RU', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: timezone || 'Europe/Moscow',
+    });
   }
 }

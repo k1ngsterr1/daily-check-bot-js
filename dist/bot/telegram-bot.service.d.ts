@@ -87,4 +87,5 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private showAllHabitsList;
     private confirmTimezone;
     private showTimezoneList;
+    private formatTimeWithTimezone;
 }
