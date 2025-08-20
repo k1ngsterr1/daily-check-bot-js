@@ -2708,6 +2708,16 @@ ${moodEmoji} *Настроение записано!*
       await this.showMainMenu(ctx);
     });
 
+    this.bot.action('back_to_commands', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.showMainMenu(ctx);
+    });
+
+    this.bot.action('commands_menu', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.showMainMenu(ctx);
+    });
+
     // AI Chat handlers
     this.bot.action('ai_analyze_profile', async (ctx) => {
       await this.handleAIAnalyzeProfile(ctx);
