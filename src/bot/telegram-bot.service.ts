@@ -450,7 +450,7 @@ ${statusMessage}
 
         try {
           // Create the habit using the habit service
-          const habit = await this.habitService.createHabit({
+          await this.habitService.createHabit({
             userId: ctx.userId,
             title: habitTitle,
             description: undefined,
