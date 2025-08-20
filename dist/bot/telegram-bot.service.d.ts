@@ -25,6 +25,9 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private setupMiddleware;
     private setupHandlers;
     onModuleInit(): Promise<void>;
+    private startMotivationalMessagesService;
+    private sendMotivationalMessages;
+    private generateMotivationalMessage;
     onModuleDestroy(): Promise<void>;
     private startOnboarding;
     private showOnboardingStep1;
