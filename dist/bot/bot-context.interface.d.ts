@@ -11,6 +11,7 @@ export interface BotContext extends Context {
         aiChatMode?: boolean;
         pendingReminder?: string;
         waitingForReminderTime?: boolean;
+        pendingAction?: string;
     };
     userId: string;
     replyWithMarkdown(text: string, extra?: any): Promise<any>;

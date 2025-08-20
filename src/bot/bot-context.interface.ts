@@ -12,6 +12,7 @@ export interface BotContext extends Context {
     aiChatMode?: boolean;
     pendingReminder?: string;
     waitingForReminderTime?: boolean;
+    pendingAction?: string;
   };
 
   // User info

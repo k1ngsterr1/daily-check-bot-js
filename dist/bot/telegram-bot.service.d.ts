@@ -38,10 +38,13 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private startAddingTask;
     private handleTaskCreation;
     private showTasksList;
+    private showAllTasksList;
     private showTodayTasks;
     private completeTask;
     private getPriorityEmoji;
     private askForTimezone;
+    private showManualTimezoneSelection;
+    private detectTimezoneByIP;
     private handleCityInput;
     private createProgressBar;
     private checkAndShowFeedbackRequest;
@@ -73,4 +76,12 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private showFocusAITips;
     private createPayment;
     private getOrCreateUser;
+    private handleXPPurchase;
+    private checkIfUserOwnsItem;
+    private processXPPurchase;
+    private getItemActivationMessage;
+    private completeHabit;
+    private showAllHabitsList;
+    private confirmTimezone;
+    private showTimezoneList;
 }

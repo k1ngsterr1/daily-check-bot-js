@@ -354,7 +354,7 @@ ${statusMessage}
                     return;
                 }
                 try {
-                    const habit = await this.habitService.createHabit({
+                    await this.habitService.createHabit({
                         userId: ctx.userId,
                         title: habitTitle,
                         description: undefined,
@@ -426,6 +426,10 @@ ${statusMessage}
                 await this.showHabitsMenu(ctx);
             }
         });
+        this.bot.action('habits_list', async (ctx) => {
+            await ctx.answerCbQuery();
+            await this.showHabitsMenu(ctx);
+        });
         this.bot.action('habits_ai_advice', async (ctx) => {
             await ctx.answerCbQuery();
             await this.showHabitsAIAdvice(ctx);
@@ -434,7 +438,7 @@ ${statusMessage}
             await ctx.answerCbQuery();
             const user = await this.userService.findByTelegramId(ctx.userId);
             if (!user.timezone) {
-                ctx.session.step = 'adding_habit';
+                ctx.session.pendingAction = 'adding_habit';
                 await this.askForTimezone(ctx);
             }
             else {
@@ -447,6 +451,15 @@ ${statusMessage}
                     },
                 });
             }
+        });
+        this.bot.action(/^habit_complete_(.+)$/, async (ctx) => {
+            await ctx.answerCbQuery();
+            const habitId = ctx.match[1];
+            await this.completeHabit(ctx, habitId);
+        });
+        this.bot.action('habits_list_more', async (ctx) => {
+            await ctx.answerCbQuery();
+            await this.showAllHabitsList(ctx);
         });
         this.bot.action('menu_mood', async (ctx) => {
             await ctx.answerCbQuery();
@@ -501,19 +514,49 @@ ${statusMessage}
         this.bot.action('my_progress', async (ctx) => {
             await ctx.answerCbQuery();
             const user = await this.userService.findByTelegramId(ctx.userId);
+            const userStats = await this.userService.getUserStats(ctx.userId);
+            const currentLevelXp = this.userService.getCurrentLevelXp(user);
+            const nextLevelXp = this.userService.getNextLevelXp(user);
+            const progressXp = this.userService.getProgressXp(user);
+            const xpToNextLevel = this.userService.getXpToNextLevel(user);
+            const progressRatio = this.userService.getLevelProgressRatio(user);
+            const progressBarLength = 10;
+            const filledBars = Math.floor(progressRatio * progressBarLength);
+            const emptyBars = progressBarLength - filledBars;
+            const progressBar = '█'.repeat(filledBars) + '░'.repeat(emptyBars);
             await ctx.replyWithMarkdown(`
-📈 *Ваш прогресс*
+� *Ваш прогресс*
 
 👤 **Профиль:**
 ⭐ Опыт: ${user.totalXp} XP
+🎖️ Уровень: ${user.level}
 
-📊 **Статистика:**
+�📊 **Статистика:**
+📋 Всего задач: ${user.totalTasks}
+✅ Выполнено: ${user.completedTasks}
+📈 Процент выполнения: ${userStats.completionRate}%
 
- Текущий стрик: ${user.currentStreak} дней
-📅 Аккаунт создан: ${user.createdAt.toLocaleDateString('ru-RU')}
+🎯 **Прогресс уровня:**
+\`${progressBar}\` ${Math.round(progressRatio * 100)}%
+${progressXp}/${nextLevelXp - currentLevelXp} XP до ${user.level + 1} уровня
+
+📅 **Аккаунт создан:** ${user.createdAt.toLocaleDateString('ru-RU')}
 
 Продолжайте в том же духе! 🚀
-      `);
+      `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '🎯 Детальная статистика',
+                                callback_data: 'progress_stats',
+                            },
+                            { text: '🏆 Достижения', callback_data: 'achievements' },
+                        ],
+                        [{ text: '🔙 Главное меню', callback_data: 'back_to_menu' }],
+                    ],
+                },
+            });
         });
         this.bot.action('ai_chat', async (ctx) => {
             await ctx.answerCbQuery();
@@ -524,8 +567,8 @@ ${statusMessage}
             const keyboard = {
                 inline_keyboard: [
                     [
-                        { text: '🎯 Прогресс и стрики', callback_data: 'progress_streaks' },
-                        { text: '🏆 Лидерборды', callback_data: 'leaderboards' },
+                        { text: '📊 Мой прогресс', callback_data: 'progress_stats' },
+                        { text: '⚙️ Настройки', callback_data: 'user_settings' },
                     ],
                     [
                         { text: '🥇 Достижения', callback_data: 'achievements' },
@@ -536,17 +579,17 @@ ${statusMessage}
                             text: '💰 Бонусы и рефералы',
                             callback_data: 'bonuses_referrals',
                         },
-                        { text: '👤 Профиль', callback_data: 'user_profile' },
-                    ],
-                    [
-                        { text: '⚙️ Настройки', callback_data: 'settings_menu' },
-                        { text: '🛍️ Магазин', callback_data: 'shop' },
+                        { text: '�️ Магазин', callback_data: 'shop' },
                     ],
                     [
                         { text: '🎭 Зависимости', callback_data: 'dependencies' },
                         { text: '🍅 Фокусирование', callback_data: 'pomodoro_focus' },
                     ],
-                    [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                    [
+                        { text: '👤', callback_data: 'user_profile' },
+                        { text: '⚙️', callback_data: 'settings_menu' },
+                        { text: '🏠', callback_data: 'back_to_menu' },
+                    ],
                 ],
             };
             await ctx.replyWithMarkdown(`
@@ -557,49 +600,349 @@ ${statusMessage}
                 reply_markup: keyboard,
             });
         });
-        this.bot.action('progress_streaks', async (ctx) => {
+        this.bot.action('progress_stats', async (ctx) => {
             await ctx.answerCbQuery();
             const user = await this.userService.findByTelegramId(ctx.userId);
+            const userStats = await this.userService.getUserStats(ctx.userId);
+            const today = new Date();
+            const todayStr = today.toLocaleDateString('ru-RU');
             await ctx.replyWithMarkdown(`
-🎯 *Прогресс и стрики*
+🎯 *Детальная статистика*
 
-📊 **Ваша статистика:**
+📊 **Общая информация:**
 ⭐ Опыт: ${user.totalXp} XP
-🔥 Текущий стрик: ${user.currentStreak} дней
-📅 Аккаунт создан: ${user.createdAt.toLocaleDateString('ru-RU')}
+🎖️ Уровень: ${user.level}
+📅 Дата регистрации: ${user.createdAt.toLocaleDateString('ru-RU')}
 
-**Стрики по категориям:**
-📝 Задачи: ${user.currentStreak} дней
-🔄 Привычки: В разработке
-😊 Настроение: В разработке
+� **Задачи:**
+📝 Всего создано: ${user.totalTasks}
+✅ Выполнено: ${user.completedTasks}
+📈 Процент выполнения: ${userStats.completionRate}%
+🎯 Сегодня: ${user.todayTasks}
 
-Продолжайте выполнять задачи для увеличения стрика! 🚀
+🔄 **Привычки:**
+💪 Всего создано: ${user.totalHabits}
+✅ Выполнено: ${user.completedHabits}
+� Процент выполнения: ${userStats.habitCompletionRate}%
+🎯 Сегодня: ${user.todayHabits}
+
+📈 **Прогресс за сегодня:** ${todayStr}
+${user.todayTasks > 0 || user.todayHabits > 0 ? '🟢 Активный день!' : '🔴 Пока без активности'}
+
+🎮 **Скоро появятся игры!**
+🌅 Ранняя пташка (подъем до 7:00)
+🏃 Спринтер задач (выполнить 5 задач подряд)  
+🔥 Серия успехов (выполнить все задачи дня)
+🎯 Снайпер целей (попасть в дедлайн)
+
+Продолжайте выполнять задачи для получения XP! 🚀
       `, {
                 reply_markup: {
                     inline_keyboard: [
+                        [
+                            {
+                                text: '📊 Основная статистика',
+                                callback_data: 'my_progress',
+                            },
+                            { text: '🏆 Достижения', callback_data: 'achievements' },
+                        ],
+                        [{ text: '🔙 Назад', callback_data: 'more_functions' }],
+                    ],
+                },
+            });
+        });
+        this.bot.action('user_settings', async (ctx) => {
+            await ctx.answerCbQuery();
+            const user = await this.userService.findByTelegramId(ctx.userId);
+            await ctx.replyWithMarkdown(`
+⚙️ *Настройки пользователя*
+
+👤 **Профиль:**
+🆔 ID: ${user.id}
+👤 Имя: ${user.firstName || 'Не указано'}
+📧 Username: ${user.username ? `@${user.username}` : 'Не указано'}
+
+🔔 **Уведомления:**
+📱 Уведомления: ${user.notifications ? '✅ Включены' : '❌ Отключены'}
+⏰ Время напоминаний: ${user.reminderTime}
+📊 Еженедельная сводка: ${user.weeklySummary ? '✅ Включена' : '❌ Отключена'}
+
+🎨 **Интерфейс:**
+🎭 Тема: ${user.theme}
+✨ Анимации: ${user.showAnimations ? '✅ Включены' : '❌ Отключены'}
+🎙️ Голосовые команды: ${user.voiceCommands ? '✅ Включены' : '❌ Отключены'}
+
+🤖 **AI и режимы:**
+🧠 AI режим: ${user.aiMode ? '✅ Включен' : '❌ Отключен'}
+🔧 Режим разработки: ${user.dryMode ? '✅ Включен' : '❌ Отключен'}
+
+🔒 **Приватность:**
+👁️ Уровень приватности: ${user.privacyLevel}
+🌍 Часовой пояс: ${user.timezone || 'Не установлен'}
+🏙️ Город: ${user.city || 'Не указан'}
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '🔔 Уведомления',
+                                callback_data: 'settings_notifications',
+                            },
+                            { text: '🎨 Интерфейс', callback_data: 'settings_interface' },
+                        ],
+                        [
+                            { text: '🤖 AI настройки', callback_data: 'settings_ai' },
+                            { text: '🔒 Приватность', callback_data: 'settings_privacy' },
+                        ],
                         [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
                     ],
                 },
             });
         });
-        this.bot.action('leaderboards', async (ctx) => {
+        this.bot.action('settings_notifications', async (ctx) => {
             await ctx.answerCbQuery();
+            const user = await this.userService.findByTelegramId(ctx.userId);
             await ctx.replyWithMarkdown(`
-🏆 *Лидерборды*
+🔔 *Настройки уведомлений*
 
-**Топ пользователей по XP:**
-🥇 1. Пользователь1 - 5000 XP
-🥈 2. Пользователь2 - 4500 XP  
-🥉 3. Пользователь3 - 4000 XP
-...
-
-*Функция в разработке - скоро будут реальные данные!*
-
-Выполняйте задачи и поднимайтесь в рейтинге! 📈
-      `, {
+Текущие настройки:
+📱 Уведомления: ${user.notifications ? '✅ Включены' : '❌ Отключены'}
+⏰ Время напоминаний: ${user.reminderTime}
+📊 Еженедельная сводка: ${user.weeklySummary ? '✅ Включена' : '❌ Отключена'}
+📅 Ежедневные напоминания: ${user.dailyReminders ? '✅ Включены' : '❌ Отключены'}
+        `, {
                 reply_markup: {
                     inline_keyboard: [
-                        [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
+                        [
+                            {
+                                text: user.notifications
+                                    ? '🔕 Отключить уведомления'
+                                    : '🔔 Включить уведомления',
+                                callback_data: 'toggle_notifications',
+                            },
+                        ],
+                        [
+                            {
+                                text: '⏰ Изменить время напоминаний',
+                                callback_data: 'change_reminder_time',
+                            },
+                        ],
+                        [
+                            {
+                                text: user.weeklySummary
+                                    ? '📊❌ Отключить сводку'
+                                    : '📊✅ Включить сводку',
+                                callback_data: 'toggle_weekly_summary',
+                            },
+                        ],
+                        [
+                            {
+                                text: '⬅️ Назад к настройкам',
+                                callback_data: 'user_settings',
+                            },
+                        ],
+                    ],
+                },
+            });
+        });
+        this.bot.action('settings_interface', async (ctx) => {
+            await ctx.answerCbQuery();
+            const user = await this.userService.findByTelegramId(ctx.userId);
+            await ctx.replyWithMarkdown(`
+🎨 *Настройки интерфейса*
+
+Текущие настройки:
+🎭 Тема: ${user.theme}
+✨ Анимации: ${user.showAnimations ? '✅ Включены' : '❌ Отключены'}
+🎙️ Голосовые команды: ${user.voiceCommands ? '✅ Включены' : '❌ Отключены'}
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: user.showAnimations
+                                    ? '✨❌ Отключить анимации'
+                                    : '✨✅ Включить анимации',
+                                callback_data: 'toggle_animations',
+                            },
+                        ],
+                        [
+                            {
+                                text: user.voiceCommands
+                                    ? '🎙️❌ Отключить голос'
+                                    : '🎙️✅ Включить голос',
+                                callback_data: 'toggle_voice_commands',
+                            },
+                        ],
+                        [{ text: '🎭 Сменить тему', callback_data: 'change_theme' }],
+                        [
+                            {
+                                text: '⬅️ Назад к настройкам',
+                                callback_data: 'user_settings',
+                            },
+                        ],
+                    ],
+                },
+            });
+        });
+        this.bot.action('settings_ai', async (ctx) => {
+            await ctx.answerCbQuery();
+            const user = await this.userService.findByTelegramId(ctx.userId);
+            await ctx.replyWithMarkdown(`
+🤖 *AI настройки*
+
+Текущие настройки:
+🧠 AI режим: ${user.aiMode ? '✅ Включен' : '❌ Отключен'}
+🔧 Режим разработки: ${user.dryMode ? '✅ Включен' : '❌ Отключен'}
+
+💡 AI режим позволяет боту давать умные советы и помогать с планированием.
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: user.aiMode ? '🧠❌ Отключить AI' : '🧠✅ Включить AI',
+                                callback_data: 'toggle_ai_mode',
+                            },
+                        ],
+                        [
+                            {
+                                text: '⬅️ Назад к настройкам',
+                                callback_data: 'user_settings',
+                            },
+                        ],
+                    ],
+                },
+            });
+        });
+        this.bot.action('settings_privacy', async (ctx) => {
+            await ctx.answerCbQuery();
+            const user = await this.userService.findByTelegramId(ctx.userId);
+            await ctx.replyWithMarkdown(`
+🔒 *Настройки приватности*
+
+Текущие настройки:
+👁️ Уровень приватности: ${user.privacyLevel}
+🌍 Часовой пояс: ${user.timezone || 'Не установлен'}
+🏙️ Город: ${user.city || 'Не указан'}
+
+💡 Уровень приватности влияет на видимость вашего профиля другим пользователям.
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '👁️ Изменить приватность',
+                                callback_data: 'change_privacy_level',
+                            },
+                        ],
+                        [
+                            {
+                                text: '🌍 Изменить часовой пояс',
+                                callback_data: 'change_timezone',
+                            },
+                        ],
+                        [
+                            {
+                                text: '⬅️ Назад к настройкам',
+                                callback_data: 'user_settings',
+                            },
+                        ],
+                    ],
+                },
+            });
+        });
+        this.bot.action('toggle_notifications', async (ctx) => {
+            await ctx.answerCbQuery();
+            const user = await this.userService.findByTelegramId(ctx.userId);
+            await this.userService.updateUser(ctx.userId, {
+                notifications: !user.notifications,
+            });
+            await ctx.editMessageTextWithMarkdown(`✅ Уведомления ${!user.notifications ? 'включены' : 'отключены'}`, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '⬅️ Назад к уведомлениям',
+                                callback_data: 'settings_notifications',
+                            },
+                        ],
+                    ],
+                },
+            });
+        });
+        this.bot.action('toggle_weekly_summary', async (ctx) => {
+            await ctx.answerCbQuery();
+            const user = await this.userService.findByTelegramId(ctx.userId);
+            await this.userService.updateUser(ctx.userId, {
+                weeklySummary: !user.weeklySummary,
+            });
+            await ctx.editMessageTextWithMarkdown(`✅ Еженедельная сводка ${!user.weeklySummary ? 'включена' : 'отключена'}`, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '⬅️ Назад к уведомлениям',
+                                callback_data: 'settings_notifications',
+                            },
+                        ],
+                    ],
+                },
+            });
+        });
+        this.bot.action('toggle_animations', async (ctx) => {
+            await ctx.answerCbQuery();
+            const user = await this.userService.findByTelegramId(ctx.userId);
+            await this.userService.updateUser(ctx.userId, {
+                showAnimations: !user.showAnimations,
+            });
+            await ctx.editMessageTextWithMarkdown(`✅ Анимации ${!user.showAnimations ? 'включены' : 'отключены'}`, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '⬅️ Назад к интерфейсу',
+                                callback_data: 'settings_interface',
+                            },
+                        ],
+                    ],
+                },
+            });
+        });
+        this.bot.action('toggle_voice_commands', async (ctx) => {
+            await ctx.answerCbQuery();
+            const user = await this.userService.findByTelegramId(ctx.userId);
+            await this.userService.updateUser(ctx.userId, {
+                voiceCommands: !user.voiceCommands,
+            });
+            await ctx.editMessageTextWithMarkdown(`✅ Голосовые команды ${!user.voiceCommands ? 'включены' : 'отключены'}`, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '⬅️ Назад к интерфейсу',
+                                callback_data: 'settings_interface',
+                            },
+                        ],
+                    ],
+                },
+            });
+        });
+        this.bot.action('toggle_ai_mode', async (ctx) => {
+            await ctx.answerCbQuery();
+            const user = await this.userService.findByTelegramId(ctx.userId);
+            await this.userService.updateUser(ctx.userId, {
+                aiMode: !user.aiMode,
+            });
+            await ctx.editMessageTextWithMarkdown(`✅ AI режим ${!user.aiMode ? 'включен' : 'отключен'}`, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '⬅️ Назад к AI настройкам',
+                                callback_data: 'settings_ai',
+                            },
+                        ],
                     ],
                 },
             });
@@ -613,17 +956,17 @@ ${statusMessage}
 **Разблокированные:**
 🏆 Первые шаги - Создать первую задачу
 ⭐ Новичок - Получить 100 XP
-📅 Постоянство - Стрик 3 дня
+📅 Активность - Использовать бот 3 дня
 
 **В процессе:**
-🔥 Мастер стрика - Стрик 7 дней (${user.currentStreak}/7)
-💪 Продуктивный - Выполнить 50 задач
+ Продуктивный - Выполнить 50 задач (${user.completedTasks}/50)
 🚀 Энтузиаст - Получить 1000 XP (${user.totalXp}/1000)
+🎯 Целеустремленный - Создать 20 задач (${user.totalTasks}/20)
 
 **Заблокированные:**
-🎯 Профессионал - Стрик 30 дней
 ⚡ Молния - Выполнить 10 задач за день
 🌟 Легенда - Получить 10000 XP
+🏅 Мастер - Выполнить 200 задач
 
 Продолжайте выполнять задачи для новых достижений! 🎉
       `, {
@@ -642,7 +985,6 @@ ${statusMessage}
 **Активные испытания:**
 ⏰ 7-дневный марафон продуктивности
 📝 Выполнить 21 задачу за неделю
-🎯 Улучшить стрик до 10 дней
 
 **Еженедельные вызовы:**
 🌅 Ранняя пташка - 5 задач до 10:00
@@ -676,7 +1018,6 @@ ${statusMessage}
 **Ежедневные бонусы:**
 📅 Вход в систему: +50 XP
 🎯 Первая задача дня: +100 XP
-🔥 Поддержание стрика: +25 XP
 
 **Еженедельные награды:**
 🏆 7 дней активности: +300 XP
@@ -711,8 +1052,8 @@ ${statusMessage}
 
 **Статистика:**
 ⭐ Общий опыт: ${user.totalXp} XP  
-🔥 Текущий стрик: ${user.currentStreak} дней
-📊 Максимальный стрик: ${user.currentStreak} дней
+🎖️ Уровень: ${user.level}
+📋 Выполнено задач: ${user.completedTasks}
 
 **Настройки:**
 🔔 Уведомления: ${user.notifications ? '✅ Включены' : '❌ Отключены'}
@@ -757,8 +1098,11 @@ ${statusMessage}
         });
         this.bot.action('shop', async (ctx) => {
             await ctx.answerCbQuery();
+            const user = await this.userService.findByTelegramId(ctx.userId);
             await ctx.replyWithMarkdown(`
 🛍️ *Магазин премиум функций*
+
+💰 **Ваш баланс:** ${user.totalXp} XP
 
 **Доступные улучшения:**
 ⚡ Премиум аккаунт - 299₽/месяц
@@ -777,14 +1121,138 @@ ${statusMessage}
 📱 Мобильное приложение - 399₽
 🔔 Smart-уведомления - 149₽
 
-*Магазин в разработке - скоро откроется!*
-      `, {
+💡 **XP Магазин доступен ниже!**
+        `, {
                 reply_markup: {
                     inline_keyboard: [
+                        [
+                            { text: '✨ XP Магазин', callback_data: 'xp_shop' },
+                            { text: '💳 Премиум', callback_data: 'premium_shop' },
+                        ],
                         [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
                     ],
                 },
             });
+        });
+        this.bot.action('xp_shop', async (ctx) => {
+            await ctx.answerCbQuery();
+            const user = await this.userService.findByTelegramId(ctx.userId);
+            await ctx.replyWithMarkdown(`
+✨ *XP Магазин*
+
+💰 **Ваш баланс:** ${user.totalXp} XP
+
+**🎨 Косметические улучшения:**
+• 🎭 Эксклюзивная тема "Темная материя" - 2000 XP
+• 🏆 Уникальный значок "Мастер продуктивности" - 1500 XP
+• ⚡ Анимированные эмодзи набор - 800 XP
+• 🌟 Кастомные стикеры - 1200 XP
+
+**🚀 Функциональные улучшения:**
+• 📈 Расширенная статистика - 3000 XP
+• 🎯 Дополнительные категории задач - 2500 XP
+• 🔔 Персональные уведомления - 1800 XP
+• 📊 Экспорт данных - 2200 XP
+
+Заработайте XP выполняя задачи и привычки! 💪
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            { text: '🎭 Темы (2000 XP)', callback_data: 'buy_theme_2000' },
+                            {
+                                text: '🏆 Значки (1500 XP)',
+                                callback_data: 'buy_badge_1500',
+                            },
+                        ],
+                        [
+                            { text: '⚡ Эмодзи (800 XP)', callback_data: 'buy_emoji_800' },
+                            {
+                                text: '🌟 Стикеры (1200 XP)',
+                                callback_data: 'buy_stickers_1200',
+                            },
+                        ],
+                        [
+                            {
+                                text: '📈 Статистика (3000 XP)',
+                                callback_data: 'buy_stats_3000',
+                            },
+                            {
+                                text: '🎯 Категории (2500 XP)',
+                                callback_data: 'buy_categories_2500',
+                            },
+                        ],
+                        [
+                            {
+                                text: '🔔 Уведомления (1800 XP)',
+                                callback_data: 'buy_notifications_1800',
+                            },
+                            {
+                                text: '📊 Экспорт (2200 XP)',
+                                callback_data: 'buy_export_2200',
+                            },
+                        ],
+                        [{ text: '⬅️ Назад в магазин', callback_data: 'shop' }],
+                    ],
+                },
+            });
+        });
+        this.bot.action('premium_shop', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.replyWithMarkdown(`
+💳 *Премиум подписка*
+
+**Преимущества Premium аккаунта:**
+✅ Неограниченные задачи и привычки
+✅ Расширенная аналитика и отчеты
+✅ Приоритетная поддержка AI
+✅ Эксклюзивные темы и значки
+✅ Экспорт данных в различных форматах
+✅ Персональный менеджер продуктивности
+✅ Интеграция с внешними сервисами
+
+**Тарифы:**
+🥈 **Базовый** - 299₽/месяц
+🥇 **Продвинутый** - 499₽/месяц  
+💎 **Профессиональный** - 799₽/месяц
+
+*Премиум функции скоро будут доступны!*
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            { text: '🥈 Базовый', callback_data: 'premium_basic' },
+                            { text: '🥇 Продвинутый', callback_data: 'premium_advanced' },
+                        ],
+                        [{ text: '💎 Профессиональный', callback_data: 'premium_pro' }],
+                        [{ text: '⬅️ Назад в магазин', callback_data: 'shop' }],
+                    ],
+                },
+            });
+        });
+        this.bot.action('buy_theme_2000', async (ctx) => {
+            await this.handleXPPurchase(ctx, 'theme', 2000, 'Эксклюзивная тема "Темная материя"', 'dark_matter');
+        });
+        this.bot.action('buy_badge_1500', async (ctx) => {
+            await this.handleXPPurchase(ctx, 'badge', 1500, 'Значок "Мастер продуктивности"', 'productivity_master');
+        });
+        this.bot.action('buy_emoji_800', async (ctx) => {
+            await this.handleXPPurchase(ctx, 'emoji', 800, 'Анимированные эмодзи набор', 'animated_emoji_pack');
+        });
+        this.bot.action('buy_stickers_1200', async (ctx) => {
+            await this.handleXPPurchase(ctx, 'sticker', 1200, 'Кастомные стикеры', 'custom_stickers');
+        });
+        this.bot.action('buy_stats_3000', async (ctx) => {
+            await this.handleXPPurchase(ctx, 'feature', 3000, 'Расширенная статистика', 'advanced_stats');
+        });
+        this.bot.action('buy_categories_2500', async (ctx) => {
+            await this.handleXPPurchase(ctx, 'feature', 2500, 'Дополнительные категории задач', 'extra_categories');
+        });
+        this.bot.action('buy_notifications_1800', async (ctx) => {
+            await this.handleXPPurchase(ctx, 'feature', 1800, 'Персональные уведомления', 'personal_notifications');
+        });
+        this.bot.action('buy_export_2200', async (ctx) => {
+            await this.handleXPPurchase(ctx, 'feature', 2200, 'Экспорт данных', 'data_export');
         });
         this.bot.action('show_limits', async (ctx) => {
             await ctx.answerCbQuery();
@@ -1025,7 +1493,6 @@ ${trialText}**Premium подписка включает:**
 🎯 Сессий сегодня: 0
 ⚡ Общее время фокуса: 0 мин
 📈 Лучший день: 0 сессий
-🔥 Текущий стрик: 0 дней
 
 **Настройки:**
 ⏱️ Время фокуса: 25 мин
@@ -1308,7 +1775,6 @@ ${trialText}**Premium подписка включает:**
 🎯 Всего сессий: 0
 ⚡ Общее время фокуса: 0 ч
 📚 Самая продуктивная неделя: 0 сессий
-🔥 Самый длинный стрик: 0 дней
 
 *Функция в разработке - данные будут сохраняться!*
         `, {
@@ -1671,6 +2137,10 @@ ${moodEmoji} *Настроение записано!*
             await ctx.answerCbQuery();
             await this.showTasksList(ctx);
         });
+        this.bot.action('tasks_list_more', async (ctx) => {
+            await ctx.answerCbQuery();
+            await this.showAllTasksList(ctx);
+        });
         this.bot.action('tasks_today', async (ctx) => {
             await ctx.answerCbQuery();
             await this.showTodayTasks(ctx);
@@ -1735,6 +2205,29 @@ ${moodEmoji} *Настроение записано!*
 
 Вы всегда можете оставить отзыв командой /feedback
       `);
+        });
+        this.bot.action(/^confirm_timezone_(.+)$/, async (ctx) => {
+            await ctx.answerCbQuery();
+            const timezone = ctx.match[1];
+            await this.confirmTimezone(ctx, timezone);
+        });
+        this.bot.action('manual_timezone', async (ctx) => {
+            await ctx.answerCbQuery();
+            await this.showManualTimezoneSelection(ctx);
+        });
+        this.bot.action('input_city', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.replyWithMarkdown(`
+🏙️ *Ввод города*
+
+📍 Напишите название вашего города:
+(например: Москва, Санкт-Петербург, Нью-Йорк, Лондон, Астана)
+      `);
+            ctx.session.step = 'waiting_for_city';
+        });
+        this.bot.action('select_timezone', async (ctx) => {
+            await ctx.answerCbQuery();
+            await this.showTimezoneList(ctx);
         });
         this.bot.catch((err, ctx) => {
             this.logger.error(`Bot error for ${ctx.updateType}:`, err);
@@ -1899,6 +2392,12 @@ ${statusText}🤖 Я DailyCheck Bot - твой личный помощник д�
     `, { reply_markup: keyboard });
     }
     async startAddingTask(ctx) {
+        const user = await this.userService.findByTelegramId(ctx.userId);
+        if (!user.timezone) {
+            ctx.session.pendingAction = 'adding_task';
+            await this.askForTimezone(ctx);
+            return;
+        }
         const limitCheck = await this.billingService.checkUsageLimit(ctx.userId, 'dailyTasks');
         if (!limitCheck.allowed) {
             await ctx.replyWithMarkdown(limitCheck.message || '🚫 Превышен лимит задач', {
@@ -1922,7 +2421,7 @@ ${statusText}🤖 Я DailyCheck Bot - твой личный помощник д�
 
 📊 **Задач сегодня:** ${limitCheck.current}/${limitCheck.limit === -1 ? '∞' : limitCheck.limit}
 
-📝 Напишите название задачи:
+📝 Напишите или скажите в голосовом сообщении название задачи:
     `);
         ctx.session.step = 'waiting_for_task_title';
     }
@@ -1975,29 +2474,57 @@ ${statusText}🤖 Я DailyCheck Bot - твой личный помощник д�
             }
             const pendingTasks = tasks.filter((task) => task.status === 'PENDING' || task.status === 'IN_PROGRESS');
             const completedTasks = tasks.filter((task) => task.status === 'COMPLETED');
-            let message = '📋 *Ваши задачи:*\n\n';
-            if (pendingTasks.length > 0) {
-                message += '*🔄 Активные задачи:*\n';
-                for (const task of pendingTasks) {
-                    const priorityEmoji = this.getPriorityEmoji(task.priority);
-                    message += `${priorityEmoji} ${task.title}\n`;
-                    message += `    ${task.xpReward} XP\n\n`;
-                }
-            }
-            if (completedTasks.length > 0) {
-                message += '*✅ Выполненные задачи:*\n';
-                for (const task of completedTasks.slice(0, 5)) {
-                    message += `✅ ~~${task.title}~~\n`;
-                }
-                if (completedTasks.length > 5) {
-                    message += `   ... и еще ${completedTasks.length - 5} задач\n`;
-                }
-            }
+            let message = `📋 *Ваши задачи:*\n\n`;
+            message += `🔄 **Активных:** ${pendingTasks.length}\n`;
+            message += `✅ **Выполненных:** ${completedTasks.length}\n\n`;
+            message += `*Выберите задачу для завершения:*`;
             const keyboard = {
                 inline_keyboard: [
-                    ...pendingTasks.slice(0, 5).map((task) => [
+                    ...pendingTasks.slice(0, 8).map((task) => [
                         {
-                            text: `✅ ${task.title.substring(0, 25)}${task.title.length > 25 ? '...' : ''}`,
+                            text: `${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''} (${task.xpReward} XP)`,
+                            callback_data: `task_complete_${task.id}`,
+                        },
+                    ]),
+                    ...(pendingTasks.length > 8
+                        ? [
+                            [
+                                {
+                                    text: `... и еще ${pendingTasks.length - 8} задач`,
+                                    callback_data: 'tasks_list_more',
+                                },
+                            ],
+                        ]
+                        : []),
+                    [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
+                ],
+            };
+            await ctx.replyWithMarkdown(message, { reply_markup: keyboard });
+        }
+        catch (error) {
+            this.logger.error('Error showing tasks list:', error);
+            await ctx.replyWithMarkdown('❌ Ошибка при получении списка задач');
+        }
+    }
+    async showAllTasksList(ctx) {
+        try {
+            const tasks = await this.taskService.findTasksByUserId(ctx.userId);
+            const pendingTasks = tasks.filter((task) => task.status === 'PENDING' || task.status === 'IN_PROGRESS');
+            if (pendingTasks.length === 0) {
+                await ctx.replyWithMarkdown(`
+📋 *Все активные задачи*
+
+У вас нет активных задач. Все выполнено! 🎉
+        `);
+                return;
+            }
+            let message = `📋 *Все активные задачи (${pendingTasks.length}):*\n\n`;
+            message += `*Выберите задачу для завершения:*`;
+            const keyboard = {
+                inline_keyboard: [
+                    ...pendingTasks.map((task) => [
+                        {
+                            text: `${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 35)}${task.title.length > 35 ? '...' : ''} (${task.xpReward} XP)`,
                             callback_data: `task_complete_${task.id}`,
                         },
                     ]),
@@ -2007,7 +2534,7 @@ ${statusText}🤖 Я DailyCheck Bot - твой личный помощник д�
             await ctx.replyWithMarkdown(message, { reply_markup: keyboard });
         }
         catch (error) {
-            this.logger.error('Error showing tasks list:', error);
+            this.logger.error('Error showing all tasks list:', error);
             await ctx.replyWithMarkdown('❌ Ошибка при получении списка задач');
         }
     }
@@ -2022,22 +2549,17 @@ ${statusText}🤖 Я DailyCheck Bot - твой личный помощник д�
         `);
                 return;
             }
-            let message = '📅 *Задачи на сегодня:*\n\n';
-            for (const task of tasks) {
-                const statusEmoji = task.status === 'COMPLETED' ? '✅' : '🔄';
-                const priorityEmoji = this.getPriorityEmoji(task.priority);
-                message += `${statusEmoji} ${priorityEmoji} ${task.title}\n`;
-                if (task.status !== 'COMPLETED') {
-                    message += `   🎯 ${task.xpReward} XP\n`;
-                }
-                message += '\n';
-            }
             const pendingTasks = tasks.filter((task) => task.status !== 'COMPLETED');
+            const completedTasks = tasks.filter((task) => task.status === 'COMPLETED');
+            let message = `📅 *Задачи на сегодня:*\n\n`;
+            message += `🔄 **К выполнению:** ${pendingTasks.length}\n`;
+            message += `✅ **Выполнено:** ${completedTasks.length}\n\n`;
+            message += `*Выберите задачу для завершения:*`;
             const keyboard = {
                 inline_keyboard: [
-                    ...pendingTasks.slice(0, 3).map((task) => [
+                    ...pendingTasks.map((task) => [
                         {
-                            text: `✅ ${task.title.substring(0, 25)}${task.title.length > 25 ? '...' : ''}`,
+                            text: `${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''} (${task.xpReward} XP)`,
                             callback_data: `task_complete_${task.id}`,
                         },
                     ]),
@@ -2115,13 +2637,75 @@ ${progressBar} ${Math.round(progress * 100)}%
         }
     }
     async askForTimezone(ctx) {
-        await ctx.replyWithMarkdown(`
-🌍 *Для корректной работы с задачами и привычками мне нужно знать ваш часовой пояс.*
+        await ctx.replyWithMarkdown('🔍 *Определяю ваш часовой пояс...*');
+        try {
+            const ipTimezone = await this.detectTimezoneByIP();
+            if (ipTimezone) {
+                await ctx.replyWithMarkdown(`
+🌍 *Автоматически определен часовой пояс*
 
-📍 Пожалуйста, напишите название вашего города:
-(например: Москва, Санкт-Петербург, Нью-Йорк, Лондон)
-    `);
-        ctx.session.step = 'waiting_for_city';
+🏙️ Регион: ${ipTimezone.city || 'Не определен'}
+🕐 Часовой пояс: ${ipTimezone.timezone}
+
+Все верно?`, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '✅ Да, верно',
+                                    callback_data: `confirm_timezone_${ipTimezone.timezone}`,
+                                },
+                                {
+                                    text: '❌ Нет, выбрать вручную',
+                                    callback_data: 'manual_timezone',
+                                },
+                            ],
+                        ],
+                    },
+                });
+                return;
+            }
+        }
+        catch (error) {
+            this.logger.warn('Could not detect timezone by IP:', error);
+        }
+        await this.showManualTimezoneSelection(ctx);
+    }
+    async showManualTimezoneSelection(ctx) {
+        await ctx.replyWithMarkdown(`
+🌍 *Настройка часового пояса*
+
+Выберите удобный способ:`, {
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        { text: '🏙️ Ввести город', callback_data: 'input_city' },
+                        {
+                            text: '🕐 Выбрать из списка',
+                            callback_data: 'select_timezone',
+                        },
+                    ],
+                ],
+            },
+        });
+    }
+    async detectTimezoneByIP() {
+        try {
+            const fetch = (await import('node-fetch')).default;
+            const response = await fetch('http://worldtimeapi.org/api/ip');
+            if (!response.ok) {
+                return null;
+            }
+            const data = await response.json();
+            return {
+                timezone: data.timezone,
+                city: data.timezone.split('/')[1]?.replace(/_/g, ' '),
+            };
+        }
+        catch (error) {
+            this.logger.warn('Error detecting timezone by IP:', error);
+            return null;
+        }
     }
     async handleCityInput(ctx, cityName) {
         await ctx.replyWithMarkdown('🔍 *Определяю часовой пояс...*');
@@ -2147,7 +2731,24 @@ ${progressBar} ${Math.round(progress * 100)}%
 Теперь можете продолжить создание задачи или привычки!
     `);
         ctx.session.step = undefined;
-        await this.showMainMenu(ctx);
+        if (ctx.session.pendingAction === 'adding_task') {
+            ctx.session.pendingAction = undefined;
+            await this.startAddingTask(ctx);
+        }
+        else if (ctx.session.pendingAction === 'adding_habit') {
+            ctx.session.pendingAction = undefined;
+            ctx.session.step = 'adding_habit';
+            await ctx.replyWithMarkdown('🔄 *Добавление привычки*\n\nВведите название привычки, которую хотите отслеживать:', {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '🔙 Назад в меню', callback_data: 'back_to_menu' }],
+                    ],
+                },
+            });
+        }
+        else {
+            await this.showMainMenu(ctx);
+        }
     }
     createProgressBar(progress, length = 10) {
         const filled = Math.round(progress * length);
@@ -2365,7 +2966,7 @@ ${ratingEmoji} Ваша оценка: ${rating}/5
         const tasks = await this.taskService.findTasksByUserId(ctx.userId);
         const profileData = {
             totalXp: user.totalXp,
-            currentStreak: user.currentStreak,
+            level: user.level,
             accountAge: Math.floor((Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24)),
             totalTasks: tasks.length,
             completedTasks: tasks.filter((task) => task.completedAt !== null).length,
@@ -2377,7 +2978,7 @@ ${ratingEmoji} Ваша оценка: ${rating}/5
 
 Данные пользователя:
 - Опыт: ${profileData.totalXp} XP
-- Текущий стрик: ${profileData.currentStreak} дней
+- Уровень: ${profileData.level}
 - Дней с ботом: ${profileData.accountAge}
 - Всего задач: ${profileData.totalTasks}
 - Выполнено задач: ${profileData.completedTasks}
@@ -3082,21 +3683,36 @@ ${aiAdvice}
                 let message = `🔄 *Мои привычки*\n\n`;
                 if (habits.length === 0) {
                     message += `У вас пока нет привычек.\n\n💡 Добавьте первую привычку, чтобы начать отслеживание!`;
+                    await ctx.replyWithMarkdown(message, {
+                        reply_markup: {
+                            inline_keyboard: [
+                                [{ text: '➕ Добавить привычку', callback_data: 'habits_add' }],
+                                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                            ],
+                        },
+                    });
                 }
                 else {
-                    message += `📊 *Всего привычек:* ${habits.length}\n\n`;
-                    habits.slice(0, 10).forEach((habit, index) => {
-                        const streak = habit.currentStreak || 0;
-                        const streakEmoji = streak > 7 ? '�' : streak > 3 ? '⚡' : '📈';
-                        message += `${index + 1}. ${habit.title}\n   ${streakEmoji} Серия: ${streak} дней\n\n`;
-                    });
-                    if (habits.length > 10) {
-                        message += `... и ещё ${habits.length - 10} привычек\n\n`;
-                    }
-                }
-                await ctx.replyWithMarkdown(message, {
-                    reply_markup: {
+                    message += `📊 **Всего привычек:** ${habits.length}\n\n`;
+                    message += `*Выберите привычку для выполнения:*`;
+                    const keyboard = {
                         inline_keyboard: [
+                            ...habits.slice(0, 8).map((habit) => [
+                                {
+                                    text: `✅ ${habit.title.substring(0, 30)}${habit.title.length > 30 ? '...' : ''}`,
+                                    callback_data: `habit_complete_${habit.id}`,
+                                },
+                            ]),
+                            ...(habits.length > 8
+                                ? [
+                                    [
+                                        {
+                                            text: `... и еще ${habits.length - 8} привычек`,
+                                            callback_data: 'habits_list_more',
+                                        },
+                                    ],
+                                ]
+                                : []),
                             [{ text: '➕ Добавить привычку', callback_data: 'habits_add' }],
                             [
                                 {
@@ -3106,8 +3722,9 @@ ${aiAdvice}
                             ],
                             [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
                         ],
-                    },
-                });
+                    };
+                    await ctx.replyWithMarkdown(message, { reply_markup: keyboard });
+                }
             }
             catch (error) {
                 this.logger.error(`Error fetching habits: ${error}`);
@@ -3200,7 +3817,6 @@ ${aiAnalysis}
 🎯 Сессий сегодня: 0
 ⚡ Общее время фокуса: 0 мин
 📈 Лучший день: 0 сессий
-🔥 Текущий стрик: 0 дней
 
 *Выберите действие:*
       `, {
@@ -3342,6 +3958,242 @@ ${plan.features.map((feature) => `• ${feature}`).join('\n')}
             };
             return await this.userService.findOrCreateUser(userData);
         }
+    }
+    async handleXPPurchase(ctx, itemType, cost, itemName, itemId) {
+        await ctx.answerCbQuery();
+        try {
+            const user = await this.userService.findByTelegramId(ctx.userId);
+            if (user.totalXp < cost) {
+                await ctx.editMessageTextWithMarkdown(`❌ *Недостаточно XP*
+
+Для покупки "${itemName}" нужно ${cost} XP.
+У вас: ${user.totalXp} XP
+Нужно еще: ${cost - user.totalXp} XP
+
+💪 Выполняйте задачи и привычки для заработка XP!`, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '⬅️ Назад в магазин', callback_data: 'xp_shop' }],
+                        ],
+                    },
+                });
+                return;
+            }
+            const alreadyOwned = this.checkIfUserOwnsItem(user, itemType, itemId);
+            if (alreadyOwned) {
+                await ctx.editMessageTextWithMarkdown(`✅ *Уже приобретено*
+
+У вас уже есть "${itemName}".
+
+Выберите что-то другое в магазине!`, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '⬅️ Назад в магазин', callback_data: 'xp_shop' }],
+                        ],
+                    },
+                });
+                return;
+            }
+            await this.processXPPurchase(user, itemType, itemId);
+            await this.userService.updateUserStats(ctx.userId, {
+                xpGained: -cost,
+            });
+            await ctx.editMessageTextWithMarkdown(`🎉 *Покупка успешна!*
+
+Вы приобрели: "${itemName}"
+Потрачено: ${cost} XP
+Остаток XP: ${user.totalXp - cost}
+
+${this.getItemActivationMessage(itemType)}`, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            { text: '🛍️ Продолжить покупки', callback_data: 'xp_shop' },
+                            { text: '🏠 Главное меню', callback_data: 'back_to_menu' },
+                        ],
+                    ],
+                },
+            });
+        }
+        catch (error) {
+            this.logger.error(`Error processing XP purchase: ${error}`);
+            await ctx.editMessageTextWithMarkdown('❌ Произошла ошибка при покупке. Попробуйте позже.', {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '⬅️ Назад в магазин', callback_data: 'xp_shop' }],
+                    ],
+                },
+            });
+        }
+    }
+    checkIfUserOwnsItem(user, itemType, itemId) {
+        switch (itemType) {
+            case 'theme':
+                return user.unlockedThemes.includes(itemId);
+            case 'badge':
+            case 'emoji':
+            case 'sticker':
+                return user.stickers.includes(itemId);
+            case 'feature':
+                return user.stickers.includes(`feature_${itemId}`);
+            default:
+                return false;
+        }
+    }
+    async processXPPurchase(user, itemType, itemId) {
+        const updateData = {};
+        switch (itemType) {
+            case 'theme':
+                updateData.unlockedThemes = [...user.unlockedThemes, itemId];
+                break;
+            case 'badge':
+            case 'emoji':
+            case 'sticker':
+                updateData.stickers = [...user.stickers, itemId];
+                break;
+            case 'feature':
+                updateData.stickers = [...user.stickers, `feature_${itemId}`];
+                break;
+        }
+        await this.userService.updateUser(user.id, updateData);
+    }
+    getItemActivationMessage(itemType) {
+        switch (itemType) {
+            case 'theme':
+                return '🎨 Тема активирована! Вы можете переключиться в настройках.';
+            case 'badge':
+                return '🏆 Значок добавлен в ваш профиль!';
+            case 'emoji':
+                return '⚡ Эмодзи доступны в чате!';
+            case 'sticker':
+                return '🌟 Стикеры добавлены в коллекцию!';
+            case 'feature':
+                return '🚀 Функция активирована и готова к использованию!';
+            default:
+                return '✨ Покупка активирована!';
+        }
+    }
+    async completeHabit(ctx, habitId) {
+        try {
+            await ctx.replyWithMarkdown(`
+✅ *Привычка выполнена!*
+
+🎯 Отличная работа! Вы на пути к формированию полезной привычки.
+
+💡 *Функция выполнения привычек в разработке - скоро будет полноценная система отслеживания!*
+      `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '🔄 Мои привычки', callback_data: 'habits_list' }],
+                        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                    ],
+                },
+            });
+        }
+        catch (error) {
+            this.logger.error('Error completing habit:', error);
+            await ctx.replyWithMarkdown('❌ Ошибка при выполнении привычки');
+        }
+    }
+    async showAllHabitsList(ctx) {
+        try {
+            const habits = await this.habitService.findHabitsByUserId(ctx.userId);
+            if (habits.length === 0) {
+                await ctx.replyWithMarkdown(`
+🔄 *Все привычки*
+
+У вас нет привычек. Добавьте первую! 🎯
+        `);
+                return;
+            }
+            let message = `🔄 *Все привычки (${habits.length}):*\n\n`;
+            message += `*Выберите привычку для выполнения:*`;
+            const keyboard = {
+                inline_keyboard: [
+                    ...habits.map((habit) => [
+                        {
+                            text: `✅ ${habit.title.substring(0, 35)}${habit.title.length > 35 ? '...' : ''}`,
+                            callback_data: `habit_complete_${habit.id}`,
+                        },
+                    ]),
+                    [{ text: '🔙 Назад к привычкам', callback_data: 'habits_list' }],
+                ],
+            };
+            await ctx.replyWithMarkdown(message, { reply_markup: keyboard });
+        }
+        catch (error) {
+            this.logger.error('Error showing all habits list:', error);
+            await ctx.replyWithMarkdown('❌ Ошибка при получении списка привычек');
+        }
+    }
+    async confirmTimezone(ctx, timezone) {
+        try {
+            await this.userService.updateUser(ctx.userId, {
+                timezone: timezone,
+            });
+            await ctx.replyWithMarkdown(`
+✅ *Часовой пояс установлен!*
+
+🕐 Часовой пояс: ${timezone}
+
+Теперь можете создавать задачи и привычки!
+      `);
+            ctx.session.step = undefined;
+            if (ctx.session.pendingAction === 'adding_task') {
+                ctx.session.pendingAction = undefined;
+                await this.startAddingTask(ctx);
+            }
+            else if (ctx.session.pendingAction === 'adding_habit') {
+                ctx.session.pendingAction = undefined;
+                ctx.session.step = 'adding_habit';
+                await ctx.replyWithMarkdown('🔄 *Добавление привычки*\n\nВведите название привычки, которую хотите отслеживать:', {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '🔙 Назад в меню', callback_data: 'back_to_menu' }],
+                        ],
+                    },
+                });
+            }
+            else {
+                await this.showMainMenu(ctx);
+            }
+        }
+        catch (error) {
+            this.logger.error('Error confirming timezone:', error);
+            await ctx.replyWithMarkdown('❌ Ошибка при сохранении часового пояса');
+        }
+    }
+    async showTimezoneList(ctx) {
+        const commonTimezones = [
+            { name: 'Москва', tz: 'Europe/Moscow' },
+            { name: 'СПб', tz: 'Europe/Moscow' },
+            { name: 'Екатеринбург', tz: 'Asia/Yekaterinburg' },
+            { name: 'Новосибирск', tz: 'Asia/Novosibirsk' },
+            { name: 'Владивосток', tz: 'Asia/Vladivostok' },
+            { name: 'Астана', tz: 'Asia/Almaty' },
+            { name: 'Киев', tz: 'Europe/Kiev' },
+            { name: 'Минск', tz: 'Europe/Minsk' },
+            { name: 'Лондон', tz: 'Europe/London' },
+            { name: 'Париж', tz: 'Europe/Paris' },
+            { name: 'Нью-Йорк', tz: 'America/New_York' },
+            { name: 'Лос-Анджелес', tz: 'America/Los_Angeles' },
+        ];
+        await ctx.replyWithMarkdown(`
+🕐 *Выберите часовой пояс*
+
+Выберите ближайший к вам город:`, {
+            reply_markup: {
+                inline_keyboard: [
+                    ...commonTimezones.map((city) => [
+                        {
+                            text: `🏙️ ${city.name}`,
+                            callback_data: `confirm_timezone_${city.tz}`,
+                        },
+                    ]),
+                    [{ text: '🔙 Ввести город вручную', callback_data: 'input_city' }],
+                ],
+            },
+        });
     }
 };
 exports.TelegramBotService = TelegramBotService;
