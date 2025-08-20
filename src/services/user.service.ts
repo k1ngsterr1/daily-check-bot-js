@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { User } from '@prisma/client';
-import { CreateUserDto, UpdateUserDto, UpdateUserStatsDto } from '../dto';
+import { CreateUserDto, UpdateUserStatsDto } from '../dto';
 
 @Injectable()
 export class UserService {
@@ -30,7 +30,7 @@ export class UserService {
 
       if (user) {
         // Update user info if needed
-        const updateData: any = {};
+        const updateData: Partial<User> = {};
         let hasUpdates = false;
 
         if (userData.username !== user.username) {
@@ -97,7 +97,7 @@ export class UserService {
   ): Promise<User> {
     const user = await this.findByTelegramId(telegramId);
 
-    const updateData: any = {
+    const updateData: Partial<User> = {
       lastActivity: new Date(),
     };
 
@@ -140,7 +140,7 @@ export class UserService {
   async updateStreak(telegramId: string, streakValue: number): Promise<User> {
     const user = await this.findByTelegramId(telegramId);
 
-    const updateData: any = {
+    const updateData: Partial<User> = {
       currentStreak: streakValue,
     };
 

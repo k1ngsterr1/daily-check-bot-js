@@ -35,7 +35,16 @@ let PrismaService = PrismaService_1 = class PrismaService extends client_1.Prism
         this.logger.log('🔌 Disconnected from database');
     }
     async cleanDatabase() {
-        const modelNames = ['userAchievement', 'achievement', 'reminder', 'focusSession', 'moodEntry', 'habit', 'task', 'user'];
+        const modelNames = [
+            'userAchievement',
+            'achievement',
+            'reminder',
+            'focusSession',
+            'moodEntry',
+            'habit',
+            'task',
+            'user',
+        ];
         for (const modelName of modelNames) {
             const model = this[modelName];
             if (model && typeof model === 'object' && 'deleteMany' in model) {

@@ -60,7 +60,8 @@ export class TaskService {
     userId: string,
     updateTaskDto: UpdateTaskDto,
   ): Promise<Task> {
-    const existingTask = await this.findTaskById(taskId, userId);
+    // Verify the task exists and belongs to the user
+    await this.findTaskById(taskId, userId);
 
     const task = await this.prisma.task.update({
       where: { id: taskId },

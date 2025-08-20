@@ -64,6 +64,7 @@ let UserService = UserService_1 = class UserService {
                     username: userData.username,
                     firstName: userData.firstName,
                     lastName: userData.lastName,
+                    onboardingPassed: false,
                     lastActivity: new Date(),
                     referralCode: this.generateReferralCode(),
                 },

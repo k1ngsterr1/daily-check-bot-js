@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
-import { Habit, HabitFrequency } from '@prisma/client';
+import { Habit } from '@prisma/client';
 import { CreateHabitDto, UpdateHabitDto } from '../dto';
 
 @Injectable()

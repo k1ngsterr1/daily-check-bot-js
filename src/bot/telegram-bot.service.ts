@@ -11,6 +11,7 @@ import { BotContext } from './bot-context.interface';
 import { UserService } from '../services/user.service';
 import { OpenAIService } from '../services/openai.service';
 import { TaskService } from '../services/task.service';
+import { HabitService } from '../services/habit.service';
 import { BillingService } from '../services/billing.service';
 import { AiContextService } from '../services/ai-context.service';
 import { PaymentService } from '../services/payment.service';
@@ -33,6 +34,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     private readonly userService: UserService,
     private readonly openaiService: OpenAIService,
     private readonly taskService: TaskService,
+    private readonly habitService: HabitService,
     private readonly billingService: BillingService,
     private readonly aiContextService: AiContextService,
     private readonly paymentService: PaymentService,
@@ -435,6 +437,55 @@ ${statusMessage}
         return;
       }
 
+      // Handle regular habit creation
+      if (ctx.session.step === 'adding_habit') {
+        const habitTitle = ctx.message.text.trim();
+
+        if (!habitTitle || habitTitle.length < 2) {
+          await ctx.replyWithMarkdown(
+            '⚠️ Название привычки должно содержать минимум 2 символа. Попробуйте еще раз:',
+          );
+          return;
+        }
+
+        try {
+          // Create the habit using the habit service
+          const habit = await this.habitService.createHabit({
+            userId: ctx.userId,
+            title: habitTitle,
+            description: undefined,
+            frequency: 'DAILY' as const,
+            targetCount: 1,
+          });
+
+          ctx.session.step = undefined;
+
+          await ctx.replyWithMarkdown(
+            `
+✅ *Привычка "${habitTitle}" успешно добавлена!*
+
+🎯 Теперь вы можете отслеживать её выполнение в разделе "Мои привычки".
+
+*Напоминание:* Регулярность - ключ к формированию привычек!
+          `,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🔄 Мои привычки', callback_data: 'menu_habits' }],
+                  [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                ],
+              },
+            },
+          );
+        } catch (error) {
+          this.logger.error(`Error creating habit: ${error}`);
+          await ctx.replyWithMarkdown(
+            '❌ Произошла ошибка при создании привычки. Попробуйте позже.',
+          );
+        }
+        return;
+      }
+
       // Handle reminder requests in regular text mode
       if (this.isReminderRequest(ctx.message.text)) {
         await this.processReminderFromText(ctx, ctx.message.text);
@@ -487,9 +538,7 @@ ${statusMessage}
         ctx.session.step = 'adding_habit';
         await this.askForTimezone(ctx);
       } else {
-        await ctx.replyWithMarkdown(
-          '🔄 *Управление привычками* - функция в разработке',
-        );
+        await this.showHabitsMenu(ctx);
       }
     });
 
@@ -497,6 +546,29 @@ ${statusMessage}
     this.bot.action('habits_ai_advice', async (ctx) => {
       await ctx.answerCbQuery();
       await this.showHabitsAIAdvice(ctx);
+    });
+
+    // Handle adding habits
+    this.bot.action('habits_add', async (ctx) => {
+      await ctx.answerCbQuery();
+
+      const user = await this.userService.findByTelegramId(ctx.userId);
+      if (!user.timezone) {
+        ctx.session.step = 'adding_habit';
+        await this.askForTimezone(ctx);
+      } else {
+        ctx.session.step = 'adding_habit';
+        await ctx.replyWithMarkdown(
+          '🔄 *Добавление привычки*\n\nВведите название привычки, которую хотите отслеживать:',
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🔙 Назад в меню', callback_data: 'back_to_menu' }],
+              ],
+            },
+          },
+        );
+      }
     });
 
     this.bot.action('menu_mood', async (ctx) => {
@@ -3551,7 +3623,7 @@ _Попробуйте еще раз_
       const minutes = timeMatch[2] || '00';
 
       // Extract reminder text by removing time references and trigger words
-      let reminderText = text
+      const reminderText = text
         .replace(/напомни\s*(мне)?/gi, '')
         .replace(/напоминание/gi, '')
         .replace(/поставь/gi, '')
@@ -3799,21 +3871,31 @@ ${aiAdvice}
       ctx.session.step = 'adding_habit';
       await this.askForTimezone(ctx);
     } else {
-      await ctx.replyWithMarkdown(
-        `
-🔄 *Управление привычками*
+      try {
+        const habits = await this.habitService.findHabitsByUserId(ctx.userId);
 
-Здесь вы можете добавлять и отслеживать свои привычки:
-• 💪 Спорт и физическая активность
-• 📚 Чтение и обучение  
-• 🧘 Медитация и релаксация
-• 💧 Здоровье и самочувствие
+        let message = `🔄 *Мои привычки*\n\n`;
 
-*Функция находится в разработке и будет доступна в следующем обновлении!*
-        `,
-        {
+        if (habits.length === 0) {
+          message += `У вас пока нет привычек.\n\n💡 Добавьте первую привычку, чтобы начать отслеживание!`;
+        } else {
+          message += `📊 *Всего привычек:* ${habits.length}\n\n`;
+
+          habits.slice(0, 10).forEach((habit, index) => {
+            const streak = habit.currentStreak || 0;
+            const streakEmoji = streak > 7 ? '�' : streak > 3 ? '⚡' : '📈';
+            message += `${index + 1}. ${habit.title}\n   ${streakEmoji} Серия: ${streak} дней\n\n`;
+          });
+
+          if (habits.length > 10) {
+            message += `... и ещё ${habits.length - 10} привычек\n\n`;
+          }
+        }
+
+        await ctx.replyWithMarkdown(message, {
           reply_markup: {
             inline_keyboard: [
+              [{ text: '➕ Добавить привычку', callback_data: 'habits_add' }],
               [
                 {
                   text: '🤖 AI-совет по привычкам',
@@ -3823,8 +3905,20 @@ ${aiAdvice}
               [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
             ],
           },
-        },
-      );
+        });
+      } catch (error) {
+        this.logger.error(`Error fetching habits: ${error}`);
+        await ctx.replyWithMarkdown(
+          '❌ Произошла ошибка при загрузке привычек. Попробуйте позже.',
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+              ],
+            },
+          },
+        );
+      }
     }
   }
 

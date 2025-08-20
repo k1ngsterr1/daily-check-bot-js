@@ -57,7 +57,7 @@ let TaskService = TaskService_1 = class TaskService {
         return task;
     }
     async updateTask(taskId, userId, updateTaskDto) {
-        const existingTask = await this.findTaskById(taskId, userId);
+        await this.findTaskById(taskId, userId);
         const task = await this.prisma.task.update({
             where: { id: taskId },
             data: {

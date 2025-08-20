@@ -1,8 +1,16 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 @Injectable()
-export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+export class PrismaService
+  extends PrismaClient
+  implements OnModuleInit, OnModuleDestroy
+{
   private readonly logger = new Logger(PrismaService.name);
 
   constructor() {
@@ -28,8 +36,17 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
   async cleanDatabase() {
     // For development/testing purposes
-    const modelNames = ['userAchievement', 'achievement', 'reminder', 'focusSession', 'moodEntry', 'habit', 'task', 'user'];
-    
+    const modelNames = [
+      'userAchievement',
+      'achievement',
+      'reminder',
+      'focusSession',
+      'moodEntry',
+      'habit',
+      'task',
+      'user',
+    ];
+
     // Delete in order to respect foreign key constraints
     for (const modelName of modelNames) {
       const model = this[modelName as keyof PrismaClient];
