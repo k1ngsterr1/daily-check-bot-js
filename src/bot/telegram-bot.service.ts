@@ -435,8 +435,11 @@ ${statusMessage}
     this.bot.on('text', async (ctx) => {
       const user = await this.getOrCreateUser(ctx);
 
+      console.log('🔍 Получено текстовое сообщение:', ctx.message.text);
+
       // Skip if this is a command (starts with /) - FIRST CHECK
       if (ctx.message.text.startsWith('/')) {
+        console.log('⚡ Это команда, пропускаем');
         return; // Let command handlers process it
       }
 
@@ -693,7 +696,9 @@ ${statusMessage}
       }
 
       // Check if this is a general question/chat message that should trigger AI
+      console.log('🤖 Проверяем isGeneralChatMessage для:', ctx.message.text);
       if (this.isGeneralChatMessage(ctx.message.text)) {
+        console.log('✅ Сообщение распознано как общий чат, активируем ИИ');
         // Enable AI chat mode and handle the message
         ctx.session.aiChatMode = true;
         await this.handleAIChatMessage(ctx, ctx.message.text);
