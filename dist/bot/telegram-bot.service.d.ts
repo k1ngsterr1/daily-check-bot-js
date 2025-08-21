@@ -24,10 +24,13 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     constructor(configService: ConfigService, userService: UserService, openaiService: OpenAIService, taskService: TaskService, habitService: HabitService, billingService: BillingService, aiContextService: AiContextService, paymentService: PaymentService);
     private setupMiddleware;
     private setupHandlers;
+    private handleAITaskRecommendations;
+    private handleAIHabitHelp;
+    private handleAITimePlanning;
+    private handleAICustomQuestion;
     onModuleInit(): Promise<void>;
     private startMotivationalMessagesService;
     private sendMotivationalMessages;
-    private generateMotivationalMessage;
     onModuleDestroy(): Promise<void>;
     private startOnboarding;
     private showOnboardingStep1;
@@ -59,8 +62,6 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private completeFeedback;
     private startAIChat;
     private handleAIAnalyzeProfile;
-    private handleAITaskRecommendations;
-    private handleAICustomQuestion;
     private handleAIChatMessage;
     private handleRelativeReminderRequest;
     private handleReminderRequest;
@@ -70,6 +71,8 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private processReminderFromText;
     private isReminderWithoutTime;
     private isReminderRequest;
+    private isTaskRequest;
+    private createTaskFromText;
     private showTasksAIAdvice;
     private showHabitsAIAdvice;
     private showHabitsMenu;
@@ -88,4 +91,13 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private confirmTimezone;
     private showTimezoneList;
     private formatTimeWithTimezone;
+    private startAddingHabit;
+    private analyzeAndCreateFromVoice;
+    private isHabitRequest;
+    private extractHabitName;
+    private extractTaskName;
+    private createHabitFromVoice;
+    private createTaskFromVoice;
+    private startDailyMotivation;
+    private generateMotivationalMessage;
 }
