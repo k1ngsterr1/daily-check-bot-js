@@ -106,6 +106,15 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     // Start command
     this.bot.start(async (ctx) => {
       try {
+        // Проверяем реферальный параметр
+        const startPayload = ctx.startPayload;
+        let referrerId: string | undefined;
+
+        if (startPayload && startPayload.startsWith('ref_')) {
+          referrerId = startPayload.replace('ref_', '');
+          this.logger.log(`User started with referral from: ${referrerId}`);
+        }
+
         // Создаем или находим пользователя
         const userData = {
           id: ctx.from?.id.toString() || ctx.userId,
@@ -115,6 +124,11 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         };
 
         const user = await this.userService.findOrCreateUser(userData);
+
+        // Если это новый пользователь с реферальным кодом
+        if (referrerId && referrerId !== user.id) {
+          await this.handleReferralRegistration(ctx, user.id, referrerId);
+        }
 
         this.logger.log(
           `User ${user.id} started bot. Onboarding passed: ${user.onboardingPassed}`,
@@ -1378,34 +1392,198 @@ ${user.todayTasks > 0 || user.todayHabits > 0 ? '🟢 Активный день!
 
     this.bot.action('bonuses_referrals', async (ctx) => {
       await ctx.answerCbQuery();
+
+      // Генерируем реферальную ссылку с ID пользователя
+      const botUsername =
+        this.configService.get<string>('bot.username') || 'TickyAIBot';
+      const referralLink = `https://t.me/${botUsername}?start=ref_${ctx.userId}`;
+
+      // Получаем статистику пользователя
+      const user = await this.userService.findByTelegramId(ctx.userId);
+
+      // Временные данные, пока не добавим в UserService
+      const referralStats = {
+        totalReferrals: 0,
+        activeReferrals: 0,
+        totalBonus: 0,
+        topReferrals: [],
+      };
+
       await ctx.editMessageTextWithMarkdown(
         `
-💰 *Бонусы и рефералы*
+� *РЕФЕРАЛЬНАЯ СИСТЕМА*
 
-**Реферальная программа:**
-🔗 Ваш код приглашения: \`REF${ctx.userId.slice(-6)}\`
-👥 Приглашено друзей: 0
-🎁 Бонус за друга: +500 XP
+🔗 **ВАША ССЫЛКА** 👇
+\`${referralLink}\`
 
-**Ежедневные бонусы:**
-📅 Вход в систему: +50 XP
-🎯 Первая задача дня: +100 XP
+**СТАТИСТИКА ПАРТНЕРСТВА:**
+👥 Приглашено друзей: ${referralStats.totalReferrals || 0}
+💎 Активных пользователей: ${referralStats.activeReferrals || 0}  
+🎁 Получено бонусов: ${referralStats.totalBonus || 0} XP
 
-**Еженедельные награды:**
-🏆 7 дней активности: +300 XP
-⭐ 21 задача в неделю: +500 XP
+**УСЛОВИЯ:**
+• За каждого друга: +500 XP
+• Друг получает: +200 XP при регистрации
+• Бонус за активного друга: +100 XP/неделю
 
-**Как пригласить друга:**
-1. Поделитесь кодом приглашения
-2. Друг вводит код при регистрации  
-3. Вы оба получаете +500 XP!
+**ТОП-5 ваших рефералов:**
+${
+  referralStats.topReferrals && referralStats.topReferrals.length > 0
+    ? referralStats.topReferrals
+        .map(
+          (ref: any, i: number) =>
+            `${i + 1}. ${ref.firstName || 'Пользователь'} - ${ref.xpEarned || 0} XP`,
+        )
+        .join('\n')
+    : 'Пока нет рефералов'
+}
 
-*Функция в разработке - скоро полный запуск!*
+💡 **Поделитесь ссылкой с друзьями!**
       `,
         {
           reply_markup: {
             inline_keyboard: [
+              [
+                {
+                  text: '📋 Копировать ссылку',
+                  callback_data: 'copy_referral_link',
+                },
+                {
+                  text: '📊 Детальная статистика',
+                  callback_data: 'referral_stats',
+                },
+              ],
+              [
+                { text: '💰 Вывести бонусы', callback_data: 'withdraw_bonus' },
+                {
+                  text: '🎓 Как работает',
+                  callback_data: 'how_referral_works',
+                },
+              ],
               [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
+            ],
+          },
+        },
+      );
+    });
+
+    // Referral system handlers
+    this.bot.action('copy_referral_link', async (ctx) => {
+      await ctx.answerCbQuery('📋 Ссылка скопирована! Поделитесь с друзьями!');
+      const botUsername =
+        this.configService.get<string>('bot.username') || 'TickyAIBot';
+      const referralLink = `https://t.me/${botUsername}?start=ref_${ctx.userId}`;
+
+      await ctx.reply(
+        `🔗 *Ваша реферальная ссылка:*\n\n\`${referralLink}\`\n\n📱 Поделитесь этой ссылкой с друзьями!\n💰 За каждого приглашенного +500 XP`,
+        { parse_mode: 'Markdown' },
+      );
+    });
+
+    this.bot.action('referral_stats', async (ctx) => {
+      await ctx.answerCbQuery();
+      // Временно показываем базовую статистику, пока не добавим в UserService
+      await ctx.editMessageTextWithMarkdown(
+        `
+📊 *ДЕТАЛЬНАЯ СТАТИСТИКА*
+
+**ЗА ВСЕ ВРЕМЯ:**
+👥 Всего приглашений: 0
+💎 Активных рефералов: 0
+💰 Заработано XP: 0
+
+**ЗА ЭТОТ МЕСЯЦ:**
+📈 Новые приглашения: 0
+⭐ Активность рефералов: 0%
+🎁 Получено бонусов: 0 XP
+
+**КОНВЕРСИЯ:**
+📋 Переходы по ссылке: 0
+✅ Регистрации: 0
+🔥 Коэффициент конверсии: 0%
+
+*💡 Приглашайте больше друзей для увеличения статистики!*
+        `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '⬅️ К рефералам', callback_data: 'bonuses_referrals' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('how_referral_works', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown(
+        `
+🎓 *КАК РАБОТАЕТ РЕФЕРАЛЬНАЯ ПРОГРАММА*
+
+**ШАГ 1: ПОДЕЛИТЕСЬ ССЫЛКОЙ**
+📱 Скопируйте свою реферальную ссылку
+💬 Отправьте друзьям в чат или соцсети
+🔗 Каждая ссылка уникальна и содержит ваш ID
+
+**ШАг 2: ДРУГ РЕГИСТРИРУЕТСЯ**
+👤 Друг переходит по вашей ссылке
+🚀 Регистрируется в боте
+🎁 Получает +200 XP при регистрации
+
+**ШАГ 3: ВЫ ПОЛУЧАЕТЕ НАГРАДУ**
+💰 +500 XP сразу за приглашение
+⭐ +100 XP каждую неделю за активного друга
+🏆 Бонусы за достижения рефералов
+
+**УСЛОВИЯ:**
+• Самоприглашение не считается
+• Бонусы только за реальную активность
+• Еженедельные выплаты по воскресеньям
+
+*🚀 Начните прямо сейчас - поделитесь ссылкой!*
+        `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '📋 Копировать ссылку',
+                  callback_data: 'copy_referral_link',
+                },
+                { text: '⬅️ К рефералам', callback_data: 'bonuses_referrals' },
+              ],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('withdraw_bonus', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown(
+        `
+💰 *ВЫВОД БОНУСОВ*
+
+**ДОСТУПНЫЕ ВАРИАНТЫ:**
+🎮 Премиум функции бота - от 1000 XP
+🛍️ Скидки в магазине - от 500 XP  
+🎁 Подарочные карты - от 2000 XP
+
+**ТЕКУЩИЙ БАЛАНС:**
+⭐ Ваш XP: Loading...
+💎 Доступно к выводу: Loading...
+
+**МИНИМАЛЬНЫЙ ВЫВОД:**
+🔢 500 XP = Базовые награды
+💰 1000 XP = Премиум возможности
+🏆 2000 XP = Ценные призы
+
+*🚧 Функция в разработке - скоро будет доступна!*
+        `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '⬅️ К рефералам', callback_data: 'bonuses_referrals' }],
             ],
           },
         },
@@ -3249,6 +3427,64 @@ ${timeAdvice}
 
     // Enable custom AI chat mode
     ctx.session.aiChatMode = true;
+  }
+
+  // Referral system methods
+  private async handleReferralRegistration(
+    ctx: BotContext,
+    newUserId: string,
+    referrerId: string,
+  ): Promise<void> {
+    try {
+      // Проверяем, что пользователи разные
+      if (newUserId === referrerId) {
+        return;
+      }
+
+      // Проверяем существование реферера
+      const referrer = await this.userService
+        .findByTelegramId(referrerId)
+        .catch(() => null);
+      if (!referrer) {
+        this.logger.warn(`Referrer ${referrerId} not found`);
+        return;
+      }
+
+      // Начисляем бонусы рефереру
+      const referrerUser = await this.userService.findByTelegramId(referrerId);
+      await this.userService.updateUser(referrerId, {
+        totalXp: referrerUser.totalXp + 500,
+      });
+
+      // Начисляем бонус новому пользователю
+      const newUser = await this.userService.findByTelegramId(newUserId);
+      await this.userService.updateUser(newUserId, {
+        totalXp: newUser.totalXp + 200,
+      });
+
+      // Отправляем уведомления
+      try {
+        await this.bot.telegram.sendMessage(
+          referrerId,
+          `🎉 *Поздравляем!*\n\n👤 Ваш друг присоединился к Ticky AI!\n💰 Вы получили +500 XP\n🎁 Друг получил +200 XP при регистрации`,
+          { parse_mode: 'Markdown' },
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Could not send referral notification to ${referrerId}: ${error.message}`,
+        );
+      }
+
+      await ctx.replyWithMarkdown(
+        `🎁 *Добро пожаловать!*\n\nВы присоединились по приглашению друга!\n⭐ Получили +200 XP бонус при регистрации\n\n🚀 Давайте начнем знакомство с ботом!`,
+      );
+
+      this.logger.log(
+        `Referral registration: ${newUserId} invited by ${referrerId}`,
+      );
+    } catch (error) {
+      this.logger.error('Error handling referral registration:', error);
+    }
   }
 
   async onModuleInit() {

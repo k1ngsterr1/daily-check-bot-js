@@ -1,6 +1,7 @@
 export default () => ({
   bot: {
     token: process.env.BOT_TOKEN,
+    username: process.env.BOT_USERNAME || 'TickyAIBot',
     webhookUrl: process.env.WEBHOOK_URL,
   },
   database: {

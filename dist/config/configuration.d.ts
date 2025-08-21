@@ -1,6 +1,7 @@
 declare const _default: () => {
     bot: {
         token: string | undefined;
+        username: string;
         webhookUrl: string | undefined;
     };
     database: {

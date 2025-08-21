@@ -88,6 +88,12 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
     setupHandlers() {
         this.bot.start(async (ctx) => {
             try {
+                const startPayload = ctx.startPayload;
+                let referrerId;
+                if (startPayload && startPayload.startsWith('ref_')) {
+                    referrerId = startPayload.replace('ref_', '');
+                    this.logger.log(`User started with referral from: ${referrerId}`);
+                }
                 const userData = {
                     id: ctx.from?.id.toString() || ctx.userId,
                     username: ctx.from?.username || undefined,
@@ -95,6 +101,9 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
                     lastName: ctx.from?.last_name || undefined,
                 };
                 const user = await this.userService.findOrCreateUser(userData);
+                if (referrerId && referrerId !== user.id) {
+                    await this.handleReferralRegistration(ctx, user.id, referrerId);
+                }
                 this.logger.log(`User ${user.id} started bot. Onboarding passed: ${user.onboardingPassed}`);
                 if (!user.onboardingPassed) {
                     this.logger.log(`Starting onboarding for user ${user.id}`);
@@ -112,7 +121,7 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
         });
         this.bot.help(async (ctx) => {
             await ctx.replyWithMarkdown(`
-🤖 *DailyCheck Bot - Ваш персональный помощник продуктивности*
+🤖 *Ticky AI - Ваш персональный AI помощник продуктивности*
 
 *Основные команды:*
 /start - Начать работу с ботом
@@ -153,7 +162,7 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
         });
         this.bot.command('help', async (ctx) => {
             await ctx.editMessageTextWithMarkdown(`
-🤖 *DailyCheck Bot - Справка*
+🤖 *Ticky AI - Справка*
 
 **Доступные команды:**
 /start - Начать работу с ботом
@@ -292,7 +301,7 @@ ${statusMessage}
                 await ctx.editMessageTextWithMarkdown(`
 🎉 *Поздравляем! Онбординг завершен!*
 
-Теперь ты готов к продуктивной работе с DailyCheck AI!
+Теперь ты готов к продуктивной работе с Ticky AI!
 
 🚀 Используй /menu для доступа ко всем функциям
         `);
@@ -1110,32 +1119,161 @@ ${user.todayTasks > 0 || user.todayHabits > 0 ? '🟢 Активный день!
         });
         this.bot.action('bonuses_referrals', async (ctx) => {
             await ctx.answerCbQuery();
+            const botUsername = this.configService.get('bot.username') || 'TickyAIBot';
+            const referralLink = `https://t.me/${botUsername}?start=ref_${ctx.userId}`;
+            const user = await this.userService.findByTelegramId(ctx.userId);
+            const referralStats = {
+                totalReferrals: 0,
+                activeReferrals: 0,
+                totalBonus: 0,
+                topReferrals: [],
+            };
             await ctx.editMessageTextWithMarkdown(`
-💰 *Бонусы и рефералы*
+� *РЕФЕРАЛЬНАЯ СИСТЕМА*
 
-**Реферальная программа:**
-🔗 Ваш код приглашения: \`REF${ctx.userId.slice(-6)}\`
-👥 Приглашено друзей: 0
-🎁 Бонус за друга: +500 XP
+🔗 **ВАША ССЫЛКА** 👇
+\`${referralLink}\`
 
-**Ежедневные бонусы:**
-📅 Вход в систему: +50 XP
-🎯 Первая задача дня: +100 XP
+**СТАТИСТИКА ПАРТНЕРСТВА:**
+👥 Приглашено друзей: ${referralStats.totalReferrals || 0}
+💎 Активных пользователей: ${referralStats.activeReferrals || 0}  
+🎁 Получено бонусов: ${referralStats.totalBonus || 0} XP
 
-**Еженедельные награды:**
-🏆 7 дней активности: +300 XP
-⭐ 21 задача в неделю: +500 XP
+**УСЛОВИЯ:**
+• За каждого друга: +500 XP
+• Друг получает: +200 XP при регистрации
+• Бонус за активного друга: +100 XP/неделю
 
-**Как пригласить друга:**
-1. Поделитесь кодом приглашения
-2. Друг вводит код при регистрации  
-3. Вы оба получаете +500 XP!
+**ТОП-5 ваших рефералов:**
+${referralStats.topReferrals
+                ?.map((ref, i) => `${i + 1}. ${ref.firstName || 'Пользователь'} - ${ref.xpEarned || 0} XP`)
+                .join('\n') || 'Пока нет рефералов'}
 
-*Функция в разработке - скоро полный запуск!*
+💡 **Поделитесь ссылкой с друзьями!**
       `, {
                 reply_markup: {
                     inline_keyboard: [
+                        [
+                            {
+                                text: '📋 Копировать ссылку',
+                                callback_data: 'copy_referral_link',
+                            },
+                            {
+                                text: '📊 Детальная статистика',
+                                callback_data: 'referral_stats',
+                            },
+                        ],
+                        [
+                            { text: '💰 Вывести бонусы', callback_data: 'withdraw_bonus' },
+                            {
+                                text: '🎓 Как работает',
+                                callback_data: 'how_referral_works',
+                            },
+                        ],
                         [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
+                    ],
+                },
+            });
+        });
+        this.bot.action('copy_referral_link', async (ctx) => {
+            await ctx.answerCbQuery('📋 Ссылка скопирована! Поделитесь с друзьями!');
+            const botUsername = this.configService.get('bot.username') || 'TickyAIBot';
+            const referralLink = `https://t.me/${botUsername}?start=ref_${ctx.userId}`;
+            await ctx.reply(`🔗 *Ваша реферальная ссылка:*\n\n\`${referralLink}\`\n\n📱 Поделитесь этой ссылкой с друзьями!\n💰 За каждого приглашенного +500 XP`, { parse_mode: 'Markdown' });
+        });
+        this.bot.action('referral_stats', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.editMessageTextWithMarkdown(`
+📊 *ДЕТАЛЬНАЯ СТАТИСТИКА*
+
+**ЗА ВСЕ ВРЕМЯ:**
+👥 Всего приглашений: 0
+💎 Активных рефералов: 0
+💰 Заработано XP: 0
+
+**ЗА ЭТОТ МЕСЯЦ:**
+📈 Новые приглашения: 0
+⭐ Активность рефералов: 0%
+🎁 Получено бонусов: 0 XP
+
+**КОНВЕРСИЯ:**
+📋 Переходы по ссылке: 0
+✅ Регистрации: 0
+🔥 Коэффициент конверсии: 0%
+
+*💡 Приглашайте больше друзей для увеличения статистики!*
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '⬅️ К рефералам', callback_data: 'bonuses_referrals' }],
+                    ],
+                },
+            });
+        });
+        this.bot.action('how_referral_works', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.editMessageTextWithMarkdown(`
+🎓 *КАК РАБОТАЕТ РЕФЕРАЛЬНАЯ ПРОГРАММА*
+
+**ШАГ 1: ПОДЕЛИТЕСЬ ССЫЛКОЙ**
+📱 Скопируйте свою реферальную ссылку
+💬 Отправьте друзьям в чат или соцсети
+🔗 Каждая ссылка уникальна и содержит ваш ID
+
+**ШАг 2: ДРУГ РЕГИСТРИРУЕТСЯ**
+👤 Друг переходит по вашей ссылке
+🚀 Регистрируется в боте
+🎁 Получает +200 XP при регистрации
+
+**ШАГ 3: ВЫ ПОЛУЧАЕТЕ НАГРАДУ**
+💰 +500 XP сразу за приглашение
+⭐ +100 XP каждую неделю за активного друга
+🏆 Бонусы за достижения рефералов
+
+**УСЛОВИЯ:**
+• Самоприглашение не считается
+• Бонусы только за реальную активность
+• Еженедельные выплаты по воскресеньям
+
+*🚀 Начните прямо сейчас - поделитесь ссылкой!*
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '📋 Копировать ссылку',
+                                callback_data: 'copy_referral_link',
+                            },
+                            { text: '⬅️ К рефералам', callback_data: 'bonuses_referrals' },
+                        ],
+                    ],
+                },
+            });
+        });
+        this.bot.action('withdraw_bonus', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.editMessageTextWithMarkdown(`
+💰 *ВЫВОД БОНУСОВ*
+
+**ДОСТУПНЫЕ ВАРИАНТЫ:**
+🎮 Премиум функции бота - от 1000 XP
+🛍️ Скидки в магазине - от 500 XP  
+🎁 Подарочные карты - от 2000 XP
+
+**ТЕКУЩИЙ БАЛАНС:**
+⭐ Ваш XP: Loading...
+💎 Доступно к выводу: Loading...
+
+**МИНИМАЛЬНЫЙ ВЫВОД:**
+🔢 500 XP = Базовые награды
+💰 1000 XP = Премиум возможности
+🏆 2000 XP = Ценные призы
+
+*🚧 Функция в разработке - скоро будет доступна!*
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '⬅️ К рефералам', callback_data: 'bonuses_referrals' }],
                     ],
                 },
             });
@@ -2618,6 +2756,33 @@ ${timeAdvice}
         });
         ctx.session.aiChatMode = true;
     }
+    async handleReferralRegistration(ctx, newUserId, referrerId) {
+        try {
+            if (newUserId === referrerId) {
+                return;
+            }
+            const referrer = await this.userService
+                .findByTelegramId(referrerId)
+                .catch(() => null);
+            if (!referrer) {
+                this.logger.warn(`Referrer ${referrerId} not found`);
+                return;
+            }
+            await this.userService.awardXp(referrerId, 500, 'Приглашение друга');
+            await this.userService.awardXp(newUserId, 200, 'Регистрация по реферальной ссылке');
+            try {
+                await this.bot.telegram.sendMessage(referrerId, `🎉 *Поздравляем!*\n\n👤 Ваш друг присоединился к Ticky AI!\n💰 Вы получили +500 XP\n🎁 Друг получил +200 XP при регистрации`, { parse_mode: 'Markdown' });
+            }
+            catch (error) {
+                this.logger.warn(`Could not send referral notification to ${referrerId}: ${error.message}`);
+            }
+            await ctx.replyWithMarkdown(`🎁 *Добро пожаловать!*\n\nВы присоединились по приглашению друга!\n⭐ Получили +200 XP бонус при регистрации\n\n🚀 Давайте начнем знакомство с ботом!`);
+            this.logger.log(`Referral registration: ${newUserId} invited by ${referrerId}`);
+        }
+        catch (error) {
+            this.logger.error('Error handling referral registration:', error);
+        }
+    }
     async onModuleInit() {
         this.launch().catch((error) => {
             this.logger.error('Failed to launch bot:', error);
@@ -2733,7 +2898,7 @@ ${timeAdvice}
         await ctx.editMessageTextWithMarkdown(`
 👋 *Привет, ${this.userService.getDisplayName(user)}!*
 
-${statusText}🤖 Я DailyCheck Bot - твой личный помощник для управления привычками и задачами.
+${statusText}🤖 Я Ticky AI – твой личный AI помощник для управления задачами и привычками.
     `, { reply_markup: keyboard });
         setTimeout(() => this.checkAndShowFeedbackRequest(ctx), 2000);
     }
@@ -3744,7 +3909,7 @@ _Попробуйте еще раз_
                 transcribedText.toLowerCase().includes('справка') ||
                 transcribedText.toLowerCase().includes('что ты умеешь')) {
                 await ctx.editMessageTextWithMarkdown(`
-🤖 *DailyCheck Bot - Ваш персональный помощник продуктивности*
+🤖 *Ticky AI - Ваш персональный AI помощник продуктивности*
 
 *Основные команды:*
 /start - Начать работу с ботом
