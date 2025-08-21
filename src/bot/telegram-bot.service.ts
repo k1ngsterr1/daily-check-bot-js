@@ -301,9 +301,8 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         }`;
       }
 
-      await ctx.editMessageTextWithMarkdown(
-        `
-📊 *Ваши лимиты и использование*
+      await ctx.replyWithMarkdown(
+        `📊 *Ваши лимиты и использование*
 
 ${statusMessage}
 
@@ -316,8 +315,7 @@ ${statusMessage}
 **Доступные функции:**
 📊 Расширенная аналитика: ${subscriptionStatus.limits.advancedAnalytics ? '✅' : '❌'}
 🎨 Кастомные темы: ${subscriptionStatus.limits.customThemes ? '✅' : '❌'}
-🚀 Приоритетная поддержка: ${subscriptionStatus.limits.prioritySupport ? '✅' : '❌'}
-        `,
+🚀 Приоритетная поддержка: ${subscriptionStatus.limits.prioritySupport ? '✅' : '❌'}`,
         {
           reply_markup: {
             inline_keyboard: [

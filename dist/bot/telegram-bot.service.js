@@ -241,8 +241,7 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
                         ? 'Premium'
                         : 'Premium Plus'}`;
             }
-            await ctx.editMessageTextWithMarkdown(`
-📊 *Ваши лимиты и использование*
+            await ctx.replyWithMarkdown(`📊 *Ваши лимиты и использование*
 
 ${statusMessage}
 
@@ -255,8 +254,7 @@ ${statusMessage}
 **Доступные функции:**
 📊 Расширенная аналитика: ${subscriptionStatus.limits.advancedAnalytics ? '✅' : '❌'}
 🎨 Кастомные темы: ${subscriptionStatus.limits.customThemes ? '✅' : '❌'}
-🚀 Приоритетная поддержка: ${subscriptionStatus.limits.prioritySupport ? '✅' : '❌'}
-        `, {
+🚀 Приоритетная поддержка: ${subscriptionStatus.limits.prioritySupport ? '✅' : '❌'}`, {
                 reply_markup: {
                     inline_keyboard: [
                         [
