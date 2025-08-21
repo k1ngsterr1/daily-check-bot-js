@@ -2826,17 +2826,6 @@ ${moodEmoji} *Настроение записано!*
       await this.startAIChat(ctx);
     });
 
-    this.bot.action('exit_ai_chat', async (ctx) => {
-      await ctx.answerCbQuery();
-      ctx.session.aiChatMode = false;
-      await ctx.editMessageTextWithMarkdown(`
-✅ *Чат с ИИ завершён*
-
-Спасибо за общение! Вы всегда можете вернуться к ИИ-консультанту через главное меню.
-      `);
-      await this.showMainMenu(ctx);
-    });
-
     // Task management handlers
     this.bot.action('tasks_add', async (ctx) => {
       await ctx.answerCbQuery();
@@ -4210,7 +4199,6 @@ ${personalizedResponse}
             inline_keyboard: [
               [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
               [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-              [{ text: '❌ Выйти из чата', callback_data: 'exit_ai_chat' }],
             ],
           },
         },
