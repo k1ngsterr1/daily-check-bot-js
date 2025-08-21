@@ -1145,9 +1145,11 @@ ${user.todayTasks > 0 || user.todayHabits > 0 ? '🟢 Активный день!
 • Бонус за активного друга: +100 XP/неделю
 
 **ТОП-5 ваших рефералов:**
-${referralStats.topReferrals
-                ?.map((ref, i) => `${i + 1}. ${ref.firstName || 'Пользователь'} - ${ref.xpEarned || 0} XP`)
-                .join('\n') || 'Пока нет рефералов'}
+${referralStats.topReferrals && referralStats.topReferrals.length > 0
+                ? referralStats.topReferrals
+                    .map((ref, i) => `${i + 1}. ${ref.firstName || 'Пользователь'} - ${ref.xpEarned || 0} XP`)
+                    .join('\n')
+                : 'Пока нет рефералов'}
 
 💡 **Поделитесь ссылкой с друзьями!**
       `, {
@@ -2768,8 +2770,14 @@ ${timeAdvice}
                 this.logger.warn(`Referrer ${referrerId} not found`);
                 return;
             }
-            await this.userService.awardXp(referrerId, 500, 'Приглашение друга');
-            await this.userService.awardXp(newUserId, 200, 'Регистрация по реферальной ссылке');
+            const referrerUser = await this.userService.findByTelegramId(referrerId);
+            await this.userService.updateUser(referrerId, {
+                totalXp: referrerUser.totalXp + 500,
+            });
+            const newUser = await this.userService.findByTelegramId(newUserId);
+            await this.userService.updateUser(newUserId, {
+                totalXp: newUser.totalXp + 200,
+            });
             try {
                 await this.bot.telegram.sendMessage(referrerId, `🎉 *Поздравляем!*\n\n👤 Ваш друг присоединился к Ticky AI!\n💰 Вы получили +500 XP\n🎁 Друг получил +200 XP при регистрации`, { parse_mode: 'Markdown' });
             }
