@@ -9,6 +9,7 @@ import { HabitService } from '../services/habit.service';
 import { BillingService } from '../services/billing.service';
 import { AiContextService } from '../services/ai-context.service';
 import { PaymentService } from '../services/payment.service';
+import { PrismaService } from '../database/prisma.service';
 export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     private readonly configService;
     private readonly userService;
@@ -18,11 +19,13 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private readonly billingService;
     private readonly aiContextService;
     private readonly paymentService;
+    private readonly prisma;
     private readonly logger;
     private bot;
     private activePomodoroSessions;
-    constructor(configService: ConfigService, userService: UserService, openaiService: OpenAIService, taskService: TaskService, habitService: HabitService, billingService: BillingService, aiContextService: AiContextService, paymentService: PaymentService);
+    constructor(configService: ConfigService, userService: UserService, openaiService: OpenAIService, taskService: TaskService, habitService: HabitService, billingService: BillingService, aiContextService: AiContextService, paymentService: PaymentService, prisma: PrismaService);
     private setupMiddleware;
+    private setupErrorHandling;
     private setupHandlers;
     private handleAITaskRecommendations;
     private handleAIHabitHelp;
@@ -73,6 +76,7 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private isReminderWithoutTime;
     private isReminderRequest;
     private isTaskRequest;
+    private isGeneralChatMessage;
     private createTaskFromText;
     private showTasksAIAdvice;
     private showHabitsAIAdvice;
@@ -80,6 +84,12 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private showMoodMenu;
     private showMoodAIAnalysis;
     private showFocusSession;
+    private showRemindersMenu;
+    private showAllReminders;
+    private showCreateReminderHelp;
+    private showManageReminders;
+    private showRemindersStats;
+    private handleDeleteReminder;
     private showFocusAITips;
     private createPayment;
     private getOrCreateUser;
