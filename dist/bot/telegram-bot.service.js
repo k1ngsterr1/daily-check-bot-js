@@ -306,7 +306,7 @@ ${statusMessage}
 🚀 Используй /menu для доступа ко всем функциям
         `);
                 setTimeout(() => {
-                    this.showMainMenu(ctx);
+                    this.showMainMenu(ctx, false);
                 }, 2000);
             }
             catch (error) {
@@ -424,16 +424,30 @@ ${statusMessage}
             }
             if (ctx.session.step === 'onboarding_waiting_habit') {
                 const habitName = ctx.message.text;
-                await ctx.editMessageTextWithMarkdown(`
+                try {
+                    await this.habitService.createHabit({
+                        userId: ctx.userId,
+                        title: habitName,
+                        description: undefined,
+                        frequency: 'DAILY',
+                        targetCount: 1,
+                    });
+                    ctx.session.step = undefined;
+                    await ctx.replyWithMarkdown(`
 ✅ *Отличная привычка: "${habitName}"*
 
 Привычка добавлена! Теперь ты можешь отслеживать её выполнение каждый день.
 
 🎯 Продолжим настройку...
         `);
-                setTimeout(async () => {
-                    await this.showOnboardingStep3(ctx);
-                }, 2000);
+                    setTimeout(async () => {
+                        await this.showOnboardingStep3(ctx);
+                    }, 2000);
+                }
+                catch (error) {
+                    this.logger.error('Error creating habit during onboarding:', error);
+                    await ctx.replyWithMarkdown('❌ Ошибка при создании привычки. Попробуйте еще раз.');
+                }
                 return;
             }
             if (ctx.session.step === 'adding_habit') {
@@ -477,6 +491,7 @@ ${statusMessage}
                 return;
             }
             if (this.isTaskRequest(ctx.message.text)) {
+                this.logger.log(`Creating task from text: "${ctx.message.text}" for user ${ctx.userId}`);
                 await this.createTaskFromText(ctx, ctx.message.text);
                 return;
             }
@@ -2419,15 +2434,15 @@ ${moodEmoji} *Настроение записано!*
         });
         this.bot.action('back_to_menu', async (ctx) => {
             await ctx.answerCbQuery();
-            await this.showMainMenu(ctx);
+            await this.showMainMenu(ctx, true);
         });
         this.bot.action('back_to_commands', async (ctx) => {
             await ctx.answerCbQuery();
-            await this.showMainMenu(ctx);
+            await this.showMainMenu(ctx, true);
         });
         this.bot.action('commands_menu', async (ctx) => {
             await ctx.answerCbQuery();
-            await this.showMainMenu(ctx);
+            await this.showMainMenu(ctx, true);
         });
         this.bot.action(/^create_task_from_voice:(.+)$/, async (ctx) => {
             await ctx.answerCbQuery();
@@ -2832,7 +2847,7 @@ ${timeAdvice}
                 ],
             ],
         };
-        await ctx.editMessageTextWithMarkdown(`🤖 *Привет! Я Ticky AI — твой AI-ассистент по привычкам и задачам с геймификацией.*`, { reply_markup: keyboard });
+        await ctx.replyWithMarkdown(`🤖 *Привет! Я Ticky AI — твой AI-ассистент по привычкам и задачам с геймификацией.*`, { reply_markup: keyboard });
         ctx.session.step = 'onboarding_welcome';
     }
     async showOnboardingStep2(ctx) {
@@ -2863,7 +2878,7 @@ ${timeAdvice}
                 [{ text: '✅ Понятно!', callback_data: 'onboarding_complete' }],
             ],
         };
-        await ctx.editMessageTextWithMarkdown(`
+        await ctx.replyWithMarkdown(`
 📚 *Мини-FAQ*
 
 *ЧТО УМЕЕТ БОТ?*
@@ -2877,7 +2892,7 @@ ${timeAdvice}
     `, { reply_markup: keyboard });
         ctx.session.step = 'onboarding_faq';
     }
-    async showMainMenu(ctx) {
+    async showMainMenu(ctx, shouldEdit = false) {
         const keyboard = {
             inline_keyboard: [
                 [{ text: '➕ Добавить задачу/привычку', callback_data: 'add_item' }],
@@ -2903,11 +2918,19 @@ ${timeAdvice}
         else if (subscriptionStatus.type !== 'FREE') {
             statusText = `💎 **${subscriptionStatus.type === 'PREMIUM' ? 'Premium' : 'Premium Plus'}**\n`;
         }
-        await ctx.editMessageTextWithMarkdown(`
+        const message = `
 👋 *Привет, ${this.userService.getDisplayName(user)}!*
 
 ${statusText}🤖 Я Ticky AI – твой личный AI помощник для управления задачами и привычками.
-    `, { reply_markup: keyboard });
+    `;
+        if (shouldEdit) {
+            await ctx.editMessageTextWithMarkdown(message, {
+                reply_markup: keyboard,
+            });
+        }
+        else {
+            await ctx.replyWithMarkdown(message, { reply_markup: keyboard });
+        }
         setTimeout(() => this.checkAndShowFeedbackRequest(ctx), 2000);
     }
     async launch() {
@@ -3018,7 +3041,7 @@ ${statusText}🤖 Я Ticky AI – твой личный AI помощник дл
                 totalTasks: user.totalTasks + 1,
             });
             const usageInfo = await this.billingService.checkUsageLimit(ctx.userId, 'dailyTasks');
-            await ctx.editMessageTextWithMarkdown(`
+            await ctx.replyWithMarkdown(`
 ✅ *Задача создана!*
 
 📝 *${task.title}*
@@ -3473,14 +3496,13 @@ ${progressBar} ${Math.round(progress * 100)}%
     `);
     }
     async completeFeedback(ctx, improvement) {
-        await ctx.answerCbQuery();
         await this.userService.updateUser(ctx.userId, {
             feedbackGiven: true,
         });
         const ratingEmojis = ['😠', '😠', '😐', '😊', '⭐️'];
         const rating = ctx.session.feedbackRating || 3;
         const ratingEmoji = ratingEmojis[rating - 1];
-        await ctx.editMessageTextWithMarkdown(`
+        await ctx.replyWithMarkdown(`
 🙏 *Спасибо за обратную связь!*
 
 ${ratingEmoji} Ваша оценка: ${rating}/5
@@ -4110,13 +4132,19 @@ _Просто напишите время в удобном формате_
             /^(сделать|выполнить|купить|позвонить|написать|отправить|подготовить|организовать|запланировать)/i,
             /нужно\s+(сделать|выполнить|купить|позвонить|написать|отправить|подготовить)/i,
             /надо\s+(сделать|выполнить|купить|позвонить|написать|отправить|подготовить)/i,
-            /^[а-яё\s]{3,50}$/i,
+            /^пить\s+/i,
+            /^делать\s+/i,
+            /^читать\s+/i,
+            /каждый\s+(день|час|минут)/i,
+            /каждые\s+\d+/i,
+            /^[а-яёa-z\s\d\.,!?]+$/i,
         ];
         const timePatterns = [
             /в\s*(\d{1,2}):(\d{2})/i,
             /в\s*(\d{1,2})\s*час/i,
             /через\s*(\d+)\s*(минут|час)/i,
-            /завтра|сегодня|вчера|послезавтра/i,
+            /завтра\s+в\s+/i,
+            /сегодня\s+в\s+/i,
         ];
         const reminderTriggers = [/напомни|напомню|напоминание|remind/i];
         const hasTimeMarkers = timePatterns.some((pattern) => pattern.test(text));
@@ -4124,8 +4152,11 @@ _Просто напишите время в удобном формате_
         if (hasTimeMarkers || hasReminderTriggers) {
             return false;
         }
-        return (taskPatterns.some((pattern) => pattern.test(text)) ||
-            (text.length > 3 && text.length < 200 && /^[а-яё\s\.,!?]+$/i.test(text)));
+        const isTask = taskPatterns.some((pattern) => pattern.test(text)) ||
+            (text.length > 3 &&
+                text.length < 200 &&
+                /^[а-яёa-z\s\d\.,!?]+$/i.test(text));
+        return isTask;
     }
     async createTaskFromText(ctx, text) {
         try {
@@ -4140,7 +4171,7 @@ _Просто напишите время в удобном формате_
                 userId: ctx.userId,
                 title: text.trim(),
             });
-            await ctx.editMessageTextWithMarkdown(`
+            await ctx.replyWithMarkdown(`
 ✅ *Задача создана!*
 
 📝 **"${task.title}"**
