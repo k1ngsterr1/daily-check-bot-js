@@ -32,6 +32,10 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private handleAITimePlanning;
     private handleAICustomQuestion;
     private handleReferralRegistration;
+    private sendReferralAchievementNotification;
+    private updateUserActivity;
+    private getReferralsCount;
+    private getReferralStats;
     onModuleInit(): Promise<void>;
     private startMotivationalMessagesService;
     private sendMotivationalMessages;
@@ -77,6 +81,7 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private isReminderRequest;
     private isTaskRequest;
     private isGeneralChatMessage;
+    private processTaskFromText;
     private createTaskFromText;
     private showTasksAIAdvice;
     private showHabitsAIAdvice;
@@ -111,4 +116,10 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private createTaskFromVoice;
     private startDailyMotivation;
     private generateMotivationalMessage;
+    private handleLongTermReminder;
+    private parseSpecificTimeExpressions;
+    private getUnitText;
+    private handleLongTermTask;
+    private createTaskWithDeadline;
+    private parseSpecificTimeExpressionsForTasks;
 }
