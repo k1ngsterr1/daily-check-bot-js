@@ -92,6 +92,7 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private showRemindersMenu;
     private showAllReminders;
     private showCreateReminderHelp;
+    private showVoiceReminderHelp;
     private showManageReminders;
     private showRemindersStats;
     private handleDeleteReminder;
@@ -109,6 +110,7 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private formatTimeWithTimezone;
     private startAddingHabit;
     private analyzeAndCreateFromVoice;
+    private showVoiceAnalysisOptions;
     private isHabitRequest;
     private extractHabitName;
     private extractTaskName;

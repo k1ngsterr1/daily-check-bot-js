@@ -27,6 +27,8 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       focusTimer?: NodeJS.Timeout;
       breakTimer?: NodeJS.Timeout;
       startTime: Date;
+      pausedAt?: Date;
+      totalPausedTime?: number; // milliseconds
     }
   > = new Map();
 
@@ -956,7 +958,7 @@ ${progressXp}/${nextLevelXp - currentLevelXp} XP до ${user.level + 1} уров
       const keyboard = {
         inline_keyboard: [
           [
-            { text: '📊 Мой прогресс', callback_data: 'progress_stats' },
+            { text: '😊 Мое настроение', callback_data: 'menu_mood' },
             { text: '🍅 Фокусирование', callback_data: 'pomodoro_focus' },
           ],
           [
@@ -1897,6 +1899,11 @@ ${
       await this.showCreateReminderHelp(ctx);
     });
 
+    this.bot.action('voice_reminder_help', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.showVoiceReminderHelp(ctx);
+    });
+
     this.bot.action('manage_reminders', async (ctx) => {
       await ctx.answerCbQuery();
       await this.showManageReminders(ctx);
@@ -2799,19 +2806,26 @@ ${trialText}**Premium подписка включает:**
 
       const session = this.activePomodoroSessions.get(ctx.userId);
       if (session) {
-        // Calculate remaining time
-        const elapsed = Math.floor(
-          (new Date().getTime() - session.startTime.getTime()) / (1000 * 60),
-        );
+        // Stop the current timer
+        if (session.focusTimer) {
+          clearTimeout(session.focusTimer);
+          session.focusTimer = undefined;
+        }
+
+        // Save pause time
+        session.pausedAt = new Date();
+
+        // Calculate remaining time (taking into account previous pauses)
+        const totalElapsed =
+          new Date().getTime() -
+          session.startTime.getTime() -
+          (session.totalPausedTime || 0);
+        const elapsed = Math.floor(totalElapsed / (1000 * 60));
         const remaining = Math.max(0, 25 - elapsed);
         const remainingMinutes = remaining;
         const remainingSeconds = Math.max(
           0,
-          Math.floor(
-            (25 * 60 * 1000 -
-              (new Date().getTime() - session.startTime.getTime())) /
-              1000,
-          ) % 60,
+          Math.floor((25 * 60 * 1000 - totalElapsed) / 1000) % 60,
         );
 
         await ctx.editMessageTextWithMarkdown(
@@ -2868,30 +2882,122 @@ ${trialText}**Premium подписка включает:**
 
     this.bot.action('resume_pomodoro', async (ctx) => {
       await ctx.answerCbQuery();
-      await ctx.editMessageTextWithMarkdown(
-        `▶️ *Сессия возобновлена*
 
-⏰ Продолжаем с 15:30
+      const session = this.activePomodoroSessions.get(ctx.userId);
+      if (session) {
+        // Update total paused time
+        if (session.pausedAt) {
+          const pauseDuration =
+            new Date().getTime() - session.pausedAt.getTime();
+          session.totalPausedTime =
+            (session.totalPausedTime || 0) + pauseDuration;
+          session.pausedAt = undefined;
+        }
+
+        // Calculate remaining time (accounting for all pauses)
+        const totalElapsed =
+          new Date().getTime() -
+          session.startTime.getTime() -
+          (session.totalPausedTime || 0);
+        const elapsed = Math.floor(totalElapsed / (1000 * 60));
+        const remaining = Math.max(0, 25 - elapsed);
+        const remainingMinutes = remaining;
+        const remainingSeconds = Math.max(
+          0,
+          Math.floor((25 * 60 * 1000 - totalElapsed) / 1000) % 60,
+        );
+
+        // Clear existing timer if any
+        if (session.focusTimer) {
+          clearTimeout(session.focusTimer);
+        }
+
+        // Restart timer with remaining time
+        const remainingMs = Math.max(0, 25 * 60 * 1000 - totalElapsed);
+
+        if (remainingMs > 0) {
+          session.focusTimer = setTimeout(async () => {
+            try {
+              const currentSession = this.activePomodoroSessions.get(
+                ctx.userId,
+              );
+              if (currentSession) {
+                await ctx.telegram.sendMessage(
+                  ctx.userId,
+                  `
+🔔 *Время фокус-сессии истекло!*
+
+⏰ 25 минут прошли
+🎉 Поздравляем с завершением сессии!
+
+*Что дальше?*
+
+✅ Время для 5-минутного перерыва
+🍅 Или начать новую сессию
+                  `,
+                  {
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                      inline_keyboard: [
+                        [
+                          {
+                            text: '☕ Перерыв (5 мин)',
+                            callback_data: 'start_pomodoro_break',
+                          },
+                        ],
+                        [
+                          {
+                            text: '🍅 Новая сессия',
+                            callback_data: 'start_pomodoro_session',
+                          },
+                          {
+                            text: '📊 История',
+                            callback_data: 'pomodoro_history',
+                          },
+                        ],
+                        [
+                          {
+                            text: '🏠 Главное меню',
+                            callback_data: 'start',
+                          },
+                        ],
+                      ],
+                    },
+                  },
+                );
+                this.activePomodoroSessions.delete(ctx.userId);
+              }
+            } catch (error) {
+              console.log('Failed to send pomodoro completion message:', error);
+            }
+          }, remainingMs);
+        }
+
+        await ctx.editMessageTextWithMarkdown(
+          `▶️ *Сессия возобновлена*
+
+⏰ Продолжаем с ${remainingMinutes}:${remainingSeconds.toString().padStart(2, '0')}
 🎯 Фокусируемся на задаче!`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '⏸️ Пауза',
-                  callback_data: 'pause_pomodoro',
-                },
-                {
-                  text: '⏹️ Стоп',
-                  callback_data: 'stop_pomodoro',
-                },
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: '⏸️ Пауза',
+                    callback_data: 'pause_pomodoro',
+                  },
+                  {
+                    text: '⏹️ Стоп',
+                    callback_data: 'stop_pomodoro',
+                  },
+                ],
+                [{ text: '⬅️ Назад', callback_data: 'pomodoro_focus' }],
+                [{ text: '🏠 Главное меню', callback_data: 'start' }],
               ],
-              [{ text: '⬅️ Назад', callback_data: 'pomodoro_focus' }],
-              [{ text: '🏠 Главное меню', callback_data: 'start' }],
-            ],
+            },
           },
-        },
-      );
+        );
+      }
     });
 
     this.bot.action('stop_pomodoro', async (ctx) => {
@@ -3452,21 +3558,31 @@ XP (опыт) начисляется за выполнение задач. С к
 
     this.bot.action(/^create_reminder_from_voice:(.+)$/, async (ctx) => {
       await ctx.answerCbQuery();
-      const reminderText = ctx.match[1];
+      const reminderText = decodeURIComponent(ctx.match[1]);
+
       await ctx.editMessageTextWithMarkdown(
-        `⏰ *Создание напоминания*
+        `⏰ *Создание напоминания из голоса*
 
 Текст: "${reminderText}"
 
-⚠️ Для создания напоминания укажите время в формате:
-• "напомни мне покупить молоко в 17:30"
-• "напомни через 2 часа позвонить врачу"
+💡 **Как указать время:**
+Отправьте сообщение с временем, например:
+• "${reminderText} в 17:30"
+• "${reminderText} через 2 часа"
+• "${reminderText} завтра в 14:00"
 
-Попробуйте заново с указанием времени.`,
+Или выберите удобное время:`,
         {
           reply_markup: {
             inline_keyboard: [
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+              [
+                {
+                  text: '📝 Написать время',
+                  callback_data: 'create_reminder_help',
+                },
+                { text: '� Голосом', callback_data: 'voice_reminder_help' },
+              ],
+              [{ text: '⬅️ Назад', callback_data: 'back_to_menu' }],
             ],
           },
         },
@@ -6790,6 +6906,7 @@ ${aiAnalysis}
                 text: '➕ Создать напоминание',
                 callback_data: 'create_reminder_help',
               },
+              { text: '🎤 Голосом', callback_data: 'voice_reminder_help' },
             ],
             [{ text: '📝 Все напоминания', callback_data: 'all_reminders' }],
             [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
@@ -6838,8 +6955,9 @@ ${aiAnalysis}
               text: '➕ Создать напоминание',
               callback_data: 'create_reminder_help',
             },
-            { text: '📝 Все напоминания', callback_data: 'all_reminders' },
+            { text: '🎤 Голосом', callback_data: 'voice_reminder_help' },
           ],
+          [{ text: '📝 Все напоминания', callback_data: 'all_reminders' }],
           [
             { text: '✏️ Управление', callback_data: 'manage_reminders' },
             { text: '📊 Статистика', callback_data: 'reminders_stats' },
@@ -7018,6 +7136,44 @@ ${aiAnalysis}
       inline_keyboard: [
         [{ text: '🔔 Мои напоминания', callback_data: 'reminders' }],
         [{ text: '⬅️ Назад', callback_data: 'reminders' }],
+      ],
+    };
+
+    await ctx.editMessageTextWithMarkdown(message, { reply_markup: keyboard });
+  }
+
+  private async showVoiceReminderHelp(ctx: BotContext) {
+    const message = `
+🎤 *Голосовые напоминания*
+
+**Как записать напоминание голосом:**
+
+1️⃣ **Отправьте голосовое сообщение**
+   Запишите что вам напомнить и когда
+
+2️⃣ **Примеры записи:**
+   🎙️ "Напомни мне купить молоко завтра в 17:30"
+   🎙️ "Напомни позвонить врачу через 2 часа"
+   🎙️ "Напомни про встречу в понедельник в 14:00"
+
+⏰ **Форматы времени в голосе:**
+• "в 17:30", "в семнадцать тридцать"
+• "через час", "через 30 минут"
+• "завтра в 15:00", "послезавтра в обед"
+
+🔊 **Просто отправьте голосовое сообщение в чат!**
+
+💡 **Совет:** Говорите четко и указывайте конкретное время
+    `;
+
+    const keyboard = {
+      inline_keyboard: [
+        [{ text: '📝 Текстом', callback_data: 'create_reminder_help' }],
+        [{ text: '🔔 Мои напоминания', callback_data: 'reminders' }],
+        [
+          { text: '⬅️ Назад', callback_data: 'reminders' },
+          { text: '🏠 Главное меню', callback_data: 'back_to_menu' },
+        ],
       ],
     };
 
@@ -7213,7 +7369,10 @@ ${aiAnalysis}
             { text: '🔔 Мои напоминания', callback_data: 'reminders' },
             { text: '➕ Создать', callback_data: 'create_reminder_help' },
           ],
-          [{ text: '⬅️ Назад', callback_data: 'reminders' }],
+          [
+            { text: '⬅️ Назад', callback_data: 'reminders' },
+            { text: '🏠 Главное меню', callback_data: 'back_to_menu' },
+          ],
         ],
       };
 
@@ -7813,9 +7972,62 @@ ${this.getItemActivationMessage(itemType)}`,
       return;
     }
 
-    // Default: create task (for any other text without specific time)
+    // Check if it might be a reminder without specific time
+    const mightBeReminder =
+      /напомни|напоминание|не забыть|вспомнить|помни/i.test(text);
+
+    // If it's unclear what to do, show options
+    if (mightBeReminder || text.length > 10) {
+      await this.showVoiceAnalysisOptions(ctx, text);
+      return;
+    }
+
+    // Default: create task (for short text without specific patterns)
     const taskName = this.extractTaskName(text);
     await this.createTaskFromVoice(ctx, taskName);
+  }
+
+  private async showVoiceAnalysisOptions(ctx: BotContext, text: string) {
+    const encodedText = encodeURIComponent(text);
+
+    await ctx.replyWithMarkdown(
+      `🤔 *Что вы хотели сделать?*
+
+Текст: "${text}"
+
+Выберите действие:`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: '📝 Создать задачу',
+                callback_data: `create_task_from_voice:${encodedText}`,
+              },
+            ],
+            [
+              {
+                text: '⏰ Создать напоминание',
+                callback_data: `create_reminder_from_voice:${encodedText}`,
+              },
+            ],
+            [
+              {
+                text: '🔄 Создать привычку',
+                callback_data: `create_habit_from_voice:${encodedText}`,
+              },
+            ],
+            [
+              {
+                text: '💬 Спросить у ИИ',
+                callback_data: `ai_chat_from_voice:${encodedText}`,
+              },
+            ],
+            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+          ],
+        },
+      },
+    );
   }
 
   private isHabitRequest(text: string): boolean {
