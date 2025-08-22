@@ -131,6 +131,7 @@ model User {
   referredBy        String?  @map("referred_by")
   referredByUser    User?    @relation("UserReferrals", fields: [referredBy], references: [id])
   referrals         User[]   @relation("UserReferrals")
+  referralBalance   Float    @default(0) @map("referral_balance") // in rubles
 
   // Meta
   lastActivity      DateTime? @map("last_activity")
@@ -161,6 +162,8 @@ model User {
   reminders         Reminder[]
   userAchievements  UserAchievement[]
   payments          Payment[]
+  referrerPayouts   ReferralPayout[] @relation("ReferrerPayouts")
+  referredPayouts   ReferralPayout[] @relation("ReferredPayouts")
 
   @@map("users")
 }
@@ -346,6 +349,36 @@ model Payment {
 
   // Relations
   user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referralPayouts   ReferralPayout[]
 
   @@map("payments")
+}
+
+model ReferralPayout {
+  id                String        @id @default(cuid())
+  
+  // Relations
+  referrerId        String        @map("referrer_id")
+  referrer          User          @relation("ReferrerPayouts", fields: [referrerId], references: [id], onDelete: Cascade)
+  
+  referredUserId    String        @map("referred_user_id")
+  referredUser      User          @relation("ReferredPayouts", fields: [referredUserId], references: [id], onDelete: Cascade)
+  
+  // Payment info
+  paymentId         String        @map("payment_id")
+  payment           Payment       @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  
+  // Payout details
+  amount            Float         // Amount in rubles (40% of payment)
+  originalAmount    Float         @map("original_amount") // Original payment amount
+  percentage        Int           @default(40) // Percentage (40%)
+  
+  // Status
+  status            String        @default("pending") // pending, paid, failed
+  
+  // Timestamps
+  createdAt         DateTime      @default(now()) @map("created_at")
+  paidAt            DateTime?     @map("paid_at")
+
+  @@map("referral_payouts")
 }

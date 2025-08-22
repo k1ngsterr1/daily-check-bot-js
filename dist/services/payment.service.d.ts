@@ -23,6 +23,7 @@ export declare class PaymentService {
     handlePaymentWebhook(paymentData: any): Promise<void>;
     checkPaymentStatus(paymentId: string): Promise<string>;
     private activateSubscription;
+    private processReferralPayout;
     getSubscriptionPlans(): {
         PREMIUM: {
             amount: number;

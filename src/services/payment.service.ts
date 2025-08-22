@@ -163,6 +163,8 @@ export class PaymentService {
         await this.activateSubscription(
           payment.userId,
           payment.subscriptionType,
+          payment.id,
+          payment.amount,
         );
       }
 
@@ -190,13 +192,19 @@ export class PaymentService {
   private async activateSubscription(
     userId: string,
     subscriptionType: SubscriptionType,
+    paymentId?: string,
+    amount?: number,
   ): Promise<void> {
     try {
       const now = new Date();
       const subscriptionEnds = new Date();
 
-      // Устанавливаем период подписки (30 дней)
-      subscriptionEnds.setMonth(subscriptionEnds.getMonth() + 1);
+      // Устанавливаем период подписки
+      if (subscriptionType === 'PREMIUM_PLUS') {
+        subscriptionEnds.setFullYear(subscriptionEnds.getFullYear() + 1); // 1 год
+      } else {
+        subscriptionEnds.setMonth(subscriptionEnds.getMonth() + 1); // 1 месяц
+      }
 
       await this.prisma.user.update({
         where: { id: userId },
@@ -208,6 +216,11 @@ export class PaymentService {
         },
       });
 
+      // Обрабатываем реферальные выплаты если есть данные о платеже
+      if (paymentId && amount) {
+        await this.processReferralPayout(userId, paymentId, amount);
+      }
+
       this.logger.log(
         `Subscription ${subscriptionType} activated for user ${userId}`,
       );
@@ -217,34 +230,93 @@ export class PaymentService {
     }
   }
 
+  private async processReferralPayout(
+    userId: string,
+    paymentId: string,
+    amount: number,
+  ): Promise<void> {
+    try {
+      // Находим пользователя и его рефера
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          referredByUser: true,
+        },
+      });
+
+      // Если у пользователя нет рефера, выходим
+      if (!user?.referredBy || !user.referredByUser) {
+        return;
+      }
+
+      // Вычисляем размер выплаты (40% от суммы платежа)
+      const payoutAmount = Math.round(amount * 0.4);
+
+      // Создаем запись о реферальной выплате
+      await this.prisma.referralPayout.create({
+        data: {
+          referrerId: user.referredBy,
+          referredUserId: userId,
+          paymentId: paymentId,
+          amount: payoutAmount,
+          originalAmount: amount,
+          percentage: 40,
+          status: 'pending',
+        },
+      });
+
+      // Обновляем баланс рефера
+      await this.prisma.user.update({
+        where: { id: user.referredBy },
+        data: {
+          referralBalance: {
+            increment: payoutAmount,
+          },
+        },
+      });
+
+      this.logger.log(
+        `Referral payout created: ${payoutAmount}₽ for referrer ${user.referredBy}`,
+      );
+    } catch (error) {
+      this.logger.error('Error processing referral payout:', error);
+      // Не прерываем основной процесс если есть ошибка в реферальной выплате
+    }
+  }
+
   // Предопределенные планы подписки
   getSubscriptionPlans() {
     return {
       PREMIUM: {
-        amount: 299,
+        amount: 199,
         currency: 'RUB',
         period: '1 месяц',
         description: 'Premium подписка на 1 месяц',
         features: [
-          '50 напоминаний в день',
-          '100 ИИ-запросов в день',
-          '100 задач в день',
-          '20 привычек в день',
-          'Расширенная аналитика',
-          'Кастомные темы',
+          'Неограниченные задачи и привычки',
+          'Расширенная аналитика и отчеты',
+          'Приоритетная поддержка AI',
+          'Эксклюзивные темы и значки',
+          'Экспорт данных',
+          'Персональный менеджер продуктивности',
+          'Интеграция с внешними сервисами',
+          'Без рекламы',
         ],
       },
       PREMIUM_PLUS: {
-        amount: 599,
+        amount: 999,
         currency: 'RUB',
-        period: '1 месяц',
-        description: 'Premium Plus подписка на 1 месяц',
+        period: '1 год',
+        description: 'Premium подписка на 1 год (скидка 58%)',
         features: [
-          'Безлимитные напоминания',
-          'Безлимитные ИИ-запросы',
-          'Безлимитные задачи и привычки',
-          'Приоритетная поддержка',
           'Все Premium функции',
+          'Экономия 1389₽ в год',
+          'Неограниченные задачи и привычки',
+          'Расширенная аналитика и отчеты',
+          'Приоритетная поддержка AI',
+          'Эксклюзивные темы и значки',
+          'Экспорт данных',
+          'Персональный менеджер продуктивности',
         ],
       },
     };

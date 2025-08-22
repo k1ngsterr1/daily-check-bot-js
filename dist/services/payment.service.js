@@ -133,7 +133,7 @@ let PaymentService = PaymentService_1 = class PaymentService {
                 },
             });
             if (newStatus === 'COMPLETED') {
-                await this.activateSubscription(payment.userId, payment.subscriptionType);
+                await this.activateSubscription(payment.userId, payment.subscriptionType, payment.id, payment.amount);
             }
             this.logger.log(`Payment ${paymentId} status updated to ${newStatus}`);
         }
@@ -155,11 +155,16 @@ let PaymentService = PaymentService_1 = class PaymentService {
             throw error;
         }
     }
-    async activateSubscription(userId, subscriptionType) {
+    async activateSubscription(userId, subscriptionType, paymentId, amount) {
         try {
             const now = new Date();
             const subscriptionEnds = new Date();
-            subscriptionEnds.setMonth(subscriptionEnds.getMonth() + 1);
+            if (subscriptionType === 'PREMIUM_PLUS') {
+                subscriptionEnds.setFullYear(subscriptionEnds.getFullYear() + 1);
+            }
+            else {
+                subscriptionEnds.setMonth(subscriptionEnds.getMonth() + 1);
+            }
             await this.prisma.user.update({
                 where: { id: userId },
                 data: {
@@ -169,6 +174,9 @@ let PaymentService = PaymentService_1 = class PaymentService {
                     isTrialActive: false,
                 },
             });
+            if (paymentId && amount) {
+                await this.processReferralPayout(userId, paymentId, amount);
+            }
             this.logger.log(`Subscription ${subscriptionType} activated for user ${userId}`);
         }
         catch (error) {
@@ -176,33 +184,75 @@ let PaymentService = PaymentService_1 = class PaymentService {
             throw error;
         }
     }
+    async processReferralPayout(userId, paymentId, amount) {
+        try {
+            const user = await this.prisma.user.findUnique({
+                where: { id: userId },
+                include: {
+                    referredByUser: true,
+                },
+            });
+            if (!user?.referredBy || !user.referredByUser) {
+                return;
+            }
+            const payoutAmount = Math.round(amount * 0.4);
+            await this.prisma.referralPayout.create({
+                data: {
+                    referrerId: user.referredBy,
+                    referredUserId: userId,
+                    paymentId: paymentId,
+                    amount: payoutAmount,
+                    originalAmount: amount,
+                    percentage: 40,
+                    status: 'pending',
+                },
+            });
+            await this.prisma.user.update({
+                where: { id: user.referredBy },
+                data: {
+                    referralBalance: {
+                        increment: payoutAmount,
+                    },
+                },
+            });
+            this.logger.log(`Referral payout created: ${payoutAmount}₽ for referrer ${user.referredBy}`);
+        }
+        catch (error) {
+            this.logger.error('Error processing referral payout:', error);
+        }
+    }
     getSubscriptionPlans() {
         return {
             PREMIUM: {
-                amount: 299,
+                amount: 199,
                 currency: 'RUB',
                 period: '1 месяц',
                 description: 'Premium подписка на 1 месяц',
                 features: [
-                    '50 напоминаний в день',
-                    '100 ИИ-запросов в день',
-                    '100 задач в день',
-                    '20 привычек в день',
-                    'Расширенная аналитика',
-                    'Кастомные темы',
+                    'Неограниченные задачи и привычки',
+                    'Расширенная аналитика и отчеты',
+                    'Приоритетная поддержка AI',
+                    'Эксклюзивные темы и значки',
+                    'Экспорт данных',
+                    'Персональный менеджер продуктивности',
+                    'Интеграция с внешними сервисами',
+                    'Без рекламы',
                 ],
             },
             PREMIUM_PLUS: {
-                amount: 599,
+                amount: 999,
                 currency: 'RUB',
-                period: '1 месяц',
-                description: 'Premium Plus подписка на 1 месяц',
+                period: '1 год',
+                description: 'Premium подписка на 1 год (скидка 58%)',
                 features: [
-                    'Безлимитные напоминания',
-                    'Безлимитные ИИ-запросы',
-                    'Безлимитные задачи и привычки',
-                    'Приоритетная поддержка',
                     'Все Premium функции',
+                    'Экономия 1389₽ в год',
+                    'Неограниченные задачи и привычки',
+                    'Расширенная аналитика и отчеты',
+                    'Приоритетная поддержка AI',
+                    'Эксклюзивные темы и значки',
+                    'Экспорт данных',
+                    'Персональный менеджер продуктивности',
                 ],
             },
         };
