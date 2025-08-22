@@ -4422,7 +4422,7 @@ ${timeAdvice}
         [{ text: '➕ Добавить задачу/привычку', callback_data: 'add_item' }],
         [{ text: '📋 Мои задачи и привычки', callback_data: 'my_items' }],
         [
-          { text: '⚙️ Ещё функции', callback_data: 'more_functions' },
+          { text: 'Ещё функции', callback_data: 'more_functions' },
           { text: '🧠 Чат с ИИ', callback_data: 'ai_chat' },
         ],
         [
@@ -6940,8 +6940,10 @@ ${aiAnalysis}
               { text: '🎤 Голосом', callback_data: 'voice_reminder_help' },
             ],
             [{ text: '📝 Все напоминания', callback_data: 'all_reminders' }],
-            [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
-            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            [
+              { text: '⬅️ Назад', callback_data: 'more_functions' },
+              { text: '🏠 Главное меню', callback_data: 'back_to_menu' },
+            ],
           ],
         };
 
