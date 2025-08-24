@@ -509,6 +509,14 @@ ${statusMessage}
                 await this.handleAIHabitCreationMessage(ctx, ctx.message.text);
                 return;
             }
+            if (this.isReminderRequest(ctx.message.text)) {
+                await this.handleNaturalReminderRequest(ctx, ctx.message.text);
+                return;
+            }
+            if (this.isSimpleReminderRequest(ctx.message.text)) {
+                await this.handleSimpleReminderRequest(ctx, ctx.message.text);
+                return;
+            }
             if (!user.timezone &&
                 (ctx.session.step === 'adding_task' ||
                     ctx.session.step === 'adding_habit')) {
@@ -3370,6 +3378,40 @@ XP (опыт) начисляется за выполнение задач. С к
             this.stopIntervalReminder(ctx.userId);
             await this.startIntervalReminder(ctx, reminderText, intervalMinutes);
         });
+        this.bot.action('remind_in_15min', async (ctx) => {
+            await ctx.answerCbQuery();
+            await this.handleQuickReminderTime(ctx, 15, 'минут');
+        });
+        this.bot.action('remind_in_30min', async (ctx) => {
+            await ctx.answerCbQuery();
+            await this.handleQuickReminderTime(ctx, 30, 'минут');
+        });
+        this.bot.action('remind_in_1hour', async (ctx) => {
+            await ctx.answerCbQuery();
+            await this.handleQuickReminderTime(ctx, 1, 'час');
+        });
+        this.bot.action('remind_in_2hours', async (ctx) => {
+            await ctx.answerCbQuery();
+            await this.handleQuickReminderTime(ctx, 2, 'часа');
+        });
+        this.bot.action('remind_tomorrow_morning', async (ctx) => {
+            await ctx.answerCbQuery();
+            await this.handleTomorrowReminder(ctx, '09', '00', 'утром в 9:00');
+        });
+        this.bot.action('remind_tomorrow_evening', async (ctx) => {
+            await ctx.answerCbQuery();
+            await this.handleTomorrowReminder(ctx, '18', '00', 'вечером в 18:00');
+        });
+        this.bot.action('remind_custom_time', async (ctx) => {
+            await ctx.answerCbQuery();
+            await this.askForCustomReminderTime(ctx);
+        });
+        this.bot.action('cancel_reminder', async (ctx) => {
+            await ctx.answerCbQuery('❌ Создание напоминания отменено');
+            ctx.session.pendingReminder = undefined;
+            ctx.session.waitingForReminderTime = false;
+            await ctx.editMessageText('❌ Создание напоминания отменено');
+        });
         this.bot.catch((err, ctx) => {
             this.logger.error(`Bot error for ${ctx.updateType}:`, err);
             ctx.reply('🚫 Произошла ошибка. Попробуйте позже или обратитесь к администратору.');
@@ -3663,6 +3705,177 @@ ${recommendation}
             this.logger.warn('Failed to parse AI response, using defaults:', error);
             return defaultHabit;
         }
+    }
+    async handleNaturalReminderRequest(ctx, text) {
+        try {
+            const reminderText = this.extractReminderText(text);
+            const timeMatch = this.extractTimeFromText(text);
+            if (timeMatch) {
+                await this.handleReminderRequest(ctx, reminderText, timeMatch.hours, timeMatch.minutes);
+            }
+            else {
+                await this.askForReminderTime(ctx, reminderText);
+            }
+        }
+        catch (error) {
+            this.logger.error('Error handling natural reminder request:', error);
+            await ctx.reply('❌ Не удалось обработать запрос. Попробуйте использовать меню напоминаний.');
+        }
+    }
+    extractReminderText(text) {
+        const cleanText = text
+            .toLowerCase()
+            .replace(/^(напомни мне|напомни|поставь напоминание|создай напоминание|remind me|remind)\s*/i, '')
+            .replace(/\s*(через|в|в течение|after|in)\s*\d+.*$/i, '')
+            .trim();
+        return cleanText || 'Напоминание';
+    }
+    extractTimeFromText(text) {
+        const timeRegex = /(\d{1,2}):(\d{2})/;
+        const timeMatch = text.match(timeRegex);
+        if (timeMatch) {
+            return {
+                hours: timeMatch[1].padStart(2, '0'),
+                minutes: timeMatch[2],
+            };
+        }
+        const relativeTimeRegex = /через\s+(\d+)\s*(минут|час|часа|часов)/i;
+        const relativeMatch = text.match(relativeTimeRegex);
+        if (relativeMatch) {
+            const amount = parseInt(relativeMatch[1]);
+            const unit = relativeMatch[2].toLowerCase();
+            const now = new Date();
+            let targetTime = new Date(now);
+            if (unit.includes('минут')) {
+                targetTime.setMinutes(targetTime.getMinutes() + amount);
+            }
+            else if (unit.includes('час')) {
+                targetTime.setHours(targetTime.getHours() + amount);
+            }
+            return {
+                hours: targetTime.getHours().toString().padStart(2, '0'),
+                minutes: targetTime.getMinutes().toString().padStart(2, '0'),
+            };
+        }
+        return null;
+    }
+    async askForReminderTime(ctx, reminderText) {
+        ctx.session.pendingReminder = {
+            text: reminderText,
+            originalText: reminderText,
+        };
+        ctx.session.waitingForReminderTime = true;
+        await ctx.replyWithMarkdown(`📝 *Создаю напоминание:* "${reminderText}"
+
+⏰ Когда напомнить? Выберите время:`, {
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        { text: '⏰ Через 15 мин', callback_data: 'remind_in_15min' },
+                        { text: '⏰ Через 30 мин', callback_data: 'remind_in_30min' },
+                    ],
+                    [
+                        { text: '⏰ Через 1 час', callback_data: 'remind_in_1hour' },
+                        { text: '⏰ Через 2 часа', callback_data: 'remind_in_2hours' },
+                    ],
+                    [
+                        {
+                            text: '⏰ Завтра утром (9:00)',
+                            callback_data: 'remind_tomorrow_morning',
+                        },
+                        {
+                            text: '⏰ Завтра вечером (18:00)',
+                            callback_data: 'remind_tomorrow_evening',
+                        },
+                    ],
+                    [
+                        {
+                            text: '🕐 Указать точное время',
+                            callback_data: 'remind_custom_time',
+                        },
+                    ],
+                    [{ text: '❌ Отмена', callback_data: 'cancel_reminder' }],
+                ],
+            },
+        });
+    }
+    async handleSimpleReminderRequest(ctx, text) {
+        this.logger.log(`Handling simple reminder request: "${text}" for user ${ctx.userId}`);
+        let reminderText = text;
+        reminderText = reminderText.replace(/^(напомни\s+мне\s+|напомню\s+себе\s+|напоминание\s+|поставь\s+напоминание\s+|установи\s+напоминание\s+|создай\s+напоминание\s+)/i, '');
+        const timeWordsAtEnd = [
+            'завтра',
+            'послезавтра',
+            'сегодня',
+            'вечером',
+            'утром',
+            'днем',
+            'ночью',
+            'в понедельник',
+            'во вторник',
+            'в среду',
+            'в четверг',
+            'в пятницу',
+            'в субботу',
+            'в воскресенье',
+            'на следующей неделе',
+            'в следующем месяце',
+            'в следующем году',
+        ];
+        let cleanedText = reminderText.trim();
+        for (const timeWord of timeWordsAtEnd) {
+            const regex = new RegExp(`\\s+(${timeWord})$`, 'gi');
+            cleanedText = cleanedText.replace(regex, '');
+        }
+        if (cleanedText.trim().length === 0) {
+            cleanedText = reminderText.trim();
+        }
+        ctx.session.pendingReminder = {
+            text: cleanedText.trim(),
+            originalText: text,
+        };
+        ctx.session.waitingForReminderTime = true;
+        await ctx.replyWithMarkdown(`⏰ *Создание напоминания*
+
+📝 **Текст:** "${cleanedText}"
+
+💡 **Выберите время или напишите своё:**
+
+*Примеры:*
+• "в 15:30"
+• "через 2 часа" 
+• "завтра в 10:00"
+• "в понедельник в 14:00"`, {
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        { text: '⏰ Через 15 мин', callback_data: 'remind_in_15min' },
+                        { text: '⏰ Через 30 мин', callback_data: 'remind_in_30min' },
+                    ],
+                    [
+                        { text: '⏰ Через 1 час', callback_data: 'remind_in_1hour' },
+                        { text: '⏰ Через 2 часа', callback_data: 'remind_in_2hours' },
+                    ],
+                    [
+                        {
+                            text: '⏰ Завтра утром (9:00)',
+                            callback_data: 'remind_tomorrow_morning',
+                        },
+                        {
+                            text: '⏰ Завтра вечером (18:00)',
+                            callback_data: 'remind_tomorrow_evening',
+                        },
+                    ],
+                    [
+                        {
+                            text: '🕐 Указать точное время',
+                            callback_data: 'remind_custom_time',
+                        },
+                    ],
+                    [{ text: '❌ Отмена', callback_data: 'cancel_reminder' }],
+                ],
+            },
+        });
     }
     async handleAITimePlanning(ctx) {
         const user = await this.userService.findByTelegramId(ctx.userId);
@@ -5029,11 +5242,12 @@ ${reminderText}`, { parse_mode: 'Markdown' });
     }
     async handleReminderTimeInput(ctx, timeInput) {
         try {
-            const reminderText = ctx.session.pendingReminder;
-            if (!reminderText) {
+            const reminderData = ctx.session.pendingReminder;
+            if (!reminderData) {
                 await ctx.replyWithMarkdown('❌ Ошибка: текст напоминания не найден.');
                 return;
             }
+            const reminderText = reminderData.text;
             let hours, minutes;
             const timeMatch = timeInput.match(/(\d{1,2}):(\d{2})/);
             if (timeMatch) {
@@ -5106,7 +5320,7 @@ _Попробуйте еще раз_
             this.logger.error('Error processing reminder time input:', error);
             ctx.session.pendingReminder = undefined;
             ctx.session.waitingForReminderTime = false;
-            await ctx.editMessageTextWithMarkdown(`
+            await ctx.replyWithMarkdown(`
 ❌ *Ошибка обработки времени*
 
 Попробуйте создать напоминание заново.
@@ -5221,17 +5435,33 @@ _Попробуйте еще раз_
     }
     async processReminderFromText(ctx, text) {
         this.logger.log(`Processing reminder from text: "${text}"`);
-        const intervalMatch = text.match(/каждые?\s*(\d+)\s*(минут|час|часа|часов)/i);
-        if (intervalMatch) {
-            const intervalAmount = parseInt(intervalMatch[1]);
-            const intervalUnit = intervalMatch[2].toLowerCase();
-            let intervalMinutes = 0;
-            if (intervalUnit.includes('минут')) {
-                intervalMinutes = intervalAmount;
+        let intervalMinutes = 0;
+        let intervalAmount = 0;
+        let intervalUnit = '';
+        if (text.match(/каждую\s+минуту/i)) {
+            intervalMinutes = 1;
+            intervalAmount = 1;
+            intervalUnit = 'минут';
+        }
+        else if (text.match(/каждый\s+час/i)) {
+            intervalMinutes = 60;
+            intervalAmount = 1;
+            intervalUnit = 'час';
+        }
+        else {
+            const intervalMatch = text.match(/каждые?\s*(\d+)\s*(минут|час|часа|часов)/i);
+            if (intervalMatch) {
+                intervalAmount = parseInt(intervalMatch[1]);
+                intervalUnit = intervalMatch[2].toLowerCase();
+                if (intervalUnit.includes('минут')) {
+                    intervalMinutes = intervalAmount;
+                }
+                else if (intervalUnit.includes('час')) {
+                    intervalMinutes = intervalAmount * 60;
+                }
             }
-            else if (intervalUnit.includes('час')) {
-                intervalMinutes = intervalAmount * 60;
-            }
+        }
+        if (intervalMinutes > 0) {
             if (intervalMinutes < 1 || intervalMinutes > 1440) {
                 await ctx.replyWithMarkdown(`
 ❌ *Неверный интервал*
@@ -5246,6 +5476,8 @@ _Попробуйте еще раз_
                 .replace(/напоминание/gi, '')
                 .replace(/поставь/gi, '')
                 .replace(/установи/gi, '')
+                .replace(/каждую\s+минуту/gi, '')
+                .replace(/каждый\s+час/gi, '')
                 .replace(/каждые?\s*\d+\s*(?:минут|час|часа|часов)/gi, '')
                 .trim();
             if (!reminderText || reminderText.length < 2) {
@@ -5360,7 +5592,10 @@ _Попробуйте еще раз_
                 .replace(/не забыть/gi, '')
                 .trim();
             if (reminderText && reminderText.length > 1) {
-                ctx.session.pendingReminder = reminderText;
+                ctx.session.pendingReminder = {
+                    text: reminderText,
+                    originalText: text,
+                };
                 ctx.session.waitingForReminderTime = true;
                 await ctx.replyWithMarkdown(`
 ⏰ *На какое время поставить напоминание?*
@@ -5399,6 +5634,21 @@ _Просто напишите время в удобном формате_
         return hasReminderTrigger && !hasTimeIndicator;
     }
     isReminderRequest(text) {
+        const intervalReminderPatterns = [
+            /каждую\s+минуту/i,
+            /каждый\s+час/i,
+            /каждые\s*\d+\s*(минут|час|часа|часов)/i,
+            /(напомни|напоминай|напомню).*каждую\s+минуту/i,
+            /(напомни|напоминай|напомню).*каждый\s+час/i,
+            /(напомни|напоминай|напомню).*каждые\s*\d+\s*(минут|час|часа|часов)/i,
+            /.*каждую\s+минуту.*(напомни|напоминай|напомню)/i,
+            /.*каждый\s+час.*(напомни|напоминай|напомню)/i,
+            /.*каждые\s*\d+\s*(минут|час|часа|часов).*(напомни|напоминай|напомню)/i,
+        ];
+        const hasIntervalReminder = intervalReminderPatterns.some((pattern) => pattern.test(text));
+        if (hasIntervalReminder) {
+            return true;
+        }
         const explicitReminderPatterns = [
             /напомни.*в\s*(\d{1,2}):(\d{2})/i,
             /напомни.*в\s*(\d{1,2})\s*час/i,
@@ -5437,6 +5687,502 @@ _Просто напишите время в удобном формате_
         const hasNaturalTime = naturalTimePatterns.some((pattern) => pattern.test(text));
         return hasExplicitReminder || hasNaturalTime;
     }
+    isVerbByEnding(word) {
+        if (!word || word.length < 3)
+            return false;
+        const lowerWord = word.toLowerCase().trim();
+        const infinitiveEndings = [
+            'ть',
+            'ти',
+            'чь',
+            'ить',
+            'еть',
+            'ать',
+            'ять',
+            'оть',
+            'уть',
+            'сти',
+            'зти',
+            'сть',
+        ];
+        const firstPersonEndings = [
+            'у',
+            'ю',
+            'аю',
+            'яю',
+            'ую',
+            'юю',
+            'шу',
+            'жу',
+            'чу',
+            'щу',
+            'лю',
+            'рю',
+            'сю',
+            'зю',
+            'ью',
+            'му',
+            'ну',
+            'ку',
+            'гу',
+            'ду',
+            'ту',
+            'бу',
+        ];
+        const secondPersonEndings = [
+            'ешь',
+            'ёшь',
+            'ишь',
+            'аешь',
+            'яешь',
+            'уешь',
+            'ьешь',
+            'ьёшь',
+        ];
+        const thirdPersonEndings = [
+            'ет',
+            'ёт',
+            'ит',
+            'ает',
+            'яет',
+            'ует',
+            'юет',
+            'еет',
+            'оет',
+            'ст',
+            'зт',
+            'ьёт',
+            'ьет',
+        ];
+        const firstPersonPluralEndings = [
+            'ем',
+            'ём',
+            'им',
+            'аем',
+            'яем',
+            'уем',
+            'ьём',
+            'ьем',
+        ];
+        const secondPersonPluralEndings = [
+            'ете',
+            'ёте',
+            'ите',
+            'аете',
+            'яете',
+            'уете',
+        ];
+        const thirdPersonPluralEndings = [
+            'ут',
+            'ют',
+            'ат',
+            'ят',
+            'ают',
+            'яют',
+            'уют',
+            'еют',
+            'оют',
+        ];
+        const imperativeEndings = [
+            'и',
+            'ай',
+            'яй',
+            'ей',
+            'уй',
+            'юй',
+        ];
+        const participleEndings = [
+            'щий',
+            'щая',
+            'щее',
+            'щие',
+            'вший',
+            'вшая',
+            'вшее',
+            'вшие',
+            'нный',
+            'нная',
+            'нное',
+            'нные',
+            'тый',
+            'тая',
+            'тое',
+            'тые',
+            'я',
+            'в',
+            'вши',
+            'ши',
+        ];
+        const pastTenseEndings = [
+            'л',
+            'ла',
+            'ло',
+            'ли',
+            'ал',
+            'ала',
+            'ало',
+            'али',
+            'ял',
+            'яла',
+            'яло',
+            'яли',
+            'ел',
+            'ела',
+            'ело',
+            'ели',
+            'ил',
+            'ила',
+            'ило',
+            'или',
+            'ул',
+            'ула',
+            'уло',
+            'ули',
+            'ыл',
+            'ыла',
+            'ыло',
+            'ыли',
+            'ёл',
+            'ёла',
+            'ёло',
+            'ёли',
+        ];
+        const reflexiveEndings = [
+            'ся',
+            'сь',
+            'тся',
+            'ться',
+            'ется',
+            'ится',
+            'ается',
+            'яется',
+            'ешься',
+            'ишься',
+            'аешься',
+            'яешься',
+            'емся',
+            'имся',
+            'аемся',
+            'яемся',
+            'етесь',
+            'итесь',
+            'аетесь',
+            'яетесь',
+            'утся',
+            'ятся',
+            'аются',
+            'яются',
+            'лся',
+            'лась',
+            'лось',
+            'лись',
+        ];
+        const futureEndings = [
+            'буду',
+            'будешь',
+            'будет',
+            'будем',
+            'будете',
+            'будут',
+        ];
+        const specialVerbs = [
+            'есть',
+            'пить',
+            'спать',
+            'стоять',
+            'лежать',
+            'сидеть',
+            'идти',
+            'ехать',
+            'лететь',
+            'плыть',
+            'бежать',
+            'ползти',
+            'жить',
+            'быть',
+            'иметь',
+            'дать',
+            'взять',
+            'класть',
+            'мочь',
+            'хотеть',
+            'уметь',
+            'знать',
+            'видеть',
+            'слышать',
+            'любить',
+            'ненавидеть',
+            'работать',
+            'играть',
+            'думать',
+            'говорить',
+            'читать',
+            'писать',
+            'рисовать',
+            'петь',
+            'танцевать',
+            'прыгать',
+            'кричать',
+            'смеяться',
+            'плакать',
+            'учиться',
+            'готовить',
+            'покупать',
+            'продавать',
+            'искать',
+            'находить',
+            'терять',
+            'помнить',
+            'забывать',
+            'понимать',
+            'объяснять',
+            'слушать',
+            'смотреть',
+            'изучать',
+            'повторять',
+        ];
+        if (specialVerbs.includes(lowerWord)) {
+            return true;
+        }
+        const allEndings = [
+            ...infinitiveEndings,
+            ...firstPersonEndings,
+            ...secondPersonEndings,
+            ...thirdPersonEndings,
+            ...firstPersonPluralEndings,
+            ...secondPersonPluralEndings,
+            ...thirdPersonPluralEndings,
+            ...imperativeEndings,
+            ...participleEndings,
+            ...pastTenseEndings,
+            ...futureEndings,
+            ...reflexiveEndings,
+        ];
+        return allEndings.some((ending) => {
+            if (ending.length >= lowerWord.length)
+                return false;
+            return lowerWord.endsWith(ending);
+        });
+    }
+    findVerbsInText(text) {
+        const words = text
+            .toLowerCase()
+            .split(/\s+/)
+            .filter((word) => word.length > 2);
+        const detectedVerbs = [];
+        for (const word of words) {
+            const cleanWord = word.replace(/[.,!?;:()"-]/g, '');
+            if (this.isVerbByEnding(cleanWord)) {
+                detectedVerbs.push(cleanWord);
+            }
+        }
+        return detectedVerbs;
+    }
+    isSimpleReminderRequest(text) {
+        const simpleReminderPatterns = [
+            /^напомни\s+мне\s+.+/i,
+            /^напомню\s+себе\s+.+/i,
+            /^напоминание\s+.+/i,
+            /^поставь\s+напоминание\s+.+/i,
+            /^установи\s+напоминание\s+.+/i,
+            /^создай\s+напоминание\s+.+/i,
+        ];
+        if (simpleReminderPatterns.some((pattern) => pattern.test(text))) {
+            return true;
+        }
+        const timeWords = [
+            'завтра',
+            'послезавтра',
+            'сегодня',
+            'вечером',
+            'утром',
+            'днем',
+            'ночью',
+            'в понедельник',
+            'во вторник',
+            'в среду',
+            'в четверг',
+            'в пятницу',
+            'в субботу',
+            'в воскресенье',
+            'на следующей неделе',
+            'в следующем месяце',
+            'в следующем году',
+        ];
+        const actionVerbs = [
+            'сделать',
+            'выполнить',
+            'купить',
+            'скушать',
+            'съесть',
+            'позвонить',
+            'написать',
+            'отправить',
+            'подготовить',
+            'организовать',
+            'запланировать',
+            'встретить',
+            'пойти',
+            'поехать',
+            'забрать',
+            'отнести',
+            'принести',
+            'вернуть',
+            'показать',
+            'рассказать',
+            'заплатить',
+            'оплатить',
+            'заказать',
+            'записаться',
+            'посмотреть',
+            'проверить',
+            'изучить',
+            'прочитать',
+            'приготовить',
+            'почистить',
+            'убрать',
+            'помыть',
+            'постирать',
+            'погладить',
+            'сходить',
+            'съездить',
+            'дойти',
+            'добраться',
+            'доехать',
+            'приехать',
+            'прийти',
+            'заехать',
+            'зайти',
+            'завернуть',
+            'заскочить',
+            'навестить',
+            'посетить',
+            'встретиться',
+            'увидеться',
+            'поговорить',
+            'обсудить',
+            'решить',
+            'закончить',
+            'завершить',
+            'начать',
+            'приступить',
+            'продолжить',
+            'остановить',
+            'прекратить',
+            'открыть',
+            'закрыть',
+            'включить',
+            'выключить',
+            'настроить',
+            'установить',
+            'скачать',
+            'загрузить',
+            'отправиться',
+            'выйти',
+            'уйти',
+            'вернуться',
+            'отдохнуть',
+            'поспать',
+            'проснуться',
+            'встать',
+            'лечь',
+            'собраться',
+            'одеться',
+            'переодеться',
+            'умыться',
+            'почистить',
+            'покушать',
+            'поесть',
+            'попить',
+            'выпить',
+            'попробовать',
+            'попытаться',
+            'поработать',
+            'поучиться',
+            'потренироваться',
+            'позаниматься',
+            'поиграть',
+            'погулять',
+            'побегать',
+            'потанцевать',
+            'петь',
+            'рисовать',
+            'писать',
+            'читать',
+            'слушать',
+            'смотреть',
+            'учить',
+            'изучать',
+            'повторить',
+            'запомнить',
+            'забыть',
+            'вспомнить',
+            'найти',
+            'искать',
+            'потерять',
+            'сломать',
+            'починить',
+            'исправить',
+            'подарить',
+            'получить',
+            'взять',
+            'дать',
+            'отдать',
+            'одолжить',
+            'занять',
+            'продать',
+            'покупать',
+            'продавать',
+            'менять',
+            'обменять',
+            'считать',
+            'подсчитать',
+            'рассчитать',
+            'измерить',
+            'взвесить',
+            'сравнить',
+            'выбрать',
+            'решить',
+            'определить',
+            'узнать',
+            'разузнать',
+            'спросить',
+            'ответить',
+            'объяснить',
+            'понять',
+            'разобраться',
+            'помочь',
+            'поддержать',
+            'защитить',
+            'спасти',
+            'вылечить',
+            'полечить',
+            'болеть',
+            'выздороветь',
+            'отремонтировать',
+        ];
+        const hasTimeWord = timeWords.some((timeWord) => text.toLowerCase().includes(timeWord.toLowerCase()));
+        const knownActionVerbs = actionVerbs.some((verb) => text.toLowerCase().includes(verb.toLowerCase()));
+        const detectedVerbs = this.findVerbsInText(text);
+        const hasDetectedVerb = detectedVerbs.length > 0;
+        if (hasDetectedVerb) {
+            this.logger.log(`Detected verbs in "${text}": ${detectedVerbs.join(', ')}`);
+        }
+        const hasActionVerb = knownActionVerbs || hasDetectedVerb;
+        const reminderIndicators = [
+            /нужно\s+/i,
+            /надо\s+/i,
+            /должен\s+/i,
+            /должна\s+/i,
+            /стоит\s+/i,
+            /хочу\s+/i,
+            /планирую\s+/i,
+            /собираюсь\s+/i,
+            /буду\s+/i,
+        ];
+        const hasReminderIndicator = reminderIndicators.some((pattern) => pattern.test(text));
+        return hasTimeWord && (hasActionVerb || hasReminderIndicator);
+    }
     isTaskRequest(text) {
         if (this.isReminderRequest(text)) {
             return false;
@@ -5447,15 +6193,14 @@ _Просто напишите время в удобном формате_
                 'сделать',
                 'выполнить',
                 'купить',
+                'скушать',
+                'съесть',
                 'позвонить',
                 'написать',
                 'отправить',
                 'подготовить',
                 'организовать',
                 'запланировать',
-                'пить',
-                'делать',
-                'читать',
                 'встретить',
                 'пойти',
                 'поехать',
@@ -5524,8 +6269,82 @@ _Просто напишите время в удобном формате_
                 'собраться',
                 'одеться',
                 'переодеться',
+                'умыться',
+                'покушать',
+                'поесть',
+                'попить',
+                'выпить',
+                'попробовать',
+                'попытаться',
+                'поработать',
+                'поучиться',
+                'потренироваться',
+                'позаниматься',
+                'поиграть',
+                'погулять',
+                'побегать',
+                'потанцевать',
+                'петь',
+                'рисовать',
+                'писать',
+                'читать',
+                'слушать',
+                'смотреть',
+                'учить',
+                'изучать',
+                'повторить',
+                'запомнить',
+                'забыть',
+                'вспомнить',
+                'найти',
+                'искать',
+                'потерять',
+                'сломать',
+                'починить',
+                'исправить',
+                'подарить',
+                'получить',
+                'взять',
+                'дать',
+                'отдать',
+                'одолжить',
+                'занять',
+                'продать',
+                'покупать',
+                'продавать',
+                'менять',
+                'обменять',
+                'считать',
+                'подсчитать',
+                'рассчитать',
+                'измерить',
+                'взвесить',
+                'сравнить',
+                'выбрать',
+                'определить',
+                'узнать',
+                'разузнать',
+                'спросить',
+                'ответить',
+                'объяснить',
+                'понять',
+                'разобраться',
+                'помочь',
+                'поддержать',
+                'защитить',
+                'спасти',
+                'вылечить',
+                'полечить',
+                'болеть',
+                'выздороветь',
+                'отремонтировать',
+                'пить',
+                'делать',
             ];
-            const hasActionVerb = actionVerbs.some((verb) => text.toLowerCase().includes(verb));
+            const knownActionVerbs = actionVerbs.some((verb) => text.toLowerCase().includes(verb));
+            const detectedVerbs = this.findVerbsInText(text);
+            const hasDetectedVerb = detectedVerbs.length > 0;
+            const hasActionVerb = knownActionVerbs || hasDetectedVerb;
             if (!hasActionVerb) {
                 return false;
             }
@@ -5561,6 +6380,15 @@ _Просто напишите время в удобном формате_
             return false;
         }
         const isTask = taskPatterns.some((pattern) => pattern.test(text));
+        if (!isTask) {
+            const detectedVerbs = this.findVerbsInText(text);
+            const hasVerb = detectedVerbs.length > 0;
+            const hasSpecificTime = /в\s+\d{1,2}:\d{2}|через\s+\d+\s*(минут|час)/i.test(text);
+            if (hasVerb && !hasSpecificTime && text.length > 10) {
+                this.logger.log(`Universal verb detector found task candidate: "${text}" with verbs: ${detectedVerbs.join(', ')}`);
+                return true;
+            }
+        }
         return isTask;
     }
     isGeneralChatMessage(text) {
@@ -8232,6 +9060,58 @@ ${this.getItemActivationMessage(itemType)}`, {
             return true;
         }
         return false;
+    }
+    async handleQuickReminderTime(ctx, amount, unit) {
+        if (!ctx.session.pendingReminder) {
+            await ctx.editMessageText('❌ Ошибка: не найден текст напоминания');
+            return;
+        }
+        const reminderData = ctx.session.pendingReminder;
+        const reminderText = reminderData.text;
+        const now = new Date();
+        let targetTime = new Date(now);
+        if (unit === 'минут') {
+            targetTime.setMinutes(targetTime.getMinutes() + amount);
+        }
+        else if (unit === 'час' || unit === 'часа') {
+            targetTime.setHours(targetTime.getHours() + amount);
+        }
+        const hours = targetTime.getHours().toString().padStart(2, '0');
+        const minutes = targetTime.getMinutes().toString().padStart(2, '0');
+        ctx.session.pendingReminder = undefined;
+        ctx.session.waitingForReminderTime = false;
+        await this.handleReminderRequest(ctx, reminderText, hours, minutes);
+    }
+    async handleTomorrowReminder(ctx, hours, minutes, timeText) {
+        if (!ctx.session.pendingReminder) {
+            await ctx.editMessageText('❌ Ошибка: не найден текст напоминания');
+            return;
+        }
+        const reminderData = ctx.session.pendingReminder;
+        const reminderText = reminderData.text;
+        ctx.session.pendingReminder = undefined;
+        ctx.session.waitingForReminderTime = false;
+        await this.handleReminderRequest(ctx, reminderText, hours, minutes);
+    }
+    async askForCustomReminderTime(ctx) {
+        if (!ctx.session.pendingReminder) {
+            await ctx.editMessageText('❌ Ошибка: не найден текст напоминания');
+            return;
+        }
+        await ctx.editMessageTextWithMarkdown(`📝 *Напоминание:* "${ctx.session.pendingReminder?.text}"
+
+⏰ Укажите точное время в формате ЧЧ:ММ (например: 14:30)
+
+💡 Или напишите относительное время:
+• "через 45 минут"
+• "через 3 часа"`, {
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '❌ Отмена', callback_data: 'cancel_reminder' }],
+                ],
+            },
+        });
+        ctx.session.waitingForReminderTime = true;
     }
 };
 exports.TelegramBotService = TelegramBotService;

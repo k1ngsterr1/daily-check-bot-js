@@ -35,6 +35,11 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private handleAICreateHabit;
     private handleAIHabitCreationMessage;
     private parseAIHabitResponse;
+    private handleNaturalReminderRequest;
+    private extractReminderText;
+    private extractTimeFromText;
+    private askForReminderTime;
+    private handleSimpleReminderRequest;
     private handleAITimePlanning;
     private handleAICustomQuestion;
     private handleReferralRegistration;
@@ -85,6 +90,9 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private processReminderFromText;
     private isReminderWithoutTime;
     private isReminderRequest;
+    private isVerbByEnding;
+    private findVerbsInText;
+    private isSimpleReminderRequest;
     private isTaskRequest;
     private isGeneralChatMessage;
     private processTaskFromText;
@@ -145,4 +153,7 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private handleIntervalReminder;
     private startIntervalReminder;
     private stopIntervalReminder;
+    private handleQuickReminderTime;
+    private handleTomorrowReminder;
+    private askForCustomReminderTime;
 }
