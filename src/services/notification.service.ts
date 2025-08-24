@@ -27,9 +27,6 @@ export class NotificationService {
   ) {}
 
   async onModuleInit() {
-    // Отключаем автозагрузку напоминаний, чтобы избежать дублирования
-    // Вся логика напоминаний теперь в TelegramBotService
-    // await this.loadActiveHabitReminders();
     this.logger.log(
       'Notification service initialized (habit reminders disabled to avoid duplicates)',
     );

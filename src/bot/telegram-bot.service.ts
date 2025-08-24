@@ -646,6 +646,12 @@ ${statusMessage}
         return;
       }
 
+      // Handle AI Habit Creation mode
+      if (ctx.session.aiHabitCreationMode) {
+        await this.handleAIHabitCreationMessage(ctx, ctx.message.text);
+        return;
+      }
+
       // Check if user needs to provide timezone first
       if (
         !user.timezone &&
@@ -3900,24 +3906,6 @@ XP (опыт) начисляется за выполнение задач. С к
       await this.handleAITaskRecommendations(ctx);
     });
 
-    this.bot.action('ai_habit_help', async (ctx) => {
-      await ctx.answerCbQuery();
-      await ctx.editMessageTextWithMarkdown(
-        `
-🎯 *Помощь с привычками*
-
-Функция в разработке! Скоро здесь будут персональные рекомендации по формированию полезных привычек.
-      `,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
-            ],
-          },
-        },
-      );
-    });
-
     this.bot.action('ai_time_planning', async (ctx) => {
       await ctx.answerCbQuery();
       await ctx.editMessageTextWithMarkdown(
@@ -3969,6 +3957,12 @@ XP (опыт) начисляется за выполнение задач. С к
     this.bot.action('ai_custom_question', async (ctx) => {
       await ctx.answerCbQuery();
       await this.handleAICustomQuestion(ctx);
+    });
+
+    // Handle AI habit creation
+    this.bot.action('ai_create_habit', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.handleAICreateHabit(ctx);
     });
 
     // Task management handlers
@@ -4268,40 +4262,309 @@ ${recommendation}
   }
 
   private async handleAIHabitHelp(ctx: BotContext) {
-    const user = await this.userService.findByTelegramId(ctx.userId);
-    const habits = await this.habitService.findHabitsByUserId(ctx.userId);
+    try {
+      const user = await this.userService.findByTelegramId(ctx.userId);
+      const habits = await this.habitService.findHabitsByUserId(ctx.userId);
+      const completedHabits = habits.filter((h) => h.totalCompletions > 0);
 
-    let advice = '';
-    if (habits.length === 0) {
-      advice =
-        '🔄 Начните с одной простой привычки. Например: "Выпить стакан воды утром".';
-    } else if (habits.length > 3) {
-      advice =
-        '⚠️ Много привычек сразу сложно поддерживать. Сконцентрируйтесь на 2-3 основных.';
-    } else {
-      advice =
-        '✅ Отличное количество привычек! Главное - постоянство, а не идеальность.';
+      // Анализируем профиль пользователя для персональных рекомендаций
+      const userProfile = {
+        totalHabits: habits.length,
+        activeHabits: habits.filter((h) => h.isActive).length,
+        completedHabits: completedHabits.length,
+        avgStreak:
+          habits.length > 0
+            ? habits.reduce((sum, h) => sum + h.currentStreak, 0) /
+              habits.length
+            : 0,
+      };
+
+      let personalizedRecommendations: string[] = [];
+      let motivationalMessage = '';
+
+      // Генерируем персональные рекомендации
+      if (habits.length === 0) {
+        personalizedRecommendations = [
+          '💧 Начните с простого: пить 1 стакан воды утром',
+          '🚶‍♂️ 5-минутная прогулка после еды',
+          '📚 Читать 1 страницу книги перед сном',
+          '🧘‍♀️ 2-минутная медитация утром',
+        ];
+        motivationalMessage =
+          'Отличное время для начала! Выберите одну простую привычку.';
+      } else if (userProfile.avgStreak < 3) {
+        personalizedRecommendations = [
+          '🎯 Сосредоточьтесь на одной привычке до автоматизма',
+          '⏰ Привяжите привычку к существующему действию',
+          '🏆 Отмечайте каждый день в календаре',
+          '📱 Используйте напоминания в одно и то же время',
+        ];
+        motivationalMessage =
+          'Главное - постоянство! Лучше делать мало, но каждый день.';
+      } else {
+        personalizedRecommendations = [
+          '📈 Усложните существующие привычки постепенно',
+          '🔗 Свяжите привычки в цепочки (habit stacking)',
+          '🎉 Добавьте систему наград за достижения',
+          '📊 Отслеживайте прогресс еженедельно',
+        ];
+        motivationalMessage =
+          'У вас отличная дисциплина! Время масштабировать успех.';
+      }
+
+      // Формируем ответ
+      let message = `🎯 *Персональные рекомендации по привычкам*\n\n`;
+
+      if (habits.length > 0) {
+        message += `📊 *Ваш профиль:*\n`;
+        message += `• Привычек: ${userProfile.totalHabits} (активных: ${userProfile.activeHabits})\n`;
+        message += `• Средняя серия: ${Math.round(userProfile.avgStreak)} дней\n`;
+        message += `• Выполняемых: ${completedHabits.length}\n\n`;
+      }
+
+      message += `💡 *${motivationalMessage}*\n\n`;
+      message += `🎯 *Рекомендации для вас:*\n`;
+
+      personalizedRecommendations.forEach((rec, index) => {
+        message += `${index + 1}. ${rec}\n`;
+      });
+
+      message += `\n🧠 *Научно доказанные советы:*\n`;
+      message += `• 21 день для простых привычек, 66 дней для сложных\n`;
+      message += `• Начинайте с 2-минутного правила\n`;
+      message += `• Используйте правило "никогда не пропускайте дважды"\n`;
+      message += `• Фокус на процессе, а не на результате`;
+
+      const keyboard = {
+        inline_keyboard: [
+          [
+            {
+              text: '📝 Создать привычку',
+              callback_data: 'habits_add',
+            },
+            {
+              text: '🎯 Мои привычки',
+              callback_data: 'habits_list',
+            },
+          ],
+          [
+            {
+              text: '🤖 Создать ИИ-привычку',
+              callback_data: 'ai_create_habit',
+            },
+          ],
+          [
+            {
+              text: '⬅️ Назад к ИИ меню',
+              callback_data: 'ai_back_menu',
+            },
+          ],
+        ],
+      };
+
+      await ctx.editMessageTextWithMarkdown(message, {
+        reply_markup: keyboard,
+      });
+    } catch (error) {
+      this.logger.error('Error in handleAIHabitHelp:', error);
+      await ctx.editMessageTextWithMarkdown(
+        '❌ Ошибка при анализе привычек. Попробуйте позже.',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
+            ],
+          },
+        },
+      );
     }
+  }
 
+  private async handleAICreateHabit(ctx: BotContext) {
     await ctx.editMessageTextWithMarkdown(
       `
-🎯 *Помощь с привычками*
+🤖 *Создание привычки с помощью ИИ*
 
-📈 У вас ${habits.length} активных привычек
+Опишите, какую привычку хотите сформировать, и я помогу:
+• 📝 Сформулировать её правильно
+• ⏰ Подобрать оптимальное время
+• 🎯 Разработать план внедрения
+• 💡 Дать персональные советы
 
-${advice}
+*Примеры:*
+"Хочу больше читать"
+"Нужно пить больше воды" 
+"Хочу делать зарядку"
+"Буду медитировать"
 
-*Правило 21 дня:* Повторяйте действие ежедневно в течение 21 дня.
+💬 Просто напишите своими словами!
       `,
       {
         reply_markup: {
           inline_keyboard: [
-            [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
+            [
+              {
+                text: '⬅️ Назад к помощи с привычками',
+                callback_data: 'ai_habit_help',
+              },
+            ],
             [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
           ],
         },
       },
     );
+
+    // Enable AI habit creation mode
+    ctx.session.aiHabitCreationMode = true;
+  }
+
+  private async handleAIHabitCreationMessage(
+    ctx: BotContext,
+    userInput: string,
+  ) {
+    try {
+      // Отключаем режим создания привычек
+      ctx.session.aiHabitCreationMode = false;
+
+      // Анализируем запрос пользователя с помощью AI
+      const analysisPrompt = `Пользователь хочет создать привычку: "${userInput}"
+
+Проанализируй запрос и создай структурированный ответ:
+
+1. Конкретная привычка (максимум 50 символов)
+2. Рекомендуемое время для выполнения
+3. Частота (ежедневно, еженедельно и т.д.)
+4. Советы по внедрению (2-3 коротких совета)
+5. Мотивирующее сообщение
+
+Отвечай на русском языке в дружественном тоне.`;
+
+      const aiResponse = await this.openaiService.getAIResponse(analysisPrompt);
+
+      // Парсим ответ AI для создания привычки
+      const habitData = this.parseAIHabitResponse(aiResponse, userInput);
+
+      // Создаем привычку
+      const habit = await this.habitService.createHabit({
+        userId: ctx.userId,
+        title: habitData.title,
+        description: habitData.description,
+        frequency: 'DAILY',
+        reminderTime: habitData.reminderTime,
+      });
+
+      // Формируем ответ пользователю
+      let message = `🎉 *Привычка создана с помощью ИИ!*\n\n`;
+      message += `📝 **${habit.title}**\n\n`;
+
+      if (habitData.aiAdvice) {
+        message += `🤖 *Совет от ИИ:*\n${habitData.aiAdvice}\n\n`;
+      }
+
+      if (habitData.implementationTips.length > 0) {
+        message += `💡 *Советы по внедрению:*\n`;
+        habitData.implementationTips.forEach((tip, index) => {
+          message += `${index + 1}. ${tip}\n`;
+        });
+        message += `\n`;
+      }
+
+      message += `✨ *${habitData.motivationalMessage}*`;
+
+      const keyboard = {
+        inline_keyboard: [
+          [
+            {
+              text: '⏰ Настроить напоминание',
+              callback_data: `habit_set_reminder_${habit.id}`,
+            },
+          ],
+          [
+            {
+              text: '🎯 Мои привычки',
+              callback_data: 'habits_list',
+            },
+            {
+              text: '🤖 Создать ещё',
+              callback_data: 'ai_create_habit',
+            },
+          ],
+          [
+            {
+              text: '🏠 Главное меню',
+              callback_data: 'back_to_menu',
+            },
+          ],
+        ],
+      };
+
+      await ctx.replyWithMarkdown(message, {
+        reply_markup: keyboard,
+      });
+    } catch (error) {
+      this.logger.error('Error in handleAIHabitCreationMessage:', error);
+      ctx.session.aiHabitCreationMode = false;
+
+      await ctx.replyWithMarkdown(
+        '❌ Не удалось создать привычку с помощью ИИ. Попробуйте позже или создайте привычку вручную.',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '📝 Создать вручную', callback_data: 'habits_add' }],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    }
+  }
+
+  private parseAIHabitResponse(aiResponse: string, originalInput: string) {
+    // Простой парсер ответа ИИ - можно улучшить
+    const defaultHabit = {
+      title:
+        originalInput.length > 50
+          ? originalInput.substring(0, 50)
+          : originalInput,
+      description: `Привычка, созданная с помощью ИИ: ${originalInput}`,
+      reminderTime: '09:00',
+      implementationTips: [
+        'Начните с малого',
+        'Будьте постоянны',
+        'Отмечайте прогресс',
+      ],
+      aiAdvice:
+        aiResponse.length > 200
+          ? aiResponse.substring(0, 200) + '...'
+          : aiResponse,
+      motivationalMessage: 'Вы на правильном пути к лучшей версии себя!',
+    };
+
+    try {
+      // Пытаемся извлечь структурированную информацию из ответа ИИ
+      const lines = aiResponse.split('\n').filter((line) => line.trim());
+
+      for (const line of lines) {
+        if (line.toLowerCase().includes('привычка') && line.includes(':')) {
+          const habitTitle = line.split(':')[1]?.trim();
+          if (habitTitle && habitTitle.length <= 50) {
+            defaultHabit.title = habitTitle;
+          }
+        }
+
+        if (line.toLowerCase().includes('время') && line.includes(':')) {
+          const timeMatch = line.match(/\d{1,2}:\d{2}/);
+          if (timeMatch) {
+            defaultHabit.reminderTime = timeMatch[0];
+          }
+        }
+      }
+
+      return defaultHabit;
+    } catch (error) {
+      this.logger.warn('Failed to parse AI response, using defaults:', error);
+      return defaultHabit;
+    }
   }
 
   private async handleAITimePlanning(ctx: BotContext) {
@@ -4819,9 +5082,9 @@ ${timeAdvice}
           { text: '🧠 Чат с ИИ', callback_data: 'ai_chat' },
         ],
         [
-          { text: '📊 Мои лимиты', callback_data: 'show_limits' },
-          { text: '❓ FAQ / Поддержка', callback_data: 'faq_support' },
-          { text: '📊 Мой прогресс', callback_data: 'my_progress' },
+          { text: '📊 Лимиты', callback_data: 'show_limits' },
+          { text: '❓ Помощь', callback_data: 'faq_support' },
+          { text: '📊 Прогресс', callback_data: 'my_progress' },
         ],
       ],
     };

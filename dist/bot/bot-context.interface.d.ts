@@ -9,6 +9,7 @@ export interface BotContext extends Context {
         feedbackRating?: number;
         feedbackLiked?: string;
         aiChatMode?: boolean;
+        aiHabitCreationMode?: boolean;
         pendingReminder?: string;
         waitingForReminderTime?: boolean;
         pendingAction?: string;
