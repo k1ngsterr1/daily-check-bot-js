@@ -8,6 +8,7 @@ import { OpenAIService } from '../services/openai.service';
 import { BillingService } from '../services/billing.service';
 import { AiContextService } from '../services/ai-context.service';
 import { PaymentService } from '../services/payment.service';
+import { NotificationService } from '../services/notification.service';
 
 @Module({
   providers: [
@@ -20,6 +21,7 @@ import { PaymentService } from '../services/payment.service';
     BillingService,
     AiContextService,
     PaymentService,
+    NotificationService,
   ],
   exports: [TelegramBotService],
 })

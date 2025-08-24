@@ -16,6 +16,7 @@ const schedule_1 = require("@nestjs/schedule");
 const configuration_1 = __importDefault(require("./config/configuration"));
 const prisma_service_1 = require("./database/prisma.service");
 const services_1 = require("./services");
+const notification_service_1 = require("./services/notification.service");
 const telegram_bot_module_1 = require("./bot/telegram-bot.module");
 let AppModule = class AppModule {
 };
@@ -40,6 +41,7 @@ exports.AppModule = AppModule = __decorate([
             services_1.OpenAIService,
             services_1.AiContextService,
             services_1.PaymentService,
+            notification_service_1.NotificationService,
         ],
     })
 ], AppModule);

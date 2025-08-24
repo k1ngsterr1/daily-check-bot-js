@@ -8,6 +8,9 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
 var TelegramBotService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TelegramBotService = void 0;
@@ -23,6 +26,7 @@ const billing_service_1 = require("../services/billing.service");
 const ai_context_service_1 = require("../services/ai-context.service");
 const payment_service_1 = require("../services/payment.service");
 const prisma_service_1 = require("../database/prisma.service");
+const notification_service_1 = require("../services/notification.service");
 let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
     configService;
     userService;
@@ -33,10 +37,12 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
     aiContextService;
     paymentService;
     prisma;
+    notificationService;
     logger = new common_1.Logger(TelegramBotService_1.name);
     bot;
     activePomodoroSessions = new Map();
-    constructor(configService, userService, openaiService, taskService, habitService, billingService, aiContextService, paymentService, prisma) {
+    activeIntervalReminders = new Map();
+    constructor(configService, userService, openaiService, taskService, habitService, billingService, aiContextService, paymentService, prisma, notificationService) {
         this.configService = configService;
         this.userService = userService;
         this.openaiService = openaiService;
@@ -46,6 +52,7 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
         this.aiContextService = aiContextService;
         this.paymentService = paymentService;
         this.prisma = prisma;
+        this.notificationService = notificationService;
         const token = this.configService.get('bot.token');
         if (!token) {
             throw new Error('BOT_TOKEN is not provided');
@@ -142,6 +149,57 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
                 await ctx.replyWithMarkdown('❌ Произошла ошибка при запуске бота. Попробуйте еще раз.');
             }
         });
+        this.bot.on('voice', async (ctx) => {
+            try {
+                await ctx.replyWithMarkdown('🎤 Обрабатываю голосовое сообщение...');
+                const userId = ctx.from.id.toString();
+                const voiceMessage = ctx.message.voice;
+                const taskTitle = `📝 Задача из голосового сообщения (${new Date().toLocaleTimeString('ru-RU')})`;
+                const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+                const task = await this.taskService.createTask({
+                    userId,
+                    title: taskTitle,
+                    description: 'Создано из голосового сообщения. Добавьте описание.',
+                    priority: 'MEDIUM',
+                    dueDate,
+                });
+                const keyboard = {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '✅ Выполнено',
+                                callback_data: `task_complete_${task.id}`,
+                            },
+                            {
+                                text: '✏️ Редактировать',
+                                callback_data: `task_edit_${task.id}`,
+                            },
+                        ],
+                        [
+                            { text: '📋 Все задачи', callback_data: 'tasks_list' },
+                            { text: '🔄 Главное меню', callback_data: 'main_menu' },
+                        ],
+                    ],
+                };
+                const intervalInfo = this.extractTimeIntervalFromText(taskTitle);
+                let responseMessage = `✅ *Задача создана!*\n\n` +
+                    `📝 *Название:* ${task.title}\n` +
+                    `📅 *Срок:* ${task.dueDate ? task.dueDate.toLocaleDateString('ru-RU') : 'Не указан'}\n` +
+                    `🎯 *Приоритет:* ${this.getPriorityEmoji(task.priority)} ${task.priority}`;
+                if (intervalInfo) {
+                    responseMessage += `\n\n⏰ **Следующее уведомление о задаче будет отправлено в ${intervalInfo.nextTime}**`;
+                }
+                responseMessage += `\n\n💡 *Совет:* Нажмите "Редактировать", чтобы добавить подробное описание задачи.`;
+                await ctx.replyWithMarkdown(responseMessage, {
+                    reply_markup: keyboard,
+                });
+                this.logger.log(`Task created from voice message for user ${userId}: ${task.id}`);
+            }
+            catch (error) {
+                this.logger.error('Error handling voice message:', error);
+                await ctx.replyWithMarkdown('❌ Не удалось создать задачу из голосового сообщения. Попробуйте еще раз.');
+            }
+        });
         this.bot.help(async (ctx) => {
             await ctx.replyWithMarkdown(`
 🤖 *Ticky AI - Ваш персональный AI помощник продуктивности*
@@ -196,12 +254,15 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
 /habits - Управление привычками
 /mood - Отметить настроение
 /focus - Сессия фокуса
+/reminders - Активные напоминания
+/testnotify - Тестовое уведомление
 
 **Основные функции:**
 📝 Управление задачами и привычками
 😊 Трекинг настроения
 🍅 Техника Помодоро для фокуса
 📊 Статистика и аналитика
+⏰ Умные напоминания о привычках
 💎 Система биллинга с пробным периодом
 
 Для получения подробной информации используйте /menu
@@ -220,6 +281,90 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
             catch (error) {
                 this.logger.error('Error in feedback command:', error);
                 await ctx.replyWithMarkdown('❌ Произошла ошибка. Попробуйте позже.');
+            }
+        });
+        this.bot.command('testnotify', async (ctx) => {
+            try {
+                const userId = ctx.from.id.toString();
+                const habit = await this.prisma.habit.findFirst({
+                    where: { userId, isActive: true },
+                });
+                if (!habit) {
+                    await ctx.reply('❌ У вас нет активных привычек для тестирования.');
+                    return;
+                }
+                const message = `⏰ *Тестовое напоминание*\n\n🎯 ${habit.title}\n\nЭто пример уведомления о привычке!`;
+                const keyboard = {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '✅ Выполнил',
+                                callback_data: `complete_habit_${habit.id}`,
+                            },
+                            {
+                                text: '⏰ Отложить на 15 мин',
+                                callback_data: `snooze_habit_${habit.id}_15`,
+                            },
+                        ],
+                        [
+                            {
+                                text: '📊 Статистика',
+                                callback_data: `habit_stats_${habit.id}`,
+                            },
+                            {
+                                text: '❌ Пропустить сегодня',
+                                callback_data: `skip_habit_${habit.id}`,
+                            },
+                        ],
+                    ],
+                };
+                await ctx.reply(message, {
+                    parse_mode: 'Markdown',
+                    reply_markup: keyboard,
+                });
+                this.logger.log(`Test notification sent to user ${userId} for habit ${habit.id}`);
+            }
+            catch (error) {
+                this.logger.error('Error in test notification:', error);
+                await ctx.reply('❌ Ошибка при отправке тестового уведомления.');
+            }
+        });
+        this.bot.command('reminders', async (ctx) => {
+            try {
+                const userId = ctx.from.id.toString();
+                const habitsWithReminders = await this.prisma.habit.findMany({
+                    where: {
+                        userId,
+                        isActive: true,
+                        reminderTime: { not: null },
+                    },
+                    orderBy: { title: 'asc' },
+                });
+                if (habitsWithReminders.length === 0) {
+                    await ctx.reply('❌ У вас нет активных напоминаний о привычках.\n\nИспользуйте /habits для настройки напоминаний.');
+                    return;
+                }
+                let message = `⏰ *Активные напоминания*\n\n`;
+                for (const habit of habitsWithReminders) {
+                    const nextTime = this.calculateNextReminderTime(habit.reminderTime || '');
+                    message += `🎯 **${habit.title}**\n`;
+                    message += `⏰ Интервал: ${habit.reminderTime}\n`;
+                    message += `🕒 Следующее: ${nextTime}\n\n`;
+                }
+                message += `📱 Используйте /testnotify для тестирования`;
+                await ctx.reply(message, {
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '🔄 Мои привычки', callback_data: 'habits_list' }],
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                        ],
+                    },
+                });
+            }
+            catch (error) {
+                this.logger.error('Error showing reminders:', error);
+                await ctx.reply('❌ Ошибка при получении списка напоминаний.');
             }
         });
         this.bot.command('billing', async (ctx) => {
@@ -606,10 +751,42 @@ ${statusMessage}
                 });
             }
         });
+        this.bot.action(/^habit_set_reminder_(.+)$/, async (ctx) => {
+            await ctx.answerCbQuery();
+            const habitId = ctx.match[1];
+            await this.showReminderSetup(ctx, habitId);
+        });
+        this.bot.action(/^set_reminder_(.+)_(.+)$/, async (ctx) => {
+            await ctx.answerCbQuery('⏰ Напоминание настроено!');
+            const habitId = ctx.match[1];
+            const interval = ctx.match[2];
+            await this.setHabitReminder(ctx, habitId, interval);
+        });
         this.bot.action(/^habit_complete_(.+)$/, async (ctx) => {
             await ctx.answerCbQuery();
             const habitId = ctx.match[1];
             await this.completeHabit(ctx, habitId);
+        });
+        this.bot.action(/^complete_habit_(.+)$/, async (ctx) => {
+            await ctx.answerCbQuery('✅ Отличная работа!');
+            const habitId = ctx.match[1];
+            await this.completeHabitFromNotification(ctx, habitId);
+        });
+        this.bot.action(/^snooze_habit_(.+)_(\d+)$/, async (ctx) => {
+            const habitId = ctx.match[1];
+            const minutes = parseInt(ctx.match[2]);
+            await ctx.answerCbQuery(`⏰ Напомним через ${minutes} минут`);
+            await this.snoozeHabitFromNotification(ctx, habitId, minutes);
+        });
+        this.bot.action(/^habit_stats_(.+)$/, async (ctx) => {
+            await ctx.answerCbQuery();
+            const habitId = ctx.match[1];
+            await this.showHabitStatsFromNotification(ctx, habitId);
+        });
+        this.bot.action(/^skip_habit_(.+)$/, async (ctx) => {
+            await ctx.answerCbQuery('⏭️ Пропущено на сегодня');
+            const habitId = ctx.match[1];
+            await this.skipHabitFromNotification(ctx, habitId);
         });
         this.bot.action('habits_list_more', async (ctx) => {
             await ctx.answerCbQuery();
@@ -3085,6 +3262,102 @@ XP (опыт) начисляется за выполнение задач. С к
             await ctx.answerCbQuery();
             await this.showTimezoneList(ctx);
         });
+        this.bot.action('stop_interval_reminder', async (ctx) => {
+            await ctx.answerCbQuery();
+            const stopped = this.stopIntervalReminder(ctx.userId);
+            if (stopped) {
+                await ctx.editMessageTextWithMarkdown(`
+🛑 *Интервальное напоминание остановлено*
+
+Интервальные напоминания больше не будут отправляться.
+        `, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                        ],
+                    },
+                });
+            }
+            else {
+                await ctx.editMessageTextWithMarkdown(`
+❌ *Нет активных интервальных напоминаний*
+
+У вас нет запущенных интервальных напоминаний.
+        `, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                        ],
+                    },
+                });
+            }
+        });
+        this.bot.action('interval_status', async (ctx) => {
+            await ctx.answerCbQuery();
+            const reminder = this.activeIntervalReminders.get(ctx.userId);
+            if (reminder) {
+                const runningTime = Math.floor((Date.now() - reminder.startTime.getTime()) / (1000 * 60));
+                const intervalText = reminder.intervalMinutes < 60
+                    ? `${reminder.intervalMinutes} минут`
+                    : `${Math.floor(reminder.intervalMinutes / 60)} час${reminder.intervalMinutes === 60 ? '' : 'а'}`;
+                await ctx.editMessageTextWithMarkdown(`
+📊 *Статус интервального напоминания*
+
+📝 **Текст:** ${reminder.reminderText}
+⏱️ **Интервал:** каждые ${intervalText}
+🕐 **Запущено:** ${runningTime} мин назад
+📬 **Отправлено:** ${reminder.count} напоминаний
+
+Напоминание работает и будет продолжать отправлять уведомления.
+        `, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '🛑 Остановить',
+                                    callback_data: 'stop_interval_reminder',
+                                },
+                            ],
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                        ],
+                    },
+                });
+            }
+            else {
+                await ctx.editMessageTextWithMarkdown(`
+❌ *Нет активных интервальных напоминаний*
+
+У вас нет запущенных интервальных напоминаний.
+        `, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                        ],
+                    },
+                });
+            }
+        });
+        this.bot.action('cancel_interval_setup', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.editMessageTextWithMarkdown(`
+❌ *Настройка отменена*
+
+Новое интервальное напоминание не было создано.
+      `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                    ],
+                },
+            });
+        });
+        this.bot.action(/^replace_interval_(\d+)_(.+)$/, async (ctx) => {
+            await ctx.answerCbQuery();
+            const intervalMinutes = parseInt(ctx.match[1]);
+            const reminderText = Buffer.from(ctx.match[2], 'base64').toString();
+            this.stopIntervalReminder(ctx.userId);
+            await this.startIntervalReminder(ctx, reminderText, intervalMinutes);
+        });
         this.bot.catch((err, ctx) => {
             this.logger.error(`Bot error for ${ctx.updateType}:`, err);
             ctx.reply('🚫 Произошла ошибка. Попробуйте позже или обратитесь к администратору.');
@@ -3535,7 +3808,7 @@ ${timeAdvice}
                 [{ text: '➕ Добавить задачу/привычку', callback_data: 'add_item' }],
                 [{ text: '📋 Мои задачи и привычки', callback_data: 'my_items' }],
                 [
-                    { text: 'Ещё функции', callback_data: 'more_functions' },
+                    { text: '🟢 Ещё функции', callback_data: 'more_functions' },
                     { text: '🧠 Чат с ИИ', callback_data: 'ai_chat' },
                 ],
                 [
@@ -3577,6 +3850,7 @@ ${statusText}🤖 Я Ticky AI – твой личный AI помощник дл
                 { command: 'menu', description: '🏠 Главное меню' },
                 { command: 'tasks', description: '📝 Мои задачи' },
                 { command: 'habits', description: '🔄 Мои привычки' },
+                { command: 'reminders', description: '⏰ Активные напоминания' },
                 { command: 'mood', description: '😊 Дневник настроения' },
                 { command: 'focus', description: '🍅 Режим фокуса' },
                 { command: 'billing', description: '💎 Мои лимиты и подписка' },
@@ -3606,6 +3880,11 @@ ${statusText}🤖 Я Ticky AI – твой личный AI помощник дл
                 clearTimeout(session.breakTimer);
         }
         this.activePomodoroSessions.clear();
+        for (const [userId, reminder] of this.activeIntervalReminders.entries()) {
+            clearInterval(reminder.intervalId);
+            this.logger.log(`Stopped interval reminder for user ${userId}`);
+        }
+        this.activeIntervalReminders.clear();
         this.bot.stop('SIGINT');
         this.logger.log('🛑 Telegram bot stopped');
     }
@@ -4295,7 +4574,29 @@ ${completionRate > 70
                 /напомни\s+(.+?)\s+через\s+(\d+)\s+минут/i,
                 /напоминание\s+(.+?)\s+через\s+(\d+)\s+минут/i,
             ];
+            const intervalPatterns = [
+                /напоминай\s+(.+?)\s+каждые?\s+(\d+)\s+(минут|час|часа|часов)/i,
+                /напомни\s+(.+?)\s+каждые?\s+(\d+)\s+(минут|час|часа|часов)/i,
+                /(.+?)\s+каждые?\s+(\d+)\s+(минут|час|часа|часов)/i,
+            ];
             let reminderMatch = null;
+            for (const pattern of intervalPatterns) {
+                reminderMatch = message.match(pattern);
+                if (reminderMatch) {
+                    const [, reminderText, amount, unit] = reminderMatch;
+                    let intervalMinutes = 0;
+                    if (unit.includes('минут')) {
+                        intervalMinutes = parseInt(amount);
+                    }
+                    else if (unit.includes('час')) {
+                        intervalMinutes = parseInt(amount) * 60;
+                    }
+                    if (intervalMinutes >= 1 && intervalMinutes <= 1440) {
+                        await this.handleIntervalReminder(ctx, reminderText.trim(), intervalMinutes);
+                        return;
+                    }
+                }
+            }
             for (const pattern of absoluteTimePatterns) {
                 reminderMatch = message.match(pattern);
                 if (reminderMatch) {
@@ -4686,6 +4987,46 @@ _Попробуйте еще раз_
     }
     async processReminderFromText(ctx, text) {
         this.logger.log(`Processing reminder from text: "${text}"`);
+        const intervalMatch = text.match(/каждые?\s*(\d+)\s*(минут|час|часа|часов)/i);
+        if (intervalMatch) {
+            const intervalAmount = parseInt(intervalMatch[1]);
+            const intervalUnit = intervalMatch[2].toLowerCase();
+            let intervalMinutes = 0;
+            if (intervalUnit.includes('минут')) {
+                intervalMinutes = intervalAmount;
+            }
+            else if (intervalUnit.includes('час')) {
+                intervalMinutes = intervalAmount * 60;
+            }
+            if (intervalMinutes < 1 || intervalMinutes > 1440) {
+                await ctx.replyWithMarkdown(`
+❌ *Неверный интервал*
+
+Интервал должен быть от 1 минуты до 24 часов.
+        `);
+                return;
+            }
+            const reminderText = text
+                .replace(/напомни\s*(мне)?/gi, '')
+                .replace(/напомню\s*(тебе|вам)?/gi, '')
+                .replace(/напоминание/gi, '')
+                .replace(/поставь/gi, '')
+                .replace(/установи/gi, '')
+                .replace(/каждые?\s*\d+\s*(?:минут|час|часа|часов)/gi, '')
+                .trim();
+            if (!reminderText || reminderText.length < 2) {
+                await ctx.replyWithMarkdown(`
+🤔 *О чем напоминать каждые ${intervalAmount} ${intervalUnit}?*
+
+Вы указали интервал, но не указали, о чем напоминать.
+
+*Пример:* "напоминай пить воду каждые 30 минут"
+        `);
+                return;
+            }
+            await this.handleIntervalReminder(ctx, reminderText, intervalMinutes);
+            return;
+        }
         const timeMatch = text.match(/в\s*(\d{1,2}):(\d{2})/i) ||
             text.match(/в\s*(\d{1,2})\s*час(?:а|ов)?(?:\s*(\d{2})\s*минут)?/i) ||
             text.match(/на\s*(\d{1,2}):(\d{2})/i) ||
@@ -5110,26 +5451,46 @@ _Просто напишите время в удобном формате_
                 await this.askForTimezone(ctx);
                 return;
             }
-            const task = await this.taskService.createTask({
-                userId: ctx.userId,
-                title: text.trim(),
-            });
-            await ctx.replyWithMarkdown(`
-✅ *Задача создана!*
-
-📝 **"${task.title}"**
-
-Задача добавлена в ваш список. Вы можете найти её в разделе "Мои задачи и привычки".
-
-💡 *Подсказка:* Если хотите создать напоминание на конкретное время, используйте фразы типа "напомни купить молоко в 17:30"
-      `, {
-                reply_markup: {
-                    inline_keyboard: [
-                        [{ text: '📝 Мои задачи', callback_data: 'tasks_list' }],
-                        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-                    ],
-                },
-            });
+            const intervalInfo = this.extractTimeIntervalFromText(text.trim());
+            if (intervalInfo) {
+                const habit = await this.habitService.createHabit({
+                    userId: ctx.userId,
+                    title: text.trim(),
+                    description: `Привычка с интервалом: ${intervalInfo.interval}`,
+                    frequency: 'DAILY',
+                    reminderTime: intervalInfo.interval,
+                });
+                if (this.notificationService) {
+                    await this.notificationService.scheduleHabitReminder(habit);
+                }
+                let responseMessage = `✅ *Привычка с напоминанием создана!*\n\n📝 **"${habit.title}"**\n\n🔔 **Интервал:** ${intervalInfo.interval}\n⏰ **Следующее уведомление будет отправлено в ${intervalInfo.nextTime}**\n\n💡 *Подсказка:* Вы будете получать уведомления с интервалом ${intervalInfo.interval}. Используйте кнопки в уведомлениях для отметки выполнения.`;
+                await ctx.replyWithMarkdown(responseMessage, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '🎯 Мои привычки', callback_data: 'habits_list' }],
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                        ],
+                    },
+                });
+            }
+            else {
+                const task = await this.taskService.createTask({
+                    userId: ctx.userId,
+                    title: text.trim(),
+                });
+                let responseMessage = `✅ *Задача создана!*\n\n📝 **"${task.title}"**\n\nЗадача добавлена в ваш список. Вы можете найти её в разделе "Мои задачи и привычки".`;
+                responseMessage += `\n\n💡 *Подсказки:*
+• Напоминание: "напомни купить молоко в 17:30"
+• Интервальное: "напоминай пить воду каждые 30 минут"`;
+                await ctx.replyWithMarkdown(responseMessage, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '📝 Мои задачи', callback_data: 'tasks_list' }],
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                        ],
+                    },
+                });
+            }
         }
         catch (error) {
             this.logger.error(`Error creating task from text: ${error}`);
@@ -6808,10 +7169,709 @@ ${this.getItemActivationMessage(itemType)}`, {
             .trim();
         return { targetDate, taskText };
     }
+    async sendMessageToUser(userId, text, options) {
+        try {
+            await this.bot.telegram.sendMessage(userId, text, options);
+            this.logger.log(`Message sent to user ${userId}`);
+        }
+        catch (error) {
+            this.logger.error(`Failed to send message to user ${userId}:`, error);
+            throw error;
+        }
+    }
+    async completeHabitFromNotification(ctx, habitId) {
+        try {
+            const userId = ctx.from?.id.toString();
+            if (!userId)
+                return;
+            const result = await this.habitService.completeHabit(habitId, userId);
+            const message = `✅ Привычка "${result.habit.title}" выполнена!\n\n🔥 Так держать! Продолжайте в том же духе!\n\n⭐ Получено опыта: ${result.xpGained}`;
+            await ctx.editMessageText(message, {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '🔄 Мои привычки', callback_data: 'habits_list' }],
+                    ],
+                },
+            });
+        }
+        catch (error) {
+            this.logger.error('Error completing habit from notification:', error);
+            await ctx.editMessageText('❌ Ошибка при выполнении привычки. Попробуйте позже.');
+        }
+    }
+    async snoozeHabitFromNotification(ctx, habitId, minutes) {
+        try {
+            const delayMs = minutes * 60 * 1000;
+            setTimeout(async () => {
+                const habit = await this.prisma.habit.findUnique({
+                    where: { id: habitId },
+                    include: { user: true },
+                });
+                if (habit) {
+                    const message = `⏰ *Напоминание о привычке*\n\n🎯 ${habit.title}\n\nВремя выполнить вашу привычку!`;
+                    const keyboard = {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '✅ Выполнил',
+                                    callback_data: `complete_habit_${habitId}`,
+                                },
+                                {
+                                    text: '⏰ Отложить на 15 мин',
+                                    callback_data: `snooze_habit_${habitId}_15`,
+                                },
+                            ],
+                            [
+                                {
+                                    text: '📊 Статистика',
+                                    callback_data: `habit_stats_${habitId}`,
+                                },
+                                {
+                                    text: '❌ Пропустить сегодня',
+                                    callback_data: `skip_habit_${habitId}`,
+                                },
+                            ],
+                        ],
+                    };
+                    await this.sendMessageToUser(parseInt(habit.user.id), message, {
+                        parse_mode: 'Markdown',
+                        reply_markup: keyboard,
+                    });
+                }
+            }, delayMs);
+            await ctx.editMessageText(`⏰ Напоминание отложено на ${minutes} минут.\n\nМы напомним вам позже!`, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '🔄 Мои привычки', callback_data: 'habits_list' }],
+                    ],
+                },
+            });
+        }
+        catch (error) {
+            this.logger.error('Error snoozing habit notification:', error);
+            await ctx.editMessageText('❌ Ошибка при отложении напоминания.');
+        }
+    }
+    async showHabitStatsFromNotification(ctx, habitId) {
+        try {
+            const habit = await this.prisma.habit.findUnique({
+                where: { id: habitId },
+            });
+            if (!habit) {
+                await ctx.editMessageText('❌ Привычка не найдена.');
+                return;
+            }
+            const streak = habit.currentStreak || 0;
+            const bestStreak = habit.maxStreak || 0;
+            const totalCompletions = habit.totalCompletions || 0;
+            const message = `📊 *Статистика привычки "${habit.title}"*
+
+✅ Всего выполнений: ${totalCompletions}
+🔥 Текущая серия: ${streak} дней
+🏆 Лучшая серия: ${bestStreak} дней
+📅 Частота: ${habit.frequency}
+
+Продолжайте в том же духе! 💪`;
+            await ctx.editMessageText(message, {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '✅ Выполнить сейчас',
+                                callback_data: `complete_habit_${habitId}`,
+                            },
+                        ],
+                        [{ text: '🔄 Мои привычки', callback_data: 'habits_list' }],
+                    ],
+                },
+            });
+        }
+        catch (error) {
+            this.logger.error('Error showing habit stats from notification:', error);
+            await ctx.editMessageText('❌ Ошибка при получении статистики.');
+        }
+    }
+    async skipHabitFromNotification(ctx, habitId) {
+        try {
+            const habit = await this.prisma.habit.findUnique({
+                where: { id: habitId },
+            });
+            if (!habit) {
+                await ctx.editMessageText('❌ Привычка не найдена.');
+                return;
+            }
+            const message = `⏭️ Привычка "${habit.title}" пропущена на сегодня.
+
+Не расстраивайтесь! Завтра новый день - новые возможности! 🌅`;
+            await ctx.editMessageText(message, {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '🔄 Мои привычки', callback_data: 'habits_list' }],
+                    ],
+                },
+            });
+        }
+        catch (error) {
+            this.logger.error('Error skipping habit from notification:', error);
+            await ctx.editMessageText('❌ Ошибка при пропуске привычки.');
+        }
+    }
+    async showReminderSetup(ctx, habitId) {
+        try {
+            const habit = await this.prisma.habit.findUnique({
+                where: { id: habitId },
+            });
+            if (!habit) {
+                await ctx.editMessageText('❌ Привычка не найдена.');
+                return;
+            }
+            const message = `⏰ *Настройка напоминаний*\n\n🎯 Привычка: ${habit.title}\n\nВыберите интервал напоминаний:`;
+            const keyboard = {
+                inline_keyboard: [
+                    [
+                        {
+                            text: '⏰ Каждый час',
+                            callback_data: `set_reminder_${habitId}_hourly`,
+                        },
+                        {
+                            text: '🕐 Каждые 2 часа',
+                            callback_data: `set_reminder_${habitId}_2hours`,
+                        },
+                    ],
+                    [
+                        {
+                            text: '🕓 Каждые 3 часа',
+                            callback_data: `set_reminder_${habitId}_3hours`,
+                        },
+                        {
+                            text: '🕕 Каждые 6 часов',
+                            callback_data: `set_reminder_${habitId}_6hours`,
+                        },
+                    ],
+                    [
+                        {
+                            text: '🌅 Утром (09:00)',
+                            callback_data: `set_reminder_${habitId}_morning`,
+                        },
+                        {
+                            text: '🌆 Вечером (19:00)',
+                            callback_data: `set_reminder_${habitId}_evening`,
+                        },
+                    ],
+                    [
+                        {
+                            text: '📅 Каждый день (12:00)',
+                            callback_data: `set_reminder_${habitId}_daily`,
+                        },
+                        {
+                            text: '🗓️ Каждую неделю',
+                            callback_data: `set_reminder_${habitId}_weekly`,
+                        },
+                    ],
+                    [{ text: '🔙 Назад к привычкам', callback_data: 'habits_list' }],
+                ],
+            };
+            await ctx.editMessageText(message, {
+                parse_mode: 'Markdown',
+                reply_markup: keyboard,
+            });
+        }
+        catch (error) {
+            this.logger.error('Error showing reminder setup:', error);
+            await ctx.editMessageText('❌ Ошибка при настройке напоминаний.');
+        }
+    }
+    async setHabitReminder(ctx, habitId, interval) {
+        try {
+            let reminderTime = '';
+            let intervalText = '';
+            let nextReminder = '';
+            const now = new Date();
+            const currentTime = now.toLocaleTimeString('ru-RU', {
+                hour: '2-digit',
+                minute: '2-digit',
+            });
+            switch (interval) {
+                case 'hourly':
+                    reminderTime = 'каждый час';
+                    intervalText = 'каждый час';
+                    const nextHour = new Date(now);
+                    nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
+                    nextReminder = nextHour.toLocaleTimeString('ru-RU', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                    });
+                    break;
+                case '2hours':
+                    reminderTime = 'каждые 2 часа';
+                    intervalText = 'каждые 2 часа';
+                    const next2Hours = new Date(now);
+                    next2Hours.setHours(next2Hours.getHours() + 2, 0, 0, 0);
+                    nextReminder = next2Hours.toLocaleTimeString('ru-RU', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                    });
+                    break;
+                case '3hours':
+                    reminderTime = 'каждые 3 часа';
+                    intervalText = 'каждые 3 часа';
+                    const next3Hours = new Date(now);
+                    next3Hours.setHours(next3Hours.getHours() + 3, 0, 0, 0);
+                    nextReminder = next3Hours.toLocaleTimeString('ru-RU', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                    });
+                    break;
+                case '6hours':
+                    reminderTime = 'каждые 6 часов';
+                    intervalText = 'каждые 6 часов';
+                    const next6Hours = new Date(now);
+                    next6Hours.setHours(next6Hours.getHours() + 6, 0, 0, 0);
+                    nextReminder = next6Hours.toLocaleTimeString('ru-RU', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                    });
+                    break;
+                case 'morning':
+                    reminderTime = '09:00';
+                    intervalText = 'утром в 9:00';
+                    const tomorrow = new Date(now);
+                    tomorrow.setDate(tomorrow.getDate() + 1);
+                    tomorrow.setHours(9, 0, 0, 0);
+                    nextReminder = `завтра в ${tomorrow.toLocaleTimeString('ru-RU', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                    })}`;
+                    break;
+                case 'evening':
+                    reminderTime = '19:00';
+                    intervalText = 'вечером в 19:00';
+                    const evening = new Date(now);
+                    if (now.getHours() >= 19) {
+                        evening.setDate(evening.getDate() + 1);
+                    }
+                    evening.setHours(19, 0, 0, 0);
+                    const isToday = evening.getDate() === now.getDate();
+                    nextReminder = `${isToday ? 'сегодня' : 'завтра'} в 19:00`;
+                    break;
+                case 'daily':
+                    reminderTime = '12:00';
+                    intervalText = 'каждый день в 12:00';
+                    const noon = new Date(now);
+                    if (now.getHours() >= 12) {
+                        noon.setDate(noon.getDate() + 1);
+                    }
+                    noon.setHours(12, 0, 0, 0);
+                    const isTodayNoon = noon.getDate() === now.getDate();
+                    nextReminder = `${isTodayNoon ? 'сегодня' : 'завтра'} в 12:00`;
+                    break;
+                case 'weekly':
+                    reminderTime = '12:00';
+                    intervalText = 'каждую неделю в понедельник в 12:00';
+                    const nextMonday = new Date(now);
+                    const daysUntilMonday = (1 - now.getDay() + 7) % 7 || 7;
+                    nextMonday.setDate(now.getDate() + daysUntilMonday);
+                    nextMonday.setHours(12, 0, 0, 0);
+                    nextReminder = `в понедельник в 12:00`;
+                    break;
+            }
+            const habit = await this.prisma.habit.update({
+                where: { id: habitId },
+                data: { reminderTime },
+            });
+            const message = `✅ *Напоминание настроено!*\n\n🎯 Привычка: ${habit.title}\n⏰ Интервал: ${intervalText}\n\n🕒 Следующее уведомление: **${nextReminder}**\n\nТеперь вы будете получать напоминания о выполнении этой привычки!`;
+            await ctx.editMessageText(message, {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '🧪 Тест напоминания',
+                                callback_data: `complete_habit_${habitId}`,
+                            },
+                        ],
+                        [{ text: '🔄 Мои привычки', callback_data: 'habits_list' }],
+                    ],
+                },
+            });
+            try {
+                const notificationService = require('../services/notification.service').NotificationService;
+                if (notificationService) {
+                    this.logger.log(`Starting notifications for habit ${habitId} with interval ${intervalText}`);
+                }
+            }
+            catch (error) {
+                this.logger.warn('Could not start notifications immediately:', error.message);
+            }
+            this.logger.log(`Reminder set for habit ${habitId}: ${intervalText} - Next: ${nextReminder}`);
+        }
+        catch (error) {
+            this.logger.error('Error setting habit reminder:', error);
+            await ctx.editMessageText('❌ Ошибка при настройке напоминания.');
+        }
+    }
+    calculateNextReminderTime(reminderTime) {
+        const now = new Date();
+        if (reminderTime.includes('каждый час') || reminderTime === 'hourly') {
+            const nextHour = new Date(now);
+            nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
+            return nextHour.toLocaleTimeString('ru-RU', {
+                hour: '2-digit',
+                minute: '2-digit',
+            });
+        }
+        if (reminderTime.includes('каждые 2 часа') || reminderTime === '2hours') {
+            const next2Hours = new Date(now);
+            next2Hours.setHours(next2Hours.getHours() + 2, 0, 0, 0);
+            return next2Hours.toLocaleTimeString('ru-RU', {
+                hour: '2-digit',
+                minute: '2-digit',
+            });
+        }
+        if (reminderTime.includes('каждые 3 часа') || reminderTime === '3hours') {
+            const next3Hours = new Date(now);
+            next3Hours.setHours(next3Hours.getHours() + 3, 0, 0, 0);
+            return next3Hours.toLocaleTimeString('ru-RU', {
+                hour: '2-digit',
+                minute: '2-digit',
+            });
+        }
+        if (reminderTime.includes('каждые 6 часов') || reminderTime === '6hours') {
+            const next6Hours = new Date(now);
+            next6Hours.setHours(next6Hours.getHours() + 6, 0, 0, 0);
+            return next6Hours.toLocaleTimeString('ru-RU', {
+                hour: '2-digit',
+                minute: '2-digit',
+            });
+        }
+        const timeMatch = reminderTime.match(/(\d{1,2}):(\d{2})/);
+        if (timeMatch) {
+            const [, hours, minutes] = timeMatch;
+            const targetTime = new Date(now);
+            targetTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+            if (targetTime <= now) {
+                targetTime.setDate(targetTime.getDate() + 1);
+                return `завтра в ${targetTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+            }
+            else {
+                return `сегодня в ${targetTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+            }
+        }
+        return 'время не определено';
+    }
+    extractTimeIntervalFromText(text) {
+        const now = new Date();
+        const lowerText = text.toLowerCase();
+        if (lowerText.includes('каждый час') || lowerText.includes('ежечасно')) {
+            const nextHour = new Date(now);
+            nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
+            return {
+                interval: 'каждый час',
+                nextTime: nextHour.toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                }),
+            };
+        }
+        if (lowerText.includes('каждые два часа') ||
+            lowerText.includes('каждые 2 часа')) {
+            const next2Hours = new Date(now);
+            next2Hours.setHours(next2Hours.getHours() + 2, 0, 0, 0);
+            return {
+                interval: 'каждые 2 часа',
+                nextTime: next2Hours.toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                }),
+            };
+        }
+        if (lowerText.includes('каждые три часа') ||
+            lowerText.includes('каждые 3 часа')) {
+            const next3Hours = new Date(now);
+            next3Hours.setHours(next3Hours.getHours() + 3, 0, 0, 0);
+            return {
+                interval: 'каждые 3 часа',
+                nextTime: next3Hours.toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                }),
+            };
+        }
+        if (lowerText.includes('каждые четыре часа') ||
+            lowerText.includes('каждые 4 часа')) {
+            const next4Hours = new Date(now);
+            next4Hours.setHours(next4Hours.getHours() + 4, 0, 0, 0);
+            return {
+                interval: 'каждые 4 часа',
+                nextTime: next4Hours.toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                }),
+            };
+        }
+        if (lowerText.includes('каждые пять часов') ||
+            lowerText.includes('каждые 5 часов')) {
+            const next5Hours = new Date(now);
+            next5Hours.setHours(next5Hours.getHours() + 5, 0, 0, 0);
+            return {
+                interval: 'каждые 5 часов',
+                nextTime: next5Hours.toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                }),
+            };
+        }
+        if (lowerText.includes('каждые шесть часов') ||
+            lowerText.includes('каждые 6 часов')) {
+            const next6Hours = new Date(now);
+            next6Hours.setHours(next6Hours.getHours() + 6, 0, 0, 0);
+            return {
+                interval: 'каждые 6 часов',
+                nextTime: next6Hours.toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                }),
+            };
+        }
+        if (lowerText.includes('каждую минуту') ||
+            lowerText.includes('каждая минута')) {
+            const nextMin = new Date(now);
+            nextMin.setMinutes(nextMin.getMinutes() + 1);
+            return {
+                interval: 'каждую минуту',
+                nextTime: nextMin.toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                }),
+            };
+        }
+        if (lowerText.includes('каждые две минуты') ||
+            lowerText.includes('каждые 2 минуты')) {
+            const next2Min = new Date(now);
+            next2Min.setMinutes(next2Min.getMinutes() + 2);
+            return {
+                interval: 'каждые 2 минуты',
+                nextTime: next2Min.toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                }),
+            };
+        }
+        if (lowerText.includes('каждые три минуты') ||
+            lowerText.includes('каждые 3 минуты')) {
+            const next3Min = new Date(now);
+            next3Min.setMinutes(next3Min.getMinutes() + 3);
+            return {
+                interval: 'каждые 3 минуты',
+                nextTime: next3Min.toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                }),
+            };
+        }
+        if (lowerText.includes('каждые пять минут') ||
+            lowerText.includes('каждые 5 минут')) {
+            const next5Min = new Date(now);
+            next5Min.setMinutes(next5Min.getMinutes() + 5);
+            return {
+                interval: 'каждые 5 минут',
+                nextTime: next5Min.toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                }),
+            };
+        }
+        if (lowerText.includes('каждые десять минут') ||
+            lowerText.includes('каждые 10 минут')) {
+            const next10Min = new Date(now);
+            next10Min.setMinutes(next10Min.getMinutes() + 10);
+            return {
+                interval: 'каждые 10 минут',
+                nextTime: next10Min.toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                }),
+            };
+        }
+        if (lowerText.includes('каждые 15 минут') ||
+            lowerText.includes('каждую четверть часа')) {
+            const next15Min = new Date(now);
+            next15Min.setMinutes(next15Min.getMinutes() + 15);
+            return {
+                interval: 'каждые 15 минут',
+                nextTime: next15Min.toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                }),
+            };
+        }
+        if (lowerText.includes('каждые 30 минут') ||
+            lowerText.includes('каждые полчаса')) {
+            const next30Min = new Date(now);
+            next30Min.setMinutes(next30Min.getMinutes() + 30);
+            return {
+                interval: 'каждые 30 минут',
+                nextTime: next30Min.toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                }),
+            };
+        }
+        if (lowerText.includes('каждый день') || lowerText.includes('ежедневно')) {
+            const tomorrow = new Date(now);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            tomorrow.setHours(9, 0, 0, 0);
+            return {
+                interval: 'каждый день',
+                nextTime: `завтра в ${tomorrow.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`,
+            };
+        }
+        return null;
+    }
+    async handleIntervalReminder(ctx, reminderText, intervalMinutes) {
+        try {
+            const limitCheck = await this.billingService.checkUsageLimit(ctx.userId, 'dailyReminders');
+            if (!limitCheck.allowed) {
+                await ctx.replyWithMarkdown(limitCheck.message || '🚫 Превышен лимит напоминаний', {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '💎 Обновиться до Premium',
+                                    callback_data: 'upgrade_premium',
+                                },
+                            ],
+                            [{ text: '📊 Мои лимиты', callback_data: 'show_limits' }],
+                        ],
+                    },
+                });
+                return;
+            }
+            const existingReminder = this.activeIntervalReminders.get(ctx.userId);
+            if (existingReminder) {
+                await ctx.replyWithMarkdown(`
+⚠️ *У вас уже активно интервальное напоминание*
+
+📝 Текущее: "${existingReminder.reminderText}"
+⏱️ Интервал: каждые ${existingReminder.intervalMinutes} мин
+📊 Отправлено: ${existingReminder.count} раз
+
+Хотите заменить его новым?
+          `, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '✅ Заменить',
+                                    callback_data: `replace_interval_${intervalMinutes}_${Buffer.from(reminderText).toString('base64')}`,
+                                },
+                                {
+                                    text: '❌ Отменить',
+                                    callback_data: 'cancel_interval_setup',
+                                },
+                            ],
+                            [
+                                {
+                                    text: '🛑 Остановить текущее',
+                                    callback_data: 'stop_interval_reminder',
+                                },
+                            ],
+                        ],
+                    },
+                });
+                return;
+            }
+            await this.startIntervalReminder(ctx, reminderText, intervalMinutes);
+        }
+        catch (error) {
+            this.logger.error('Error handling interval reminder:', error);
+            await ctx.replyWithMarkdown(`
+❌ *Ошибка создания интервального напоминания*
+
+Не удалось создать интервальное напоминание. Попробуйте ещё раз.
+      `);
+        }
+    }
+    async startIntervalReminder(ctx, reminderText, intervalMinutes) {
+        try {
+            const startTime = new Date();
+            let count = 0;
+            const intervalId = setInterval(async () => {
+                count++;
+                try {
+                    await ctx.telegram.sendMessage(ctx.userId, `🔔 *Интервальное напоминание #${count}*\n\n${reminderText}\n\n⏱️ Следующее через ${intervalMinutes} мин`, { parse_mode: 'Markdown' });
+                    const reminder = this.activeIntervalReminders.get(ctx.userId);
+                    if (reminder) {
+                        reminder.count = count;
+                    }
+                }
+                catch (error) {
+                    this.logger.error('Error sending interval reminder:', error);
+                    this.stopIntervalReminder(ctx.userId);
+                }
+            }, intervalMinutes * 60 * 1000);
+            this.activeIntervalReminders.set(ctx.userId, {
+                intervalId,
+                reminderText,
+                intervalMinutes,
+                startTime,
+                count: 0,
+            });
+            await this.billingService.incrementUsage(ctx.userId, 'dailyReminders');
+            const usageInfo = await this.billingService.checkUsageLimit(ctx.userId, 'dailyReminders');
+            const intervalText = intervalMinutes < 60
+                ? `${intervalMinutes} минут`
+                : `${Math.floor(intervalMinutes / 60)} час${intervalMinutes === 60 ? '' : 'а'}`;
+            await ctx.replyWithMarkdown(`
+🔄 *Интервальное напоминание запущено!*
+
+📝 **Текст:** ${reminderText}
+⏱️ **Интервал:** каждые ${intervalText}
+🕐 **Начато:** ${startTime.toLocaleTimeString('ru-RU')}
+
+📊 **Использовано:** ${usageInfo.current}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit} напоминаний
+
+🔔 Первое напоминание через ${intervalText}!
+        `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '🛑 Остановить',
+                                callback_data: 'stop_interval_reminder',
+                            },
+                            {
+                                text: '📊 Статус',
+                                callback_data: 'interval_status',
+                            },
+                        ],
+                        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                    ],
+                },
+            });
+        }
+        catch (error) {
+            this.logger.error('Error starting interval reminder:', error);
+            throw error;
+        }
+    }
+    stopIntervalReminder(userId) {
+        const reminder = this.activeIntervalReminders.get(userId);
+        if (reminder) {
+            clearInterval(reminder.intervalId);
+            this.activeIntervalReminders.delete(userId);
+            return true;
+        }
+        return false;
+    }
 };
 exports.TelegramBotService = TelegramBotService;
 exports.TelegramBotService = TelegramBotService = TelegramBotService_1 = __decorate([
     (0, common_1.Injectable)(),
+    __param(9, (0, common_1.Inject)((0, common_1.forwardRef)(() => notification_service_1.NotificationService))),
     __metadata("design:paramtypes", [config_1.ConfigService,
         user_service_1.UserService,
         openai_service_1.OpenAIService,
@@ -6820,6 +7880,7 @@ exports.TelegramBotService = TelegramBotService = TelegramBotService_1 = __decor
         billing_service_1.BillingService,
         ai_context_service_1.AiContextService,
         payment_service_1.PaymentService,
-        prisma_service_1.PrismaService])
+        prisma_service_1.PrismaService,
+        notification_service_1.NotificationService])
 ], TelegramBotService);
 //# sourceMappingURL=telegram-bot.service.js.map

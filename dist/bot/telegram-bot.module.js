@@ -17,6 +17,7 @@ const openai_service_1 = require("../services/openai.service");
 const billing_service_1 = require("../services/billing.service");
 const ai_context_service_1 = require("../services/ai-context.service");
 const payment_service_1 = require("../services/payment.service");
+const notification_service_1 = require("../services/notification.service");
 let TelegramBotModule = class TelegramBotModule {
 };
 exports.TelegramBotModule = TelegramBotModule;
@@ -32,6 +33,7 @@ exports.TelegramBotModule = TelegramBotModule = __decorate([
             billing_service_1.BillingService,
             ai_context_service_1.AiContextService,
             payment_service_1.PaymentService,
+            notification_service_1.NotificationService,
         ],
         exports: [telegram_bot_service_1.TelegramBotService],
     })

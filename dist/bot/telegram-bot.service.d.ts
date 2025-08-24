@@ -10,6 +10,7 @@ import { BillingService } from '../services/billing.service';
 import { AiContextService } from '../services/ai-context.service';
 import { PaymentService } from '../services/payment.service';
 import { PrismaService } from '../database/prisma.service';
+import { NotificationService } from '../services/notification.service';
 export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     private readonly configService;
     private readonly userService;
@@ -20,10 +21,12 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private readonly aiContextService;
     private readonly paymentService;
     private readonly prisma;
+    private readonly notificationService;
     private readonly logger;
     private bot;
     private activePomodoroSessions;
-    constructor(configService: ConfigService, userService: UserService, openaiService: OpenAIService, taskService: TaskService, habitService: HabitService, billingService: BillingService, aiContextService: AiContextService, paymentService: PaymentService, prisma: PrismaService);
+    private activeIntervalReminders;
+    constructor(configService: ConfigService, userService: UserService, openaiService: OpenAIService, taskService: TaskService, habitService: HabitService, billingService: BillingService, aiContextService: AiContextService, paymentService: PaymentService, prisma: PrismaService, notificationService: NotificationService);
     private setupMiddleware;
     private setupErrorHandling;
     private setupHandlers;
@@ -124,4 +127,16 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private handleLongTermTask;
     private createTaskWithDeadline;
     private parseSpecificTimeExpressionsForTasks;
+    sendMessageToUser(userId: number, text: string, options?: any): Promise<void>;
+    private completeHabitFromNotification;
+    private snoozeHabitFromNotification;
+    private showHabitStatsFromNotification;
+    private skipHabitFromNotification;
+    private showReminderSetup;
+    private setHabitReminder;
+    private calculateNextReminderTime;
+    private extractTimeIntervalFromText;
+    private handleIntervalReminder;
+    private startIntervalReminder;
+    private stopIntervalReminder;
 }

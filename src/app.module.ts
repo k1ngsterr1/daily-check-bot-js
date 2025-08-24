@@ -13,6 +13,7 @@ import {
   AiContextService,
   PaymentService,
 } from './services';
+import { NotificationService } from './services/notification.service';
 import { TelegramBotModule } from './bot/telegram-bot.module';
 
 @Module({
@@ -34,6 +35,7 @@ import { TelegramBotModule } from './bot/telegram-bot.module';
     OpenAIService,
     AiContextService,
     PaymentService,
+    NotificationService,
   ],
 })
 export class AppModule {}
