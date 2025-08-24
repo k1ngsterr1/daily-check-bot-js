@@ -6494,7 +6494,8 @@ ${progressBar} ${Math.round(progress * 100)}%
 
     const improvementText = improvements[improvement] || improvement;
 
-    await ctx.editMessageTextWithMarkdown(`
+    await ctx.editMessageTextWithMarkdown(
+      `
 ✨ *Спасибо за участие в опросе!*
 
 Вы выбрали: ${improvementText}
@@ -6502,7 +6503,15 @@ ${progressBar} ${Math.round(progress * 100)}%
 Ваше мнение поможет нам стать лучше! 💝
 
 Продолжайте пользоваться ботом и достигайте новых целей! 🚀
-    `);
+    `,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🏠 В главное меню', callback_data: 'start' }],
+          ],
+        },
+      },
+    );
   }
 
   private async completeFeedback(ctx: BotContext, improvement: string) {

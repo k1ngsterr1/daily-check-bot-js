@@ -5174,7 +5174,13 @@ ${progressBar} ${Math.round(progress * 100)}%
 Ваше мнение поможет нам стать лучше! 💝
 
 Продолжайте пользоваться ботом и достигайте новых целей! 🚀
-    `);
+    `, {
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '🏠 В главное меню', callback_data: 'start' }],
+                ],
+            },
+        });
     }
     async completeFeedback(ctx, improvement) {
         await this.userService.updateUser(ctx.userId, {
