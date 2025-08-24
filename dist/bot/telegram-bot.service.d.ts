@@ -108,6 +108,9 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private getItemActivationMessage;
     private completeHabit;
     private showAllHabitsList;
+    private showHabitsManagement;
+    private confirmHabitDeletion;
+    private deleteHabit;
     private confirmTimezone;
     private showTimezoneList;
     private formatTimeWithTimezone;

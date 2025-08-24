@@ -67,8 +67,7 @@ let NotificationService = NotificationService_1 = class NotificationService {
         this.schedulerRegistry = schedulerRegistry;
     }
     async onModuleInit() {
-        await this.loadActiveHabitReminders();
-        this.logger.log('Notification service initialized');
+        this.logger.log('Notification service initialized (habit reminders disabled to avoid duplicates)');
     }
     async loadActiveHabitReminders() {
         const activeHabits = await this.prisma.habit.findMany({

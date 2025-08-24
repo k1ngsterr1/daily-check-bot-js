@@ -792,6 +792,24 @@ ${statusMessage}
             await ctx.answerCbQuery();
             await this.showAllHabitsList(ctx);
         });
+        this.bot.action('habits_manage', async (ctx) => {
+            await ctx.answerCbQuery();
+            await this.showHabitsManagement(ctx);
+        });
+        this.bot.action(/^habit_delete_(.+)$/, async (ctx) => {
+            await ctx.answerCbQuery();
+            const habitId = ctx.match[1];
+            await this.confirmHabitDeletion(ctx, habitId);
+        });
+        this.bot.action(/^confirm_delete_habit_(.+)$/, async (ctx) => {
+            await ctx.answerCbQuery();
+            const habitId = ctx.match[1];
+            await this.deleteHabit(ctx, habitId);
+        });
+        this.bot.action(/^cancel_delete_habit_(.+)$/, async (ctx) => {
+            await ctx.answerCbQuery('❌ Удаление отменено');
+            await this.showHabitsManagement(ctx);
+        });
         this.bot.action('menu_mood', async (ctx) => {
             await ctx.answerCbQuery();
             await this.showMoodMenu(ctx);
@@ -5460,13 +5478,16 @@ _Просто напишите время в удобном формате_
                     frequency: 'DAILY',
                     reminderTime: intervalInfo.interval,
                 });
-                if (this.notificationService) {
-                    await this.notificationService.scheduleHabitReminder(habit);
-                }
-                let responseMessage = `✅ *Привычка с напоминанием создана!*\n\n📝 **"${habit.title}"**\n\n🔔 **Интервал:** ${intervalInfo.interval}\n⏰ **Следующее уведомление будет отправлено в ${intervalInfo.nextTime}**\n\n💡 *Подсказка:* Вы будете получать уведомления с интервалом ${intervalInfo.interval}. Используйте кнопки в уведомлениях для отметки выполнения.`;
+                let responseMessage = `✅ *Привычка создана!*\n\n📝 **"${habit.title}"**\n\n� **Описание:** ${intervalInfo.interval}\n\n💡 *Подсказка:* Вы можете настроить напоминания для этой привычки в меню привычек.`;
                 await ctx.replyWithMarkdown(responseMessage, {
                     reply_markup: {
                         inline_keyboard: [
+                            [
+                                {
+                                    text: '⏰ Настроить напоминание',
+                                    callback_data: `habit_set_reminder_${habit.id}`,
+                                },
+                            ],
                             [{ text: '🎯 Мои привычки', callback_data: 'habits_list' }],
                             [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
                         ],
@@ -5613,6 +5634,12 @@ ${aiAdvice}
                                 ]
                                 : []),
                             [{ text: '➕ Добавить привычку', callback_data: 'habits_add' }],
+                            [
+                                {
+                                    text: '🛠️ Управление привычками',
+                                    callback_data: 'habits_manage',
+                                },
+                            ],
                             [
                                 {
                                     text: '🤖 AI-совет по привычкам',
@@ -6553,6 +6580,129 @@ ${this.getItemActivationMessage(itemType)}`, {
         catch (error) {
             this.logger.error('Error showing all habits list:', error);
             await ctx.editMessageTextWithMarkdown('❌ Ошибка при получении списка привычек');
+        }
+    }
+    async showHabitsManagement(ctx) {
+        try {
+            const habits = await this.habitService.findHabitsByUserId(ctx.userId);
+            if (habits.length === 0) {
+                await ctx.editMessageTextWithMarkdown(`
+🛠️ *Управление привычками*
+
+У вас нет привычек для управления.
+        `, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '🔙 Назад к привычкам',
+                                    callback_data: 'habits_list',
+                                },
+                            ],
+                        ],
+                    },
+                });
+                return;
+            }
+            let message = `🛠️ *Управление привычками*\n\n`;
+            message += `Выберите привычку для удаления:`;
+            const keyboard = {
+                inline_keyboard: [
+                    ...habits.map((habit) => [
+                        {
+                            text: `🗑️ ${habit.title.substring(0, 35)}${habit.title.length > 35 ? '...' : ''}`,
+                            callback_data: `habit_delete_${habit.id}`,
+                        },
+                    ]),
+                    [{ text: '🔙 Назад к привычкам', callback_data: 'habits_list' }],
+                ],
+            };
+            await ctx.editMessageTextWithMarkdown(message, {
+                reply_markup: keyboard,
+            });
+        }
+        catch (error) {
+            this.logger.error('Error showing habits management:', error);
+            await ctx.editMessageTextWithMarkdown('❌ Ошибка при загрузке управления привычками');
+        }
+    }
+    async confirmHabitDeletion(ctx, habitId) {
+        try {
+            const habit = await this.habitService.findHabitById(habitId, ctx.userId);
+            if (!habit) {
+                await ctx.answerCbQuery('❌ Привычка не найдена');
+                return;
+            }
+            await ctx.editMessageTextWithMarkdown(`
+⚠️ *Подтвердите удаление*
+
+Вы уверены, что хотите удалить привычку:
+
+📝 *${habit.title}*
+
+⚠️ Это действие нельзя отменить!
+      `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '✅ Да, удалить',
+                                callback_data: `confirm_delete_habit_${habitId}`,
+                            },
+                            {
+                                text: '❌ Отмена',
+                                callback_data: `cancel_delete_habit_${habitId}`,
+                            },
+                        ],
+                    ],
+                },
+            });
+        }
+        catch (error) {
+            this.logger.error('Error confirming habit deletion:', error);
+            await ctx.editMessageTextWithMarkdown('❌ Ошибка при подтверждении удаления');
+        }
+    }
+    async deleteHabit(ctx, habitId) {
+        try {
+            const habit = await this.habitService.findHabitById(habitId, ctx.userId);
+            if (!habit) {
+                await ctx.answerCbQuery('❌ Привычка не найдена');
+                return;
+            }
+            await this.habitService.deleteHabit(habitId, ctx.userId);
+            await ctx.editMessageTextWithMarkdown(`
+✅ *Привычка удалена*
+
+Привычка "${habit.title}" была успешно удалена.
+      `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '🔙 К управлению привычками',
+                                callback_data: 'habits_manage',
+                            },
+                        ],
+                        [{ text: '🏠 В главное меню', callback_data: 'main_menu' }],
+                    ],
+                },
+            });
+        }
+        catch (error) {
+            this.logger.error('Error deleting habit:', error);
+            await ctx.editMessageTextWithMarkdown('❌ Ошибка при удалении привычки', {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '🔙 К управлению привычками',
+                                callback_data: 'habits_manage',
+                            },
+                        ],
+                    ],
+                },
+            });
         }
     }
     async confirmTimezone(ctx, timezone) {
