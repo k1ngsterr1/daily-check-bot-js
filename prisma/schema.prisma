@@ -164,6 +164,7 @@ model User {
   payments          Payment[]
   referrerPayouts   ReferralPayout[] @relation("ReferrerPayouts")
   referredPayouts   ReferralPayout[] @relation("ReferredPayouts")
+  dependencySupport DependencySupport[]
 
   @@map("users")
 }
@@ -381,4 +382,52 @@ model ReferralPayout {
   paidAt            DateTime?     @map("paid_at")
 
   @@map("referral_payouts")
+}
+
+enum DependencyType {
+  SMOKING
+  ALCOHOL
+  GAMBLING
+  SWEET
+  SOCIAL_MEDIA
+  GAMING
+  OTHER
+}
+
+enum DependencyStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  FAILED
+}
+
+model DependencySupport {
+  id              String           @id @default(cuid())
+  
+  // User relation
+  userId          String           @map("user_id")
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Dependency info
+  type            DependencyType
+  customName      String?          @map("custom_name") // For OTHER type
+  status          DependencyStatus @default(ACTIVE)
+  
+  // Settings
+  morningTime     String           @default("09:00") @map("morning_time") // HH:MM format
+  eveningTime     String           @default("21:00") @map("evening_time") // HH:MM format
+  
+  // Progress tracking
+  daysClean       Int              @default(0) @map("days_clean")
+  totalPromises   Int              @default(0) @map("total_promises")
+  keptPromises    Int              @default(0) @map("kept_promises")
+  lastPromiseDate DateTime?        @map("last_promise_date")
+  lastCheckDate   DateTime?        @map("last_check_date")
+  
+  // Timestamps
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  
+  @@unique([userId, type])
+  @@map("dependency_support")
 }

@@ -988,16 +988,76 @@ ${statusMessage}
       } else {
         ctx.session.step = 'adding_habit';
         await ctx.editMessageTextWithMarkdown(
-          '🔄 *Добавление привычки*\n\nВведите название привычки, которую хотите отслеживать:',
+          '🔄 *Добавление привычки*\n\nВыберите готовый пример или введите название привычки вручную:',
           {
             reply_markup: {
               inline_keyboard: [
+                [
+                  {
+                    text: '💧 Пить воду каждый день по 2 литра',
+                    callback_data: 'habit_example_water',
+                  },
+                ],
+                [
+                  {
+                    text: '😴 Ложиться спать до 23:00',
+                    callback_data: 'habit_example_sleep',
+                  },
+                ],
+                [
+                  {
+                    text: '🚶‍♀️ Прогулка перед сном 20 минут',
+                    callback_data: 'habit_example_walk',
+                  },
+                ],
+                [
+                  {
+                    text: '📝 Ввести свою привычку',
+                    callback_data: 'habit_custom_input',
+                  },
+                ],
                 [{ text: '🔙 Назад в меню', callback_data: 'back_to_menu' }],
               ],
             },
           },
         );
       }
+    });
+
+    // Handle habit examples - water drinking
+    this.bot.action('habit_example_water', async (ctx) => {
+      await ctx.answerCbQuery();
+      const habitName = 'Пить воду каждый день по 2 литра';
+      await this.createHabitFromExample(ctx, habitName);
+    });
+
+    // Handle habit examples - sleep schedule
+    this.bot.action('habit_example_sleep', async (ctx) => {
+      await ctx.answerCbQuery();
+      const habitName = 'Ложиться спать до 23:00';
+      await this.createHabitFromExample(ctx, habitName);
+    });
+
+    // Handle habit examples - evening walk
+    this.bot.action('habit_example_walk', async (ctx) => {
+      await ctx.answerCbQuery();
+      const habitName = 'Прогулка перед сном 20 минут';
+      await this.createHabitFromExample(ctx, habitName);
+    });
+
+    // Handle custom habit input
+    this.bot.action('habit_custom_input', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown(
+        '🔄 *Добавление привычки*\n\nВведите название привычки, которую хотите отслеживать:',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔙 Назад в меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
     });
 
     // Handle habit reminder setup
@@ -2846,12 +2906,14 @@ ${trialText}**Premium подписка включает:**
 📅 **Дата начала:** ${new Date().toLocaleDateString('ru-RU')}
 
 🤖 **ИИ-система активирована:**
-• Ежедневные мотивационные сообщения
+• Ежедневные мотивационные сообщения утром в 9:00
+• Вечерние проверки в 21:00
 • Персональные советы и поддержка
 • Трекинг прогресса
-• Техники преодоления желаний
 
-💪 *Первое мотивационное сообщение придет сегодня в 21:00*
+⏰ **График уведомлений:**
+🌅 **Утром (9:00):** Мотивация + кнопка "Обещаю сам себе"
+🌙 **Вечером (21:00):** Проверка + кнопки "Держусь"/"Сдался"
 
 Удачи в борьбе с зависимостью! Ты справишься! 🚀
             `,
@@ -2888,6 +2950,199 @@ ${trialText}**Premium подписка включает:**
               },
             );
           }
+        });
+      },
+    );
+
+    // Morning promise handlers
+    ['smoking', 'alcohol', 'social', 'gaming', 'shopping', 'sweets'].forEach(
+      (type) => {
+        this.bot.action(`morning_promise_${type}`, async (ctx) => {
+          await ctx.answerCbQuery();
+
+          const dependencyName =
+            type === 'smoking'
+              ? 'курения'
+              : type === 'alcohol'
+                ? 'алкоголя'
+                : type === 'social'
+                  ? 'соцсетей'
+                  : type === 'gaming'
+                    ? 'игр'
+                    : type === 'shopping'
+                      ? 'покупок'
+                      : 'сладкого';
+
+          await ctx.replyWithMarkdown(`
+💪 *Отлично! Обещание принято!*
+
+🎯 **Сегодня ты обещаешь себе избегать зависимости от ${dependencyName}**
+
+✨ Помни это обещание в течение дня. Ты сильнее любых искушений!
+
+🌟 Вечером я спрошу, как прошел день. Удачи! 🚀
+        `);
+        });
+      },
+    );
+
+    // Morning success handlers (Держусь)
+    ['smoking', 'alcohol', 'social', 'gaming', 'shopping', 'sweets'].forEach(
+      (type) => {
+        this.bot.action(`morning_success_${type}`, async (ctx) => {
+          await ctx.answerCbQuery();
+
+          const dependencyName =
+            type === 'smoking'
+              ? 'курения'
+              : type === 'alcohol'
+                ? 'алкоголя'
+                : type === 'social'
+                  ? 'соцсетей'
+                  : type === 'gaming'
+                    ? 'игр'
+                    : type === 'shopping'
+                      ? 'покупок'
+                      : 'сладкого';
+
+          await ctx.replyWithMarkdown(`
+💪 *Молодец! Ты держишься!*
+
+🔥 **Отличное начало дня без зависимости от ${dependencyName}**
+
+✨ Продолжай в том же духе! Каждый час сопротивления делает тебя сильнее.
+
+🌟 Помни: ты уже на правильном пути! 🚀
+          `);
+
+          // Обновляем статистику успеха
+          try {
+            await this.prisma.dependencySupport.updateMany({
+              where: {
+                userId: ctx.userId,
+                type: type.toUpperCase() as any,
+              },
+              data: {
+                keptPromises: { increment: 1 },
+              },
+            });
+          } catch (error) {
+            this.logger.error('Error updating success stats:', error);
+          }
+        });
+      },
+    );
+
+    // Morning fail handlers (Сдался)
+    ['smoking', 'alcohol', 'social', 'gaming', 'shopping', 'sweets'].forEach(
+      (type) => {
+        this.bot.action(`morning_fail_${type}`, async (ctx) => {
+          await ctx.answerCbQuery();
+
+          const dependencyName =
+            type === 'smoking'
+              ? 'курения'
+              : type === 'alcohol'
+                ? 'алкоголя'
+                : type === 'social'
+                  ? 'соцсетей'
+                  : type === 'gaming'
+                    ? 'игр'
+                    : type === 'shopping'
+                      ? 'покупок'
+                      : 'сладкого';
+
+          await ctx.replyWithMarkdown(`
+💔 *Не расстраивайся, это случается*
+
+🌱 **Каждый срыв - это урок, а не конец пути**
+
+💪 Помни: важно не то, что ты упал, а то, что ты встаешь и продолжаешь бороться.
+
+🔄 **Завтра новый день, новый шанс!**
+
+📞 Если нужна поддержка - я всегда рядом. Давай начнем заново! 🌅
+          `);
+
+          // Обновляем статистику неудач
+          try {
+            await this.prisma.dependencySupport.updateMany({
+              where: {
+                userId: ctx.userId,
+                type: type.toUpperCase() as any,
+              },
+              data: {
+                daysClean: 0, // Обнуляем счетчик чистых дней
+              },
+            });
+          } catch (error) {
+            this.logger.error('Error updating fail stats:', error);
+          }
+        });
+      },
+    );
+
+    // Evening check handlers
+    ['smoking', 'alcohol', 'social', 'gaming', 'shopping', 'sweets'].forEach(
+      (type) => {
+        this.bot.action(`evening_holding_${type}`, async (ctx) => {
+          await ctx.answerCbQuery();
+
+          const dependencyName =
+            type === 'smoking'
+              ? 'курения'
+              : type === 'alcohol'
+                ? 'алкоголя'
+                : type === 'social'
+                  ? 'соцсетей'
+                  : type === 'gaming'
+                    ? 'игр'
+                    : type === 'shopping'
+                      ? 'покупок'
+                      : 'сладкого';
+
+          await ctx.replyWithMarkdown(`
+🎉 *Поздравляю! Ты держишься!* 
+
+💪 Еще один день победы над зависимостью от ${dependencyName}! 
+
+🏆 **Ты доказал себе, что можешь контролировать свою жизнь!**
+
+✨ Каждый такой день делает тебя сильнее. Продолжай в том же духе!
+
+🌟 До встречи завтра утром! Спокойной ночи, чемпион! 🌙
+        `);
+        });
+
+        this.bot.action(`evening_failed_${type}`, async (ctx) => {
+          await ctx.answerCbQuery();
+
+          const dependencyName =
+            type === 'smoking'
+              ? 'курения'
+              : type === 'alcohol'
+                ? 'алкоголя'
+                : type === 'social'
+                  ? 'соцсетей'
+                  : type === 'gaming'
+                    ? 'игр'
+                    : type === 'shopping'
+                      ? 'покупок'
+                      : 'сладкого';
+
+          await ctx.replyWithMarkdown(`
+💙 *Все в порядке, не сдавайся!*
+
+🤗 Срывы случаются - это часть пути к свободе от зависимости от ${dependencyName}.
+
+💪 **Главное не то, что ты упал, а то, что ты поднимаешься!**
+
+🌅 Завтра новый день и новая возможность стать сильнее.
+
+✨ Я верю в тебя! Ты обязательно справишься!
+
+💚 Помни: каждый день борьбы - это уже победа! До встречи завтра утром! 🌙
+        `);
         });
       },
     );
@@ -9955,10 +10210,34 @@ ${this.getItemActivationMessage(itemType)}`,
 
     ctx.session.step = 'adding_habit';
     await ctx.replyWithMarkdown(
-      '🔄 *Добавление привычки*\n\nВведите название привычки, которую хотите отслеживать:',
+      '🔄 *Добавление привычки*\n\nВыберите готовый пример или введите название привычки вручную:',
       {
         reply_markup: {
           inline_keyboard: [
+            [
+              {
+                text: '💧 Пить воду каждый день по 2 литра',
+                callback_data: 'habit_example_water',
+              },
+            ],
+            [
+              {
+                text: '😴 Ложиться спать до 23:00',
+                callback_data: 'habit_example_sleep',
+              },
+            ],
+            [
+              {
+                text: '🚶‍♀️ Прогулка перед сном 20 минут',
+                callback_data: 'habit_example_walk',
+              },
+            ],
+            [
+              {
+                text: '📝 Ввести свою привычку',
+                callback_data: 'habit_custom_input',
+              },
+            ],
             [{ text: '🔙 Назад в меню', callback_data: 'back_to_menu' }],
           ],
         },
@@ -10197,76 +10476,49 @@ ${this.getItemActivationMessage(itemType)}`,
     }
   }
 
-  private startDailyMotivation(userId: string, dependencyType: string) {
-    // Запускаем ежедневные мотивационные сообщения в 21:00
-    const sendTime = '21:00';
-
+  private async startDailyMotivation(userId: string, dependencyType: string) {
     this.logger.log(
-      `Starting daily motivation for user ${userId}, dependency: ${dependencyType}, time: ${sendTime}`,
+      `Starting daily motivation for user ${userId}, dependency: ${dependencyType}`,
     );
 
-    // Здесь можно добавить cron job или scheduler для отправки ежедневных сообщений
-    // Для простоты сейчас просто логируем
+    try {
+      // Ищем существующую запись
+      const existing = await this.prisma.dependencySupport.findFirst({
+        where: {
+          userId: userId,
+          type: dependencyType.toUpperCase() as any,
+        },
+      });
 
-    // Отправляем первое мотивационное сообщение через 5 секунд для демонстрации
-    setTimeout(async () => {
-      try {
-        const message = await this.generateMotivationalMessage(dependencyType);
-        await this.bot.telegram.sendMessage(userId, message, {
-          parse_mode: 'Markdown',
+      if (existing) {
+        // Обновляем существующую запись
+        await this.prisma.dependencySupport.update({
+          where: { id: existing.id },
+          data: {
+            status: 'ACTIVE',
+            updatedAt: new Date(),
+          },
         });
-      } catch (error) {
-        this.logger.error(`Error sending first motivational message: ${error}`);
+      } else {
+        // Создаем новую запись
+        await this.prisma.dependencySupport.create({
+          data: {
+            userId: userId,
+            type: dependencyType.toUpperCase() as any,
+            status: 'ACTIVE',
+            morningTime: '09:00',
+            eveningTime: '21:00',
+          },
+        });
       }
-    }, 5000);
-  }
 
-  private async generateMotivationalMessage(
-    dependencyType: string,
-  ): Promise<string> {
-    const messages = {
-      smoking: [
-        '🚭 *Каждый день без курения - это победа!*\n\nТвои легкие уже начали очищаться. Продолжай!',
-        '💪 *Ты сильнее сигарет!*\n\nВспомни, зачем ты начал этот путь. Твое здоровье важнее временного желания.',
-        '🌟 *День за днем ты становишься свободнее!*\n\nКаждый час без курения - это шаг к новой жизни.',
-      ],
-      alcohol: [
-        '🏆 *Трезвость - твоя суперсила!*\n\nТы контролируешь свою жизнь, а не алкоголь контролирует тебя.',
-        '💎 *Каждый трезвый день делает тебя сильнее!*\n\nТвой разум становится яснее, а цели ближе.',
-        '🌅 *Новый день - новые возможности!*\n\nБез алкоголя ты видишь жизнь в ярких красках.',
-      ],
-      social: [
-        '📚 *Время в соцсетях = время для твоих целей!*\n\nИспользуй это время для саморазвития.',
-        '🎯 *Реальная жизнь интереснее виртуальной!*\n\nСосредоточься на том, что действительно важно.',
-        '💪 *Ты контролируешь технологии, а не наоборот!*\n\nУстанови границы и живи осознанно.',
-      ],
-      gaming: [
-        '⚡ *Твоя реальная жизнь - самая важная игра!*\n\nРазвивай навыки в реальном мире.',
-        '🏆 *Каждый день без игр - это левел ап в жизни!*\n\nТы развиваешься как личность.',
-        '🎯 *Направь свою энергию на реальные достижения!*\n\nТы способен на великие дела.',
-      ],
-      shopping: [
-        '💰 *Каждая несделанная покупка = сэкономленные деньги!*\n\nТвои финансы под контролем.',
-        '🎯 *Покупай осознанно, а не импульсивно!*\n\nСпроси себя: это нужно или хочется?',
-        '💪 *Ты сильнее желания покупать!*\n\nИстинное счастье не в вещах.',
-      ],
-      sweets: [
-        '🍎 *Здоровое питание - здоровое тело!*\n\nКаждый отказ от сладкого делает тебя сильнее.',
-        '💪 *Ты контролируешь свои желания!*\n\nТвоя сила воли растет с каждым днем.',
-        '⚡ *Энергия от здоровой еды лучше сахарного взрыва!*\n\nПочувствуй разницу.',
-      ],
-      default: [
-        '💪 *Ты на правильном пути!*\n\nКаждый день делает тебя сильнее.',
-        '🌟 *Верь в себя!*\n\nТы способен преодолеть любые трудности.',
-        '🚀 *Продолжай движение вперед!*\n\nТвои усилия не напрасны.',
-      ],
-    };
+      this.logger.log(`Dependency support record saved for user ${userId}`);
 
-    const messageArray = messages[dependencyType] || messages.default;
-    const randomMessage =
-      messageArray[Math.floor(Math.random() * messageArray.length)];
-
-    return `🤖 *Ежедневная мотивация*\n\n${randomMessage}\n\n#МотивацияДня #БорьбаСЗависимостью`;
+      // Уведомления теперь отправляются через cron-джобы в NotificationService
+      // в 9:00 и 21:00 каждый день
+    } catch (error) {
+      this.logger.error(`Error saving dependency support: ${error}`);
+    }
   }
 
   // Handle long-term reminders (days, weeks, months, years)
@@ -11650,5 +11902,76 @@ ${this.getItemActivationMessage(itemType)}`,
 
     // Включаем режим ожидания времени
     ctx.session.waitingForReminderTime = true;
+  }
+
+  private async createHabitFromExample(ctx: BotContext, habitName: string) {
+    try {
+      // Создаем привычку с выбранным названием
+      const habit = await this.habitService.createHabit({
+        userId: ctx.userId,
+        title: habitName,
+        description: `каждый день`,
+        frequency: 'DAILY',
+        targetCount: 1,
+      });
+
+      // Increment usage counter for habits
+      await this.billingService.incrementUsage(ctx.userId, 'dailyHabits');
+
+      // Get current usage for display
+      const usageInfo = await this.billingService.checkUsageLimit(
+        ctx.userId,
+        'dailyHabits',
+      );
+
+      await ctx.editMessageTextWithMarkdown(
+        `
+✅ *Привычка создана!*
+
+🎯 **Название:** ${habitName}
+📅 **Описание:** каждый день
+
+📊 **Использовано:** ${usageInfo.current}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit} привычек
+
+💡 **Подсказка:** Вы можете настроить напоминания для этой привычки в меню привычек.
+        `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '⏰ Настроить напоминание',
+                  callback_data: `habit_set_reminder_${habit.id}`,
+                },
+              ],
+              [
+                {
+                  text: '🎯 Мои привычки',
+                  callback_data: 'habits_list',
+                },
+                {
+                  text: '🏠 Главное меню',
+                  callback_data: 'back_to_menu',
+                },
+              ],
+            ],
+          },
+        },
+      );
+
+      ctx.session.step = undefined;
+    } catch (error) {
+      this.logger.error('Error creating habit from example:', error);
+      await ctx.editMessageTextWithMarkdown(
+        '❌ *Ошибка создания привычки*\n\nПопробуйте ещё раз или обратитесь к администратору.',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔙 Назад в меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    }
   }
 }

@@ -21,4 +21,8 @@ export declare class NotificationService {
     updateHabitReminder(habitId: string): Promise<void>;
     snoozeHabitReminder(habitId: string, minutes: number): Promise<void>;
     cleanupOldJobs(): Promise<void>;
+    sendMorningMotivation(): Promise<void>;
+    sendEveningCheck(): Promise<void>;
+    private generateMorningMotivation;
+    private generateEveningCheck;
 }

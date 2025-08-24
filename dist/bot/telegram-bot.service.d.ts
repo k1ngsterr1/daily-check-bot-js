@@ -134,7 +134,6 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private createHabitFromVoice;
     private createTaskFromVoice;
     private startDailyMotivation;
-    private generateMotivationalMessage;
     private handleLongTermReminder;
     private parseSpecificTimeExpressions;
     private getUnitText;
@@ -156,4 +155,5 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private handleQuickReminderTime;
     private handleTomorrowReminder;
     private askForCustomReminderTime;
+    private createHabitFromExample;
 }

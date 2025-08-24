@@ -368,4 +368,167 @@ export class NotificationService {
       `Cleaned up ${inactiveHabits.length} inactive habit reminders`,
     );
   }
+
+  // === DEPENDENCY SUPPORT SYSTEM ===
+
+  // Cron job для утренних мотивационных сообщений (каждый день в 9:00)
+  @Cron('0 9 * * *')
+  async sendMorningMotivation() {
+    this.logger.log('Running morning motivation messages');
+
+    try {
+      const activeDependencies = await this.prisma.dependencySupport.findMany({
+        where: { status: 'ACTIVE' },
+        include: { user: true },
+      });
+
+      for (const dependency of activeDependencies) {
+        try {
+          const motivation = this.generateMorningMotivation(dependency.type);
+
+          await this.telegramBotService.sendMessageToUser(
+            parseInt(dependency.userId),
+            `🌅 *Доброе утро!*\n\n${motivation}\n\n💪 Ты сможешь справиться с этим!`,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: '💪 Держусь',
+                      callback_data: `morning_success_${dependency.type.toLowerCase()}`,
+                    },
+                    {
+                      text: '😔 Сдался',
+                      callback_data: `morning_fail_${dependency.type.toLowerCase()}`,
+                    },
+                  ],
+                  [
+                    {
+                      text: '🤝 Обещаю сам себе',
+                      callback_data: `morning_promise_${dependency.type.toLowerCase()}`,
+                    },
+                  ],
+                ],
+              },
+              parse_mode: 'Markdown',
+            },
+          );
+
+          // Обновляем статистику
+          await this.prisma.dependencySupport.update({
+            where: { id: dependency.id },
+            data: { totalPromises: dependency.totalPromises + 1 },
+          });
+        } catch (error) {
+          this.logger.error(
+            `Failed to send morning message to ${dependency.userId}:`,
+            error,
+          );
+        }
+      }
+
+      this.logger.log(
+        `Sent morning messages to ${activeDependencies.length} users`,
+      );
+    } catch (error) {
+      this.logger.error('Error in morning motivation job:', error);
+    }
+  }
+
+  // Cron job для вечерних проверок (каждый день в 21:00)
+  @Cron('0 21 * * *')
+  async sendEveningCheck() {
+    this.logger.log('Running evening check messages');
+
+    try {
+      const activeDependencies = await this.prisma.dependencySupport.findMany({
+        where: { status: 'ACTIVE' },
+        include: { user: true },
+      });
+
+      for (const dependency of activeDependencies) {
+        try {
+          const checkMessage = this.generateEveningCheck(dependency.type);
+
+          await this.telegramBotService.sendMessageToUser(
+            parseInt(dependency.userId),
+            `🌙 *Время подвести итоги дня*\n\n${checkMessage}\n\n❓ Как прошел день? Продержался?`,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: '💪 Держусь',
+                      callback_data: `evening_success_${dependency.type.toLowerCase()}`,
+                    },
+                    {
+                      text: '😔 Сдался',
+                      callback_data: `evening_fail_${dependency.type.toLowerCase()}`,
+                    },
+                  ],
+                ],
+              },
+              parse_mode: 'Markdown',
+            },
+          );
+        } catch (error) {
+          this.logger.error(
+            `Failed to send evening message to ${dependency.userId}:`,
+            error,
+          );
+        }
+      }
+
+      this.logger.log(
+        `Sent evening messages to ${activeDependencies.length} users`,
+      );
+    } catch (error) {
+      this.logger.error('Error in evening check job:', error);
+    }
+  }
+
+  private generateMorningMotivation(dependencyType: string): string {
+    const motivations = {
+      SMOKING: [
+        '🚭 Каждый день без сигарет - это день, когда ты становишься сильнее',
+        '🌱 Твоё тело уже начинает восстанавливаться. Продолжай!',
+        '💨 Каждый вдох чистого воздуха - это твоя победа',
+      ],
+      ALCOHOL: [
+        '🧠 Ясность мысли и энергия - это твои награды за трезвость',
+        '💪 Ты контролируешь свою жизнь, а не зависимость',
+        '🌟 Каждый трезвый день приближает тебя к лучшей версии себя',
+      ],
+      DRUGS: [
+        '🆓 Свобода от веществ - это свобода быть собой',
+        '🧘‍♂️ Твой разум становится яснее с каждым днем',
+        '🌈 Жизнь полна красок, когда ты видишь её реальной',
+      ],
+      GAMING: [
+        '🎯 Реальная жизнь - это твоя главная игра',
+        '⏰ Время, потраченное на развитие, никогда не теряется',
+        '🌱 Каждый день без игр - шаг к новым достижениям',
+      ],
+      SOCIAL_MEDIA: [
+        '📱 Реальный мир намного интереснее виртуального',
+        '👥 Живое общение дает энергию, которую не даст экран',
+        '🧘‍♀️ Покой ума приходит с отключением от постоянного потока информации',
+      ],
+    };
+
+    const typeMotivations = motivations[dependencyType] || motivations.SMOKING;
+    return typeMotivations[Math.floor(Math.random() * typeMotivations.length)];
+  }
+
+  private generateEveningCheck(dependencyType: string): string {
+    const checks = {
+      SMOKING: '🚭 Как дела с отказом от курения?',
+      ALCOHOL: '🍷 Как прошел день без алкоголя?',
+      DRUGS: '💊 Удалось ли избежать употребления?',
+      GAMING: '🎮 Контролировал ли время за играми?',
+      SOCIAL_MEDIA: '📱 Как дела с ограничением соцсетей?',
+    };
+
+    return checks[dependencyType] || checks.SMOKING;
+  }
 }
