@@ -4624,6 +4624,78 @@ ${recommendation}
 
   private async handleNaturalReminderRequest(ctx: BotContext, text: string) {
     try {
+      // СНАЧАЛА проверяем интервальные напоминания
+      // Check for interval reminders - специальные случаи
+      let intervalMinutes = 0;
+      let intervalAmount = 0;
+      let intervalUnit = '';
+
+      // Проверяем "каждую минуту", "каждый час" и т.д.
+      if (text.match(/каждую\s+минуту/i)) {
+        intervalMinutes = 1;
+        intervalAmount = 1;
+        intervalUnit = 'минут';
+      } else if (text.match(/каждый\s+час/i)) {
+        intervalMinutes = 60;
+        intervalAmount = 1;
+        intervalUnit = 'час';
+      } else {
+        // Check for interval reminders (каждые X минут/часов)
+        const intervalMatch = text.match(
+          /каждые?\s*(\d+)\s*(минут|час|часа|часов)/i,
+        );
+
+        if (intervalMatch) {
+          intervalAmount = parseInt(intervalMatch[1]);
+          intervalUnit = intervalMatch[2].toLowerCase();
+
+          if (intervalUnit.includes('минут')) {
+            intervalMinutes = intervalAmount;
+          } else if (intervalUnit.includes('час')) {
+            intervalMinutes = intervalAmount * 60;
+          }
+        }
+      }
+
+      if (intervalMinutes > 0) {
+        // Validate interval (minimum 1 minute, maximum 24 hours)
+        if (intervalMinutes < 1 || intervalMinutes > 1440) {
+          await ctx.replyWithMarkdown(`
+❌ *Неверный интервал*
+
+Интервал должен быть от 1 минуты до 24 часов.
+          `);
+          return;
+        }
+
+        // Extract reminder text for interval reminder
+        const reminderText = text
+          .replace(/напомни\s*(мне)?/gi, '')
+          .replace(/напомню\s*(тебе|вам)?/gi, '')
+          .replace(/напоминание/gi, '')
+          .replace(/поставь/gi, '')
+          .replace(/установи/gi, '')
+          .replace(/каждую\s+минуту/gi, '')
+          .replace(/каждый\s+час/gi, '')
+          .replace(/каждые?\s*\d+\s*(?:минут|час|часа|часов)/gi, '')
+          .trim();
+
+        if (!reminderText || reminderText.length < 2) {
+          await ctx.replyWithMarkdown(`
+🤔 *О чем напоминать каждые ${intervalAmount} ${intervalUnit}?*
+
+Вы указали интервал, но не указали, о чем напоминать.
+
+*Пример:* "напоминай пить воду каждые 30 минут"
+          `);
+          return;
+        }
+
+        await this.handleIntervalReminder(ctx, reminderText, intervalMinutes);
+        return;
+      }
+
+      // Если не интервальное, то обрабатываем как обычное напоминание
       // Извлекаем текст напоминания
       const reminderText = this.extractReminderText(text);
 
@@ -11399,7 +11471,19 @@ ${this.getItemActivationMessage(itemType)}`,
             await ctx.telegram.sendMessage(
               ctx.userId,
               `🔔 *Интервальное напоминание #${count}*\n\n${reminderText}\n\n⏱️ Следующее через ${intervalMinutes} мин`,
-              { parse_mode: 'Markdown' },
+              {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                  inline_keyboard: [
+                    [
+                      {
+                        text: '🛑 Остановить',
+                        callback_data: 'stop_interval_reminder',
+                      },
+                    ],
+                  ],
+                },
+              },
             );
 
             // Update count in the map
