@@ -4567,14 +4567,14 @@ ${timeAdvice}
         let tasksProgressBar = '';
         if (totalTasks > 0) {
             const taskProgress = todayTasks
-                .map((task) => (task.status === 'COMPLETED' ? '✅' : '⬛'))
+                .map((task) => (task.status === 'COMPLETED' ? '�' : '⬜'))
                 .join('');
             tasksProgressBar = `\n📋 **Задачи на ${new Date().toLocaleDateString('ru-RU')}:**\nПрогресс: ${taskProgress} ${completedTasks.length}/${totalTasks}`;
         }
         else {
             tasksProgressBar = `\n📋 **Задачи на сегодня:** Пока нет задач`;
         }
-        const userStats = `\n🏆 Очки: ${user.totalXp} | 🔥 Уровень: ${user.level} | 📈 Стрик: ${user.currentStreak} дн.`;
+        const userStats = `\n🏆 Очки: ${user.totalXp} | 🔥 Уровень: ${user.level}`;
         let statusText = '';
         if (trialInfo.isTrialActive) {
             statusText = `🎁 **Пробный период:** ${trialInfo.daysRemaining} дней осталось\n`;
@@ -4716,7 +4716,7 @@ ${tasksProgressBar}${userStats}
             });
             await this.billingService.incrementUsage(ctx.userId, 'dailyTasks');
             const user = await this.userService.findByTelegramId(ctx.userId);
-            await this.userService.updateUserStats(ctx.userId, {
+            await this.userService.updateUser(ctx.userId, {
                 totalTasks: user.totalTasks + 1,
             });
             const usageInfo = await this.billingService.checkUsageLimit(ctx.userId, 'dailyTasks');
