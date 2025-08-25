@@ -5749,7 +5749,7 @@ ${timeAdvice}
     if (totalTasks > 0) {
       // Создаем визуальный прогресс для каждой задачи
       const taskProgress = todayTasks
-        .map((task) => (task.status === 'COMPLETED' ? '✅' : '⬛'))
+        .map((task) => (task.status === 'COMPLETED' ? '�' : '⬜'))
         .join('');
 
       tasksProgressBar = `\n📋 **Задачи на ${new Date().toLocaleDateString('ru-RU')}:**\nПрогресс: ${taskProgress} ${completedTasks.length}/${totalTasks}`;
@@ -5758,7 +5758,7 @@ ${timeAdvice}
     }
 
     // Добавляем информацию о уровне и достижениях
-    const userStats = `\n🏆 Очки: ${user.totalXp} | 🔥 Уровень: ${user.level} | 📈 Стрик: ${user.currentStreak} дн.`;
+    const userStats = `\n🏆 Очки: ${user.totalXp} | 🔥 Уровень: ${user.level}`;
 
     let statusText = '';
     if (trialInfo.isTrialActive) {
