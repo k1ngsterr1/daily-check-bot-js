@@ -4479,6 +4479,242 @@ XP (опыт) начисляется за выполнение задач. С к
       }
     });
 
+    // Reminder action handlers
+    this.bot.action('reminder_done', async (ctx) => {
+      await ctx.answerCbQuery('✅ Отмечено как выполненное!');
+      await ctx.editMessageTextWithMarkdown(
+        `✅ *Напоминание выполнено!*\n\nОтлично! Задача отмечена как выполненная.`,
+      );
+    });
+
+    // Handler for reminders with ID
+    this.bot.action(/^reminder_done_(.+)$/, async (ctx) => {
+      const reminderId = ctx.match[1];
+      await ctx.answerCbQuery('✅ Отмечено как выполненное!');
+
+      try {
+        // Update reminder status in database
+        await this.prisma.reminder.update({
+          where: { id: reminderId },
+          data: { status: ReminderStatus.COMPLETED },
+        });
+      } catch (error) {
+        this.logger.error('Error updating reminder status:', error);
+      }
+
+      await ctx.editMessageTextWithMarkdown(
+        `✅ *Напоминание выполнено!*\n\nОтлично! Задача отмечена как выполненная.`,
+      );
+    });
+
+    // Snooze handlers
+    this.bot.action('reminder_snooze_15', async (ctx) => {
+      await ctx.answerCbQuery('⏰ Напомним через 15 минут!');
+      const originalMessage =
+        (ctx.callbackQuery?.message as any)?.text || 'Напоминание';
+      const reminderText = originalMessage
+        .replace('🔔 *Напоминание!*', '')
+        .trim();
+
+      // Schedule new reminder in 15 minutes
+      setTimeout(
+        async () => {
+          try {
+            await ctx.telegram.sendMessage(
+              ctx.userId,
+              `🔔 *Напоминание!*\n\n${reminderText}`,
+              {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                  inline_keyboard: [
+                    [
+                      {
+                        text: '✅ Готово',
+                        callback_data: 'reminder_done',
+                      },
+                    ],
+                    [
+                      {
+                        text: '⏰ Через 15 мин',
+                        callback_data: 'reminder_snooze_15',
+                      },
+                      {
+                        text: '⏰ Через час',
+                        callback_data: 'reminder_snooze_60',
+                      },
+                    ],
+                  ],
+                },
+              },
+            );
+          } catch (error) {
+            this.logger.error('Error sending snoozed reminder:', error);
+          }
+        },
+        15 * 60 * 1000,
+      );
+
+      await ctx.editMessageTextWithMarkdown(
+        `⏰ *Напоминание отложено*\n\nНапомним через 15 минут!`,
+      );
+    });
+
+    this.bot.action('reminder_snooze_60', async (ctx) => {
+      await ctx.answerCbQuery('⏰ Напомним через час!');
+      const originalMessage =
+        (ctx.callbackQuery?.message as any)?.text || 'Напоминание';
+      const reminderText = originalMessage
+        .replace('🔔 *Напоминание!*', '')
+        .trim();
+
+      // Schedule new reminder in 1 hour
+      setTimeout(
+        async () => {
+          try {
+            await ctx.telegram.sendMessage(
+              ctx.userId,
+              `🔔 *Напоминание!*\n\n${reminderText}`,
+              {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                  inline_keyboard: [
+                    [
+                      {
+                        text: '✅ Готово',
+                        callback_data: 'reminder_done',
+                      },
+                    ],
+                    [
+                      {
+                        text: '⏰ Через 15 мин',
+                        callback_data: 'reminder_snooze_15',
+                      },
+                      {
+                        text: '⏰ Через час',
+                        callback_data: 'reminder_snooze_60',
+                      },
+                    ],
+                  ],
+                },
+              },
+            );
+          } catch (error) {
+            this.logger.error('Error sending snoozed reminder:', error);
+          }
+        },
+        60 * 60 * 1000,
+      );
+
+      await ctx.editMessageTextWithMarkdown(
+        `⏰ *Напоминание отложено*\n\nНапомним через час!`,
+      );
+    });
+
+    // Snooze handlers with reminder ID
+    this.bot.action(/^reminder_snooze_15_(.+)$/, async (ctx) => {
+      const reminderId = ctx.match[1];
+      await ctx.answerCbQuery('⏰ Напомним через 15 минут!');
+      const originalMessage =
+        (ctx.callbackQuery?.message as any)?.text || 'Напоминание';
+      const reminderText = originalMessage
+        .replace('🔔 *Напоминание!*', '')
+        .trim();
+
+      // Schedule new reminder in 15 minutes
+      setTimeout(
+        async () => {
+          try {
+            await ctx.telegram.sendMessage(
+              ctx.userId,
+              `🔔 *Напоминание!*\n\n${reminderText}`,
+              {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                  inline_keyboard: [
+                    [
+                      {
+                        text: '✅ Готово',
+                        callback_data: `reminder_done_${reminderId}`,
+                      },
+                    ],
+                    [
+                      {
+                        text: '⏰ Через 15 мин',
+                        callback_data: `reminder_snooze_15_${reminderId}`,
+                      },
+                      {
+                        text: '⏰ Через час',
+                        callback_data: `reminder_snooze_60_${reminderId}`,
+                      },
+                    ],
+                  ],
+                },
+              },
+            );
+          } catch (error) {
+            this.logger.error('Error sending snoozed reminder:', error);
+          }
+        },
+        15 * 60 * 1000,
+      );
+
+      await ctx.editMessageTextWithMarkdown(
+        `⏰ *Напоминание отложено*\n\nНапомним через 15 минут!`,
+      );
+    });
+
+    this.bot.action(/^reminder_snooze_60_(.+)$/, async (ctx) => {
+      const reminderId = ctx.match[1];
+      await ctx.answerCbQuery('⏰ Напомним через час!');
+      const originalMessage =
+        (ctx.callbackQuery?.message as any)?.text || 'Напоминание';
+      const reminderText = originalMessage
+        .replace('🔔 *Напоминание!*', '')
+        .trim();
+
+      // Schedule new reminder in 1 hour
+      setTimeout(
+        async () => {
+          try {
+            await ctx.telegram.sendMessage(
+              ctx.userId,
+              `🔔 *Напоминание!*\n\n${reminderText}`,
+              {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                  inline_keyboard: [
+                    [
+                      {
+                        text: '✅ Готово',
+                        callback_data: `reminder_done_${reminderId}`,
+                      },
+                    ],
+                    [
+                      {
+                        text: '⏰ Через 15 мин',
+                        callback_data: `reminder_snooze_15_${reminderId}`,
+                      },
+                      {
+                        text: '⏰ Через час',
+                        callback_data: `reminder_snooze_60_${reminderId}`,
+                      },
+                    ],
+                  ],
+                },
+              },
+            );
+          } catch (error) {
+            this.logger.error('Error sending snoozed reminder:', error);
+          }
+        },
+        60 * 60 * 1000,
+      );
+
+      await ctx.editMessageTextWithMarkdown(
+        `⏰ *Напоминание отложено*\n\nНапомним через час!`,
+      );
+    });
+
     this.bot.action('cancel_interval_setup', async (ctx) => {
       await ctx.answerCbQuery();
       await ctx.editMessageTextWithMarkdown(
@@ -5802,6 +6038,22 @@ ${tasksProgressBar}${userStats}
         { command: 'help', description: '🆘 Справка' },
       ]);
 
+      // Устанавливаем Menu Button - кнопку меню рядом с полем ввода
+      await this.bot.telegram.setChatMenuButton({
+        menuButton: {
+          type: 'commands',
+        },
+      });
+
+      // Альтернативно можно установить Web App кнопку для более расширенного меню
+      // await this.bot.telegram.setChatMenuButton({
+      //   menuButton: {
+      //     type: 'web_app',
+      //     text: 'Меню',
+      //     web_app: { url: 'https://your-domain.com/menu' }
+      //   }
+      // });
+
       // Запускаем бота без ожидания
       this.bot
         .launch()
@@ -6852,7 +7104,29 @@ ${personalizedResponse}
               `🔔 *Напоминание!*
 
 ${reminderText}`,
-              { parse_mode: 'Markdown' },
+              {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                  inline_keyboard: [
+                    [
+                      {
+                        text: '✅ Готово',
+                        callback_data: 'reminder_done',
+                      },
+                    ],
+                    [
+                      {
+                        text: '⏰ Через 15 мин',
+                        callback_data: 'reminder_snooze_15',
+                      },
+                      {
+                        text: '⏰ Через час',
+                        callback_data: 'reminder_snooze_60',
+                      },
+                    ],
+                  ],
+                },
+              },
             );
           } catch (error) {
             this.logger.error('Error sending reminder:', error);
@@ -6971,7 +7245,29 @@ ${reminderText}`,
           await ctx.telegram.sendMessage(
             ctx.userId,
             `🔔 *Напоминание!*\n\n${reminderText}`,
-            { parse_mode: 'Markdown' },
+            {
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: '✅ Готово',
+                      callback_data: `reminder_done_${savedReminder.id}`,
+                    },
+                  ],
+                  [
+                    {
+                      text: '⏰ Через 15 мин',
+                      callback_data: `reminder_snooze_15_${savedReminder.id}`,
+                    },
+                    {
+                      text: '⏰ Через час',
+                      callback_data: `reminder_snooze_60_${savedReminder.id}`,
+                    },
+                  ],
+                ],
+              },
+            },
           );
 
           // Обновляем статус напоминания на выполненное
