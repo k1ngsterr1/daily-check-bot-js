@@ -5737,6 +5737,29 @@ ${timeAdvice}
       ctx.userId,
     );
 
+    // Получаем статистику задач на сегодня
+    const todayTasks = await this.taskService.getTodayTasks(ctx.userId);
+    const completedTasks = todayTasks.filter(
+      (task) => task.status === 'COMPLETED',
+    );
+    const totalTasks = todayTasks.length;
+
+    // Создаем прогресс-бар для задач
+    let tasksProgressBar = '';
+    if (totalTasks > 0) {
+      // Создаем визуальный прогресс для каждой задачи
+      const taskProgress = todayTasks
+        .map((task) => (task.status === 'COMPLETED' ? '✅' : '⬛'))
+        .join('');
+
+      tasksProgressBar = `\n📋 **Задачи на ${new Date().toLocaleDateString('ru-RU')}:**\nПрогресс: ${taskProgress} ${completedTasks.length}/${totalTasks}`;
+    } else {
+      tasksProgressBar = `\n📋 **Задачи на сегодня:** Пока нет задач`;
+    }
+
+    // Добавляем информацию о уровне и достижениях
+    const userStats = `\n🏆 Очки: ${user.totalXp} | 🔥 Уровень: ${user.level} | 📈 Стрик: ${user.currentStreak} дн.`;
+
     let statusText = '';
     if (trialInfo.isTrialActive) {
       statusText = `🎁 **Пробный период:** ${trialInfo.daysRemaining} дней осталось\n`;
@@ -5748,6 +5771,7 @@ ${timeAdvice}
 👋 *Привет, ${this.userService.getDisplayName(user)}!*
 
 ${statusText}🤖 Я Ticky AI – твой личный AI помощник для управления задачами и привычками.
+${tasksProgressBar}${userStats}
     `;
 
     if (shouldEdit) {
@@ -5910,7 +5934,7 @@ ${statusText}🤖 Я Ticky AI – твой личный AI помощник дл
 
       // Get current user stats to increment
       const user = await this.userService.findByTelegramId(ctx.userId);
-      await this.userService.updateUserStats(ctx.userId, {
+      await this.userService.updateUser(ctx.userId, {
         totalTasks: user.totalTasks + 1,
       });
 
@@ -6098,17 +6122,11 @@ ${statusText}🤖 Я Ticky AI – твой личный AI помощник дл
 
       // Get current user stats to increment and check level up
       const userBefore = await this.userService.findByTelegramId(ctx.userId);
-      const newTotalXp = userBefore.totalXp + result.xpGained;
 
-      await this.userService.updateUserStats(ctx.userId, {
-        completedTasks: userBefore.completedTasks + 1,
+      const statsUpdate = await this.userService.updateStats(ctx.userId, {
         todayTasks: userBefore.todayTasks + 1,
         xpGained: result.xpGained,
       });
-
-      // Get updated user to check for level up
-      const userAfter = await this.userService.findByTelegramId(ctx.userId);
-      const leveledUp = userAfter.level > userBefore.level;
 
       let message = `
 🎉 *Задача выполнена!*
@@ -6117,21 +6135,25 @@ ${statusText}🤖 Я Ticky AI – твой личный AI помощник дл
 🎯 Получено XP: +${result.xpGained}
 `;
 
-      if (leveledUp) {
+      if (statsUpdate.leveledUp) {
         message += `
 🎊 *ПОЗДРАВЛЯЕМ! НОВЫЙ УРОВЕНЬ!*
-⭐ Уровень: ${userAfter.level} (было: ${userBefore.level})
-🏆 Общий XP: ${userAfter.totalXp}
+⭐ Уровень: ${statsUpdate.newLevel} (было: ${userBefore.level})
+🏆 Общий XP: ${statsUpdate.user.totalXp}
+
+🎁 За достижение нового уровня вы получили дополнительные возможности!
 `;
       } else {
-        const xpToNext = this.userService.getXpToNextLevel(userAfter);
-        const progress = this.userService.getLevelProgressRatio(userAfter);
+        const xpToNext = this.userService.getXpToNextLevel(statsUpdate.user);
+        const progress = this.userService.getLevelProgressRatio(
+          statsUpdate.user,
+        );
         const progressBar = this.createProgressBar(progress);
 
         message += `
 📊 Прогресс до следующего уровня:
 ${progressBar} ${Math.round(progress * 100)}%
-🎯 Осталось XP до уровня ${userAfter.level + 1}: ${xpToNext}
+🎯 Осталось XP до уровня ${statsUpdate.user.level + 1}: ${xpToNext}
 `;
       }
 
@@ -6139,7 +6161,10 @@ ${progressBar} ${Math.round(progress * 100)}%
 
       await ctx.editMessageTextWithMarkdown(message);
 
-      setTimeout(() => this.showTasksMenu(ctx), leveledUp ? 3000 : 2000);
+      setTimeout(
+        () => this.showTasksMenu(ctx),
+        statsUpdate.leveledUp ? 3000 : 2000,
+      );
     } catch (error) {
       this.logger.error('Error completing task:', error);
       if (error.message.includes('already completed')) {
@@ -9820,7 +9845,7 @@ ${plan.features.map((feature) => `• ${feature}`).join('\n')}
       await this.processXPPurchase(user, itemType, itemId);
 
       // Update user XP
-      await this.userService.updateUserStats(ctx.userId, {
+      await this.userService.updateStats(ctx.userId, {
         xpGained: -cost, // Subtract XP
       });
 

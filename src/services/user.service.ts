@@ -91,34 +91,26 @@ export class UserService {
     });
   }
 
-  async updateUserStats(
+  async updateStats(
     telegramId: string,
-    stats: UpdateUserStatsDto,
-  ): Promise<User> {
+    stats: {
+      todayTasks?: number;
+      todayHabits?: number;
+      xpGained?: number;
+    },
+  ): Promise<{ user: User; leveledUp?: boolean; newLevel?: number }> {
     const user = await this.findByTelegramId(telegramId);
+    const updateData: Partial<User> = {};
 
-    const updateData: Partial<User> = {
-      lastActivity: new Date(),
-    };
-
-    if (stats.totalTasks !== undefined) {
-      updateData.totalTasks = stats.totalTasks;
-    }
-    if (stats.completedTasks !== undefined) {
-      updateData.completedTasks = stats.completedTasks;
-    }
-    if (stats.totalHabits !== undefined) {
-      updateData.totalHabits = stats.totalHabits;
-    }
-    if (stats.completedHabits !== undefined) {
-      updateData.completedHabits = stats.completedHabits;
-    }
     if (stats.todayTasks !== undefined) {
       updateData.todayTasks = stats.todayTasks;
     }
     if (stats.todayHabits !== undefined) {
       updateData.todayHabits = stats.todayHabits;
     }
+
+    let levelUpInfo: { leveledUp?: boolean; newLevel?: number } = {};
+
     if (stats.xpGained !== undefined) {
       const newTotalXp = user.totalXp + stats.xpGained;
       updateData.totalXp = newTotalXp;
@@ -127,14 +119,17 @@ export class UserService {
       const newLevel = this.calculateLevel(newTotalXp);
       if (newLevel > user.level) {
         updateData.level = newLevel;
+        levelUpInfo = { leveledUp: true, newLevel };
         this.logger.log(`User ${telegramId} leveled up to ${newLevel}!`);
       }
     }
 
-    return await this.prisma.user.update({
+    const updatedUser = await this.prisma.user.update({
       where: { id: telegramId },
       data: updateData,
     });
+
+    return { user: updatedUser, ...levelUpInfo };
   }
 
   async updateStreak(telegramId: string, streakValue: number): Promise<User> {

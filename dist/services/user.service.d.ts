@@ -1,6 +1,6 @@
 import { PrismaService } from '../database/prisma.service';
 import { User } from '@prisma/client';
-import { CreateUserDto, UpdateUserStatsDto } from '../dto';
+import { CreateUserDto } from '../dto';
 export declare class UserService {
     private readonly prisma;
     private readonly logger;
@@ -8,7 +8,15 @@ export declare class UserService {
     findByTelegramId(telegramId: string): Promise<User>;
     findOrCreateUser(userData: CreateUserDto): Promise<User>;
     updateUser(telegramId: string, updates: Partial<User>): Promise<User>;
-    updateUserStats(telegramId: string, stats: UpdateUserStatsDto): Promise<User>;
+    updateStats(telegramId: string, stats: {
+        todayTasks?: number;
+        todayHabits?: number;
+        xpGained?: number;
+    }): Promise<{
+        user: User;
+        leveledUp?: boolean;
+        newLevel?: number;
+    }>;
     updateStreak(telegramId: string, streakValue: number): Promise<User>;
     completeOnboarding(telegramId: string): Promise<User>;
     getUsersByReferralCode(referralCode: string): Promise<User[]>;

@@ -87,42 +87,31 @@ let UserService = UserService_1 = class UserService {
             data: updateData,
         });
     }
-    async updateUserStats(telegramId, stats) {
+    async updateStats(telegramId, stats) {
         const user = await this.findByTelegramId(telegramId);
-        const updateData = {
-            lastActivity: new Date(),
-        };
-        if (stats.totalTasks !== undefined) {
-            updateData.totalTasks = stats.totalTasks;
-        }
-        if (stats.completedTasks !== undefined) {
-            updateData.completedTasks = stats.completedTasks;
-        }
-        if (stats.totalHabits !== undefined) {
-            updateData.totalHabits = stats.totalHabits;
-        }
-        if (stats.completedHabits !== undefined) {
-            updateData.completedHabits = stats.completedHabits;
-        }
+        const updateData = {};
         if (stats.todayTasks !== undefined) {
             updateData.todayTasks = stats.todayTasks;
         }
         if (stats.todayHabits !== undefined) {
             updateData.todayHabits = stats.todayHabits;
         }
+        let levelUpInfo = {};
         if (stats.xpGained !== undefined) {
             const newTotalXp = user.totalXp + stats.xpGained;
             updateData.totalXp = newTotalXp;
             const newLevel = this.calculateLevel(newTotalXp);
             if (newLevel > user.level) {
                 updateData.level = newLevel;
+                levelUpInfo = { leveledUp: true, newLevel };
                 this.logger.log(`User ${telegramId} leveled up to ${newLevel}!`);
             }
         }
-        return await this.prisma.user.update({
+        const updatedUser = await this.prisma.user.update({
             where: { id: telegramId },
             data: updateData,
         });
+        return { user: updatedUser, ...levelUpInfo };
     }
     async updateStreak(telegramId, streakValue) {
         const user = await this.findByTelegramId(telegramId);
