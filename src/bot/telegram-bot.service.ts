@@ -8452,12 +8452,20 @@ _Попробуйте еще раз_
     // Handle relative time (через X минут/часов/дней/недель/месяцев/лет)
     // Support both numeric forms (через 5 минут) and natural single-unit forms (через минуту, через час)
     const simpleRelativeMatch = normalized.match(
-      /через\s*(минуту|минут|час|день|дня|дней|неделю|недели|месяц|год|лет)/i,
+      /через\s*(?:([\d]+|[а-яё]+)\s*)?(минуту|минут|час|день|дня|дней|неделю|недели|месяц|год|лет)/i,
     );
 
     if (simpleRelativeMatch) {
-      const amount = 1;
-      const unit = simpleRelativeMatch[1].toLowerCase();
+      // If user said a number word like 'одну' or 'две', simpleRelativeMatch[1] may contain it
+      let amount = 1;
+      const possibleNum = simpleRelativeMatch[1];
+      const unit = simpleRelativeMatch[2].toLowerCase();
+      if (possibleNum) {
+        const parsed = this.parseRussianNumber(possibleNum);
+        if (parsed !== null) {
+          amount = parsed;
+        }
+      }
 
       const now = new Date();
       let targetDate = new Date(now);
@@ -8516,11 +8524,17 @@ _Попробуйте еще раз_
     }
 
     const relativeMatch = normalized.match(
-      /через\s*(\d+)\s*(минут|час|день|дня|дней|неделю|недели|недель|месяц|месяца|месяцев|год|года|лет)/i,
+      /через\s*([\d]+|[а-яё]+)\s*(минут|час|день|дня|дней|неделю|недели|недель|месяц|месяца|месяцев|год|года|лет)/i,
     );
 
     if (relativeMatch) {
-      const amount = parseInt(relativeMatch[1]);
+      // Parse numeric word or digits
+      const rawAmount = relativeMatch[1];
+      let amount = parseInt(rawAmount);
+      if (isNaN(amount)) {
+        const parsed = this.parseRussianNumber(rawAmount);
+        amount = parsed === null ? 1 : parsed;
+      }
       const unit = relativeMatch[2].toLowerCase();
 
       const now = new Date();
@@ -8664,11 +8678,57 @@ _Просто напишите время в удобном формате_
     // Extended time indicators including new patterns
     // Also detect single-unit relative forms like "через минуту" or "через час"
     const hasTimeIndicator =
-      /в\s*\d{1,2}:?\d{0,2}|на\s*\d{1,2}:?\d{0,2}|к\s*\d{1,2}:?\d{0,2}|через\s*(?:\d+|минуту|минут|час|день|дня|дней|неделю|недели|недель|месяц|месяца|месяцев|год|года|лет)\s*(?:$|\b)|завтра|послезавтра|на\s*следующей\s*неделе|в\s*следующем\s*месяце|в\s*следующем\s*году|на\s*этой\s*неделе|в\s*этом\s*месяце/i.test(
+      /в\s*\d{1,2}:?\d{0,2}|на\s*\d{1,2}:?\d{0,2}|к\s*\d{1,2}:?\d{0,2}|через\s*(?:\d+|одну|один|минуту|минут|час|день|дня|дней|неделю|недели|недель|месяц|месяца|месяцев|год|года|лет)\s*(?:$|\b)|завтра|послезавтра|на\s*следующей\s*неделе|в\s*следующем\s*месяце|в\s*следующем\s*году|на\s*этой\s*неделе|в\s*этом\s*месяце/i.test(
         text,
       );
 
     return hasReminderTrigger && !hasTimeIndicator;
+  }
+
+  /**
+   * Parse small Russian number words into integers.
+   * Returns null if not recognized.
+   */
+  private parseRussianNumber(word: string): number | null {
+    if (!word) return null;
+    const w = word.toString().toLowerCase().trim();
+    const map: Record<string, number> = {
+      '0': 0,
+      '1': 1,
+      '2': 2,
+      '3': 3,
+      '4': 4,
+      '5': 5,
+      '6': 6,
+      '7': 7,
+      '8': 8,
+      '9': 9,
+      '10': 10,
+      один: 1,
+      одна: 1,
+      одну: 1,
+      два: 2,
+      две: 2,
+      три: 3,
+      четыре: 4,
+      пять: 5,
+      шесть: 6,
+      семь: 7,
+      восемь: 8,
+      девять: 9,
+      десять: 10,
+      несколько: 3,
+      пару: 2,
+      пара: 2,
+    };
+
+    if (map[w] !== undefined) return map[w];
+
+    // Try extracting digits
+    const digits = w.match(/\d+/);
+    if (digits) return parseInt(digits[0], 10);
+
+    return null;
   }
 
   /*
@@ -8724,9 +8784,9 @@ _Просто напишите время в удобном формате_
       return true;
     }
 
-    // Also consider simple relative phrases like "через минуту", "через час" as reminders
+    // Also consider simple relative phrases like "через минуту", "через одну минуту", "через 1 минуту", "через час" as reminders
     const simpleRelativeReminder =
-      /через\s*(?:минуту|минут|час|день|дня|дней|неделю|недели|недель|месяц|месяца|месяцев|год|года|лет)/i;
+      /через\s*(?:\d+|одну|один)?\s*(?:минуту|минут|час|день|дня|дней|неделю|недели|недель|месяц|месяца|месяцев|год|года|лет)/i;
     if (simpleRelativeReminder.test(text)) {
       return true;
     }
