@@ -404,16 +404,6 @@ export class NotificationService {
                 inline_keyboard: [
                   [
                     {
-                      text: '💪 Держусь',
-                      callback_data: `morning_success_${dependency.type.toLowerCase()}`,
-                    },
-                    {
-                      text: '😔 Сдался',
-                      callback_data: `morning_fail_${dependency.type.toLowerCase()}`,
-                    },
-                  ],
-                  [
-                    {
                       text: '🤝 Обещаю сам себе',
                       callback_data: `morning_promise_${dependency.type.toLowerCase()}`,
                     },
