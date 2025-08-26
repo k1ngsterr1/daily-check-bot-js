@@ -4510,6 +4510,54 @@ XP (опыт) начисляется за выполнение задач. С к
       await this.completeTask(ctx, taskId);
     });
 
+    // Handle task deletion (ask for confirmation)
+    this.bot.action(/^task_delete_(.+)$/, async (ctx) => {
+      await ctx.answerCbQuery();
+      const taskId = ctx.match[1];
+      const keyboard = {
+        inline_keyboard: [
+          [
+            {
+              text: '✅ Да, удалить',
+              callback_data: `confirm_delete_task_${taskId}`,
+            },
+            {
+              text: '❌ Отмена',
+              callback_data: `cancel_delete_task_${taskId}`,
+            },
+          ],
+        ],
+      };
+      await ctx.editMessageTextWithMarkdown(
+        `Вы уверены, что хотите удалить задачу? Это действие нельзя отменить.`,
+        { reply_markup: keyboard },
+      );
+    });
+
+    // Confirm delete
+    this.bot.action(/^confirm_delete_task_(.+)$/, async (ctx) => {
+      await ctx.answerCbQuery();
+      const taskId = ctx.match[1];
+      try {
+        await this.taskService.deleteTask(taskId, ctx.userId);
+        await ctx.editMessageTextWithMarkdown('✅ Задача удалена.');
+        // Refresh tasks list after a short delay
+        setTimeout(() => this.showTasksList(ctx), 500);
+      } catch (error) {
+        this.logger.error('Error deleting task:', error);
+        await ctx.editMessageTextWithMarkdown(
+          '❌ Не удалось удалить задачу. Попробуйте позже.',
+        );
+      }
+    });
+
+    // Cancel delete
+    this.bot.action(/^cancel_delete_task_(.+)$/, async (ctx) => {
+      await ctx.answerCbQuery();
+      // Return to tasks list
+      await this.showTasksList(ctx);
+    });
+
     // Handle back to tasks menu (open full tasks list)
     this.bot.action('back_to_tasks', async (ctx) => {
       await ctx.answerCbQuery();
@@ -6572,13 +6620,17 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       message += `✅ **Выполненных:** ${completedTasks.length}\n\n`;
       message += `*Выберите задачу для завершения:*`;
 
-      // Create keyboard with task completion buttons
+      // Create keyboard with task completion and delete buttons
       const keyboard = {
         inline_keyboard: [
           ...pendingTasks.slice(0, 8).map((task) => [
             {
               text: `${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''} (${task.xpReward} XP)`,
               callback_data: `task_complete_${task.id}`,
+            },
+            {
+              text: '🗑️ Удалить',
+              callback_data: `task_delete_${task.id}`,
             },
           ]),
           ...(pendingTasks.length > 8
@@ -6647,6 +6699,10 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
         {
           text: `${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 35)}${task.title.length > 35 ? '...' : ''} (${task.xpReward} XP)`,
           callback_data: `task_complete_${task.id}`,
+        },
+        {
+          text: '🗑️ Удалить',
+          callback_data: `task_delete_${task.id}`,
         },
       ]);
 
