@@ -192,55 +192,7 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
             }
         });
         this.bot.on('voice', async (ctx) => {
-            try {
-                await ctx.replyWithMarkdown('🎤 Обрабатываю голосовое сообщение...');
-                const userId = ctx.from.id.toString();
-                const voiceMessage = ctx.message.voice;
-                const taskTitle = `📝 Задача из голосового сообщения (${new Date().toLocaleTimeString('ru-RU')})`;
-                const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
-                const task = await this.taskService.createTask({
-                    userId,
-                    title: taskTitle,
-                    description: 'Создано из голосового сообщения. Добавьте описание.',
-                    priority: 'MEDIUM',
-                    dueDate,
-                });
-                const keyboard = {
-                    inline_keyboard: [
-                        [
-                            {
-                                text: '✅ Выполнено',
-                                callback_data: `task_complete_${String(task.id).slice(0, 20)}`,
-                            },
-                            {
-                                text: '✏️ Редактировать',
-                                callback_data: `task_edit_${String(task.id).slice(0, 20)}`,
-                            },
-                        ],
-                        [
-                            { text: '📋 Все задачи', callback_data: 'tasks_list' },
-                            { text: '🔄 Главное меню', callback_data: 'main_menu' },
-                        ],
-                    ],
-                };
-                const intervalInfo = this.extractTimeIntervalFromText(taskTitle);
-                let responseMessage = `✅ *Задача создана!*\n\n` +
-                    `📝 *Название:* ${task.title}\n` +
-                    `📅 *Срок:* ${task.dueDate ? task.dueDate.toLocaleDateString('ru-RU') : 'Не указан'}\n` +
-                    `🎯 *Приоритет:* ${this.getPriorityEmoji(task.priority)} ${task.priority}`;
-                if (intervalInfo) {
-                    responseMessage += `\n\n⏰ **Следующее уведомление о задаче будет отправлено в ${intervalInfo.nextTime}**`;
-                }
-                responseMessage += `\n\n💡 *Совет:* Нажмите "Редактировать", чтобы добавить подробное описание задачи.`;
-                await ctx.replyWithMarkdown(responseMessage, {
-                    reply_markup: keyboard,
-                });
-                this.logger.log(`Task created from voice message for user ${userId}: ${task.id}`);
-            }
-            catch (error) {
-                this.logger.error('Error handling voice message:', error);
-                await ctx.replyWithMarkdown('❌ Не удалось создать задачу из голосового сообщения. Попробуйте еще раз.');
-            }
+            await this.handleAudioMessage(ctx, 'voice');
         });
         this.bot.help(async (ctx) => {
             await ctx.replyWithMarkdown(`
@@ -522,18 +474,52 @@ ${statusMessage}
                 await this.showOnboardingStep2(ctx);
             }, 3000);
         });
+        this.bot.action('onboarding_faq', async (ctx) => {
+            await ctx.answerCbQuery();
+            await this.showOnboardingStep3(ctx);
+        });
         this.bot.action('onboarding_add_habit', async (ctx) => {
             await ctx.answerCbQuery();
             await ctx.editMessageTextWithMarkdown(`
 ✍️ *Отлично! Напиши название своей первой привычки.*
 
-Например:
+Например: выберите одну из кнопок или введите свою:
 • Пить воду каждый час
 • Делать зарядку утром
 • Читать перед сном
 
 *Напиши название привычки:*
-      `);
+      `, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '💧 Пить воду каждый час',
+                                callback_data: 'habit_example_water',
+                            },
+                        ],
+                        [
+                            {
+                                text: '🏃‍♂️ Делать зарядку утром',
+                                callback_data: 'habit_example_sleep',
+                            },
+                        ],
+                        [
+                            {
+                                text: '📚 Читать перед сном',
+                                callback_data: 'habit_example_read',
+                            },
+                        ],
+                        [
+                            {
+                                text: '📝 Ввести свою привычку',
+                                callback_data: 'habit_custom_input',
+                            },
+                        ],
+                        [{ text: '🔙 Назад', callback_data: 'back_to_menu' }],
+                    ],
+                },
+            });
             ctx.session.step = 'onboarding_waiting_habit';
         });
         this.bot.action('onboarding_skip_habit', async (ctx) => {
@@ -562,6 +548,10 @@ ${statusMessage}
                 this.logger.error('Error completing onboarding:', error);
                 await ctx.replyWithMarkdown('❌ Ошибка при завершении онбординга. Попробуйте еще раз.');
             }
+        });
+        this.bot.action('onboarding_next_faq', async (ctx) => {
+            await ctx.answerCbQuery();
+            await this.showOnboardingStep3(ctx);
         });
         this.bot.on('text', async (ctx) => {
             const user = await this.getOrCreateUser(ctx);
@@ -691,24 +681,59 @@ ${statusMessage}
             if (ctx.session.step === 'onboarding_waiting_habit') {
                 const habitName = ctx.message.text;
                 try {
-                    await this.habitService.createHabit({
+                    const habit = await this.habitService.createHabit({
                         userId: ctx.userId,
                         title: habitName,
-                        description: undefined,
+                        description: `каждый день`,
                         frequency: 'DAILY',
                         targetCount: 1,
                     });
+                    await this.billingService.incrementUsage(ctx.userId, 'dailyHabits');
+                    const usageInfo = await this.billingService.checkUsageLimit(ctx.userId, 'dailyHabits');
                     ctx.session.step = undefined;
-                    await ctx.replyWithMarkdown(`
-✅ *Отличная привычка: "${habitName}"*
+                    const user = await this.userService.findByTelegramId(ctx.userId);
+                    if (!user.onboardingPassed) {
+                        await ctx.replyWithMarkdown(`✅ *Привычка выполнена!*`, {
+                            reply_markup: {
+                                inline_keyboard: [
+                                    [{ text: '❓ FAQ', callback_data: 'onboarding_next_faq' }],
+                                ],
+                            },
+                        });
+                    }
+                    else {
+                        await ctx.editMessageTextWithMarkdown(`
+✅ *Привычка создана!* 
 
-Привычка добавлена! Теперь ты можешь отслеживать её выполнение каждый день.
+🎯 **Название:** ${habitName}
+📅 **Описание:** каждый день
 
-🎯 Продолжим настройку...
-        `);
-                    setTimeout(async () => {
-                        await this.showOnboardingStep3(ctx);
-                    }, 2000);
+📊 **Использовано:** ${usageInfo.current}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit} привычек
+
+💡 **Подсказка:** Вы можете настроить напоминания для этой привычки в меню привычек.
+        `, {
+                            reply_markup: {
+                                inline_keyboard: [
+                                    [
+                                        {
+                                            text: '⏰ Настроить напоминание',
+                                            callback_data: `habit_set_reminder_${habit.id}`,
+                                        },
+                                    ],
+                                    [
+                                        {
+                                            text: '🎯 Мои привычки',
+                                            callback_data: 'habits_list',
+                                        },
+                                        {
+                                            text: '🏠 Главное меню',
+                                            callback_data: 'back_to_menu',
+                                        },
+                                    ],
+                                ],
+                            },
+                        });
+                    }
                 }
                 catch (error) {
                     this.logger.error('Error creating habit during onboarding:', error);
@@ -870,6 +895,11 @@ ${statusMessage}
         this.bot.action('habit_example_sleep', async (ctx) => {
             await ctx.answerCbQuery();
             const habitName = 'Ложиться спать до 23:00';
+            await this.createHabitFromExample(ctx, habitName);
+        });
+        this.bot.action('habit_example_read', async (ctx) => {
+            await ctx.answerCbQuery();
+            const habitName = 'Читать перед сном';
             await this.createHabitFromExample(ctx, habitName);
         });
         this.bot.action('habit_example_walk', async (ctx) => {
@@ -4887,7 +4917,7 @@ ${timeAdvice}
         let tasksProgressBar = '';
         if (totalTasks > 0) {
             const completedCount = completedTasks.length;
-            const taskProgress = '✅'.repeat(completedCount) +
+            const taskProgress = '🟩'.repeat(completedCount) +
                 '⬜'.repeat(Math.max(0, totalTasks - completedCount));
             tasksProgressBar = `\n📋 **Задачи на ${new Date().toLocaleDateString('ru-RU')}:**\nПрогресс: ${taskProgress} ${completedCount}/${totalTasks}`;
         }
@@ -9905,16 +9935,15 @@ ${this.getItemActivationMessage(itemType)}`, {
             });
             await this.billingService.incrementUsage(ctx.userId, 'dailyHabits');
             const usageInfo = await this.billingService.checkUsageLimit(ctx.userId, 'dailyHabits');
-            await ctx.editMessageTextWithMarkdown(`
-✅ *Привычка создана!*
-
-🎯 **Название:** ${habitName}
-📅 **Описание:** каждый день
-
-📊 **Использовано:** ${usageInfo.current}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit} привычек
-
-💡 **Подсказка:** Вы можете настроить напоминания для этой привычки в меню привычек.
-        `, {
+            const user = await this.userService.findByTelegramId(ctx.userId);
+            const keyboardForOnboarding = {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '❓ Далее к FAQ', callback_data: 'onboarding_next_faq' }],
+                    ],
+                },
+            };
+            const keyboardDefault = {
                 reply_markup: {
                     inline_keyboard: [
                         [
@@ -9935,7 +9964,20 @@ ${this.getItemActivationMessage(itemType)}`, {
                         ],
                     ],
                 },
-            });
+            };
+            const replyKeyboard = user && user.onboardingPassed === false
+                ? keyboardForOnboarding
+                : keyboardDefault;
+            await ctx.editMessageTextWithMarkdown(`
+✅ *Привычка создана!*
+
+🎯 **Название:** ${habitName}
+📅 **Описание:** каждый день
+
+📊 **Использовано:** ${usageInfo.current}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit} привычек
+
+💡 **Подсказка:** Вы можете настроить напоминания для этой привычки в меню привычек.
+        `, replyKeyboard);
             ctx.session.step = undefined;
         }
         catch (error) {
