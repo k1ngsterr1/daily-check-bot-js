@@ -6429,9 +6429,25 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
 
     // Check if this is a callback query (can edit) or command (need to reply)
     if (ctx.callbackQuery) {
-      await ctx.editMessageTextWithMarkdown(message, {
-        reply_markup: keyboard,
-      });
+      try {
+        await ctx.editMessageTextWithMarkdown(message, {
+          reply_markup: keyboard,
+        });
+      } catch (err) {
+        const e = err as any;
+        const desc = e?.response?.description || e?.message || '';
+        if (
+          typeof desc === 'string' &&
+          desc.includes('message is not modified')
+        ) {
+          this.logger.log(
+            'Edit resulted in no-op, sending a new message instead (showTasksList)',
+          );
+          await ctx.replyWithMarkdown(message, { reply_markup: keyboard });
+        } else {
+          throw err;
+        }
+      }
     } else {
       await ctx.replyWithMarkdown(message, { reply_markup: keyboard });
     }
@@ -6579,9 +6595,25 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
         ],
       };
 
-      await ctx.editMessageTextWithMarkdown(message, {
-        reply_markup: keyboard,
-      });
+      try {
+        await ctx.editMessageTextWithMarkdown(message, {
+          reply_markup: keyboard,
+        });
+      } catch (err) {
+        const e = err as any;
+        const desc = e?.response?.description || e?.message || '';
+        if (
+          typeof desc === 'string' &&
+          desc.includes('message is not modified')
+        ) {
+          this.logger.log(
+            'Edit resulted in no-op, sending a new message instead (showAllTasksList)',
+          );
+          await ctx.replyWithMarkdown(message, { reply_markup: keyboard });
+        } else {
+          throw err;
+        }
+      }
     } catch (error) {
       this.logger.error('Error showing tasks list:', error);
       await ctx.editMessageTextWithMarkdown(
