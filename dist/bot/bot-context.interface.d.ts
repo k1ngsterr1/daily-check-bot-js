@@ -14,6 +14,10 @@ export interface BotContext extends Context {
             text: string;
             originalText: string;
         };
+        pendingReminderTime?: {
+            hours: string;
+            minutes: string;
+        };
         waitingForReminderTime?: boolean;
         pendingAction?: string;
         pendingTaskTitle?: string;

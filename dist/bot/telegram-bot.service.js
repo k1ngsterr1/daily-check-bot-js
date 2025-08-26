@@ -4429,79 +4429,39 @@ ${recommendation}
         this.logger.log(`Handling simple reminder request: "${text}" for user ${ctx.userId}`);
         let reminderText = text;
         reminderText = reminderText.replace(/^(напомни\s+мне\s+|напомню\s+себе\s+|напоминание\s+|поставь\s+напоминание\s+|установи\s+напоминание\s+|создай\s+напоминание\s+)/i, '');
-        const timeWordsAtEnd = [
-            'завтра',
-            'послезавтра',
-            'сегодня',
-            'вечером',
-            'утром',
-            'днем',
-            'ночью',
-            'в понедельник',
-            'во вторник',
-            'в среду',
-            'в четверг',
-            'в пятницу',
-            'в субботу',
-            'в воскресенье',
-            'на следующей неделе',
-            'в следующем месяце',
-            'в следующем году',
-        ];
         let cleanedText = reminderText.trim();
-        for (const timeWord of timeWordsAtEnd) {
-            const regex = new RegExp(`\\s+(${timeWord})$`, 'gi');
-            cleanedText = cleanedText.replace(regex, '');
-        }
-        if (cleanedText.trim().length === 0) {
-            cleanedText = reminderText.trim();
-        }
+        const timeInfo = this.extractTimeFromText(text);
+        cleanedText = this.extractReminderText(reminderText);
         ctx.session.pendingReminder = {
-            text: cleanedText.trim(),
+            text: cleanedText,
             originalText: text,
         };
-        ctx.session.waitingForReminderTime = true;
-        await ctx.replyWithMarkdown(`⏰ *Создание напоминания*
-
-📝 **Текст:** "${cleanedText}"
-
-💡 **Выберите время или напишите своё:**
-
-*Примеры:*
-• "в 15:30"
-• "через 2 часа" 
-• "завтра в 10:00"
-• "в понедельник в 14:00"`, {
-            reply_markup: {
-                inline_keyboard: [
-                    [
-                        { text: '⏰ Через 15 мин', callback_data: 'remind_in_15min' },
-                        { text: '⏰ Через 30 мин', callback_data: 'remind_in_30min' },
+        if (timeInfo) {
+            ctx.session.waitingForReminderTime = false;
+            ctx.session.pendingReminderTime = timeInfo;
+            await ctx.replyWithMarkdown(`✅ Напоминание будет создано: "${cleanedText}" в ${timeInfo.hours}:${timeInfo.minutes}`);
+            return;
+        }
+        try {
+            const task = await this.taskService.createTask({
+                userId: ctx.userId,
+                title: cleanedText,
+                description: cleanedText,
+                priority: 'MEDIUM',
+            });
+            await ctx.replyWithMarkdown(`✅ Задача создана!\n\n📝 "${cleanedText}"\n\nЗадача добавлена в ваш список. Вы можете найти её в разделе "Мои задачи и привычки".\n\n💡 Подсказки:\n• Напоминание: "напомни купить молоко в 17:30"\n• Интервальное: "напоминай пить воду каждые 30 минут"`, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
                     ],
-                    [
-                        { text: '⏰ Через 1 час', callback_data: 'remind_in_1hour' },
-                        { text: '⏰ Через 2 часа', callback_data: 'remind_in_2hours' },
-                    ],
-                    [
-                        {
-                            text: '⏰ Завтра утром (9:00)',
-                            callback_data: 'remind_tomorrow_morning',
-                        },
-                        {
-                            text: '⏰ Завтра вечером (18:00)',
-                            callback_data: 'remind_tomorrow_evening',
-                        },
-                    ],
-                    [
-                        {
-                            text: '🕐 Указать точное время',
-                            callback_data: 'remind_custom_time',
-                        },
-                    ],
-                    [{ text: '❌ Отмена', callback_data: 'cancel_reminder' }],
-                ],
-            },
-        });
+                },
+            });
+        }
+        catch (error) {
+            this.logger.error('Error creating task from reminder text:', error);
+            await ctx.replyWithMarkdown('❌ Не удалось создать задачу. Попробуйте снова.');
+        }
+        return;
     }
     async handleAITimePlanning(ctx) {
         const user = await this.userService.findByTelegramId(ctx.userId);
@@ -5601,12 +5561,6 @@ ${ratingEmoji} Ваша оценка: ${rating}/5
                         {
                             text: '🎯 Помощь с привычками',
                             callback_data: 'ai_habit_help',
-                        },
-                    ],
-                    [
-                        {
-                            text: '⏰ Планирование времени',
-                            callback_data: 'ai_time_planning',
                         },
                     ],
                     [
