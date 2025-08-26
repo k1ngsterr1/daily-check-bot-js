@@ -6113,7 +6113,14 @@ _Попробуйте еще раз_
                 await ctx.replyWithMarkdown(`❌ Не удалось распознать ${messageType}. Попробуйте еще раз.`);
                 return;
             }
-            await ctx.replyWithMarkdown(`🎯 *Распознано:* "${transcribedText}"`);
+            const prettyMessage = `🎤 *Обработано голосовое сообщение*\n\n🎯 *Распознано:* "${transcribedText}"\n\nЯ автоматически определю, что вы хотели: создать задачу, напоминание или привычку. Подождите, пожалуйста...`;
+            await ctx.replyWithMarkdown(prettyMessage, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                    ],
+                },
+            });
             if (ctx.session.aiChatMode) {
                 await this.handleAIChatMessage(ctx, transcribedText);
                 return;
@@ -6305,6 +6312,51 @@ _Попробуйте еще раз_
 
 *Пример:* "напомни мне купить молоко в 17:30"
         `);
+                return;
+            }
+            await this.handleReminderRequest(ctx, reminderText, hours, minutes);
+            return;
+        }
+        const simpleRelativeMatch = text.match(/через\s*(минуту|минут|час|день|дня|дней|неделю|недели|месяц|год|лет)/i);
+        if (simpleRelativeMatch) {
+            const amount = 1;
+            const unit = simpleRelativeMatch[1].toLowerCase();
+            const now = new Date();
+            let targetDate = new Date(now);
+            if (unit.includes('минут')) {
+                targetDate.setMinutes(targetDate.getMinutes() + amount);
+            }
+            else if (unit.includes('час')) {
+                targetDate.setHours(targetDate.getHours() + amount);
+            }
+            else if (unit.includes('день') ||
+                unit.includes('дня') ||
+                unit.includes('дней')) {
+                targetDate.setDate(targetDate.getDate() + amount);
+            }
+            else if (unit.includes('недел')) {
+                targetDate.setDate(targetDate.getDate() + amount * 7);
+            }
+            else if (unit.includes('месяц')) {
+                targetDate.setMonth(targetDate.getMonth() + amount);
+            }
+            else if (unit.includes('год') || unit.includes('лет')) {
+                targetDate.setFullYear(targetDate.getFullYear() + amount);
+            }
+            const hours = targetDate.getHours().toString().padStart(2, '0');
+            const minutes = targetDate.getMinutes().toString().padStart(2, '0');
+            const reminderText = text
+                .replace(/напомни\s*(мне)?/gi, '')
+                .replace(/напомню\s*(тебе|вам)?/gi, '')
+                .replace(/через\s*(?:минуту|минут|час|день|дня|дней|неделю|недели|месяц|год|лет)/gi, '')
+                .trim();
+            if (amount > 0 &&
+                (unit.includes('день') ||
+                    unit.includes('недел') ||
+                    unit.includes('месяц') ||
+                    unit.includes('год') ||
+                    unit.includes('лет'))) {
+                await this.handleLongTermReminder(ctx, reminderText, targetDate, amount, unit);
                 return;
             }
             await this.handleReminderRequest(ctx, reminderText, hours, minutes);

@@ -7798,7 +7798,15 @@ _Попробуйте еще раз_
         return;
       }
 
-      await ctx.replyWithMarkdown(`🎯 *Распознано:* "${transcribedText}"`);
+      const prettyMessage = `🎤 *Обработано голосовое сообщение*\n\n🎯 *Распознано:* "${transcribedText}"\n\nЯ автоматически определю, что вы хотели: создать задачу, напоминание или привычку. Подождите, пожалуйста...`;
+
+      await ctx.replyWithMarkdown(prettyMessage, {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+          ],
+        },
+      });
 
       // Handle AI Chat mode for audio messages
       if (ctx.session.aiChatMode) {
@@ -8059,6 +8067,71 @@ _Попробуйте еще раз_
     }
 
     // Handle relative time (через X минут/часов/дней/недель/месяцев/лет)
+    // Support both numeric forms (через 5 минут) and natural single-unit forms (через минуту, через час)
+    const simpleRelativeMatch = text.match(
+      /через\s*(минуту|минут|час|день|дня|дней|неделю|недели|месяц|год|лет)/i,
+    );
+
+    if (simpleRelativeMatch) {
+      const amount = 1;
+      const unit = simpleRelativeMatch[1].toLowerCase();
+
+      const now = new Date();
+      let targetDate = new Date(now);
+
+      if (unit.includes('минут')) {
+        targetDate.setMinutes(targetDate.getMinutes() + amount);
+      } else if (unit.includes('час')) {
+        targetDate.setHours(targetDate.getHours() + amount);
+      } else if (
+        unit.includes('день') ||
+        unit.includes('дня') ||
+        unit.includes('дней')
+      ) {
+        targetDate.setDate(targetDate.getDate() + amount);
+      } else if (unit.includes('недел')) {
+        targetDate.setDate(targetDate.getDate() + amount * 7);
+      } else if (unit.includes('месяц')) {
+        targetDate.setMonth(targetDate.getMonth() + amount);
+      } else if (unit.includes('год') || unit.includes('лет')) {
+        targetDate.setFullYear(targetDate.getFullYear() + amount);
+      }
+
+      const hours = targetDate.getHours().toString().padStart(2, '0');
+      const minutes = targetDate.getMinutes().toString().padStart(2, '0');
+
+      const reminderText = text
+        .replace(/напомни\s*(мне)?/gi, '')
+        .replace(/напомню\s*(тебе|вам)?/gi, '')
+        .replace(
+          /через\s*(?:минуту|минут|час|день|дня|дней|неделю|недели|месяц|год|лет)/gi,
+          '',
+        )
+        .trim();
+
+      // For single-unit (1) relative times we can treat short durations (<1 day) as normal reminders
+      if (
+        amount > 0 &&
+        (unit.includes('день') ||
+          unit.includes('недел') ||
+          unit.includes('месяц') ||
+          unit.includes('год') ||
+          unit.includes('лет'))
+      ) {
+        await this.handleLongTermReminder(
+          ctx,
+          reminderText,
+          targetDate,
+          amount,
+          unit,
+        );
+        return;
+      }
+
+      await this.handleReminderRequest(ctx, reminderText, hours, minutes);
+      return;
+    }
+
     const relativeMatch = text.match(
       /через\s*(\d+)\s*(минут|час|день|дня|дней|неделю|недели|недель|месяц|месяца|месяцев|год|года|лет)/i,
     );
