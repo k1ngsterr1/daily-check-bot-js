@@ -4497,6 +4497,11 @@ XP (опыт) начисляется за выполнение задач. С к
       await this.showTodayTasks(ctx);
     });
 
+    this.bot.action('tasks_completed', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.showCompletedTasks(ctx);
+    });
+
     // Handle AI advice for tasks
     this.bot.action('tasks_ai_advice', async (ctx) => {
       await ctx.answerCbQuery();
@@ -6620,33 +6625,46 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       message += `✅ **Выполненных:** ${completedTasks.length}\n\n`;
       message += `*Выберите задачу для завершения:*`;
 
-      // Create keyboard with task completion and delete buttons
-      const keyboard = {
-        inline_keyboard: [
-          ...pendingTasks.slice(0, 8).map((task) => [
-            {
-              text: `${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''} (${task.xpReward} XP)`,
-              callback_data: `task_complete_${task.id}`,
-            },
-            {
-              text: '🗑️ Удалить',
-              callback_data: `task_delete_${task.id}`,
-            },
-          ]),
-          ...(pendingTasks.length > 8
-            ? [
-                [
-                  {
-                    text: `... и еще ${pendingTasks.length - 8} задач`,
-                    callback_data: 'tasks_list_more',
-                  },
-                ],
-              ]
-            : []),
-          [{ text: '👀 Посмотреть активные', callback_data: 'tasks_today' }],
-          [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
-        ],
-      };
+      // Create keyboard with task completion and delete buttons. Include 'view completed' only if there are completed tasks
+      const rows: any[] = [
+        ...pendingTasks.slice(0, 8).map((task) => [
+          {
+            text: `${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''} (${task.xpReward} XP)`,
+            callback_data: `task_complete_${task.id}`,
+          },
+          {
+            text: '🗑️ Удалить',
+            callback_data: `task_delete_${task.id}`,
+          },
+        ]),
+        ...(pendingTasks.length > 8
+          ? [
+              [
+                {
+                  text: `... и еще ${pendingTasks.length - 8} задач`,
+                  callback_data: 'tasks_list_more',
+                },
+              ],
+            ]
+          : []),
+      ];
+
+      rows.push([
+        { text: '👀 Посмотреть активные', callback_data: 'tasks_today' },
+      ]);
+      if (completedTasks.length > 0) {
+        rows.push([
+          {
+            text: '🗂️ Посмотреть выполненные',
+            callback_data: 'tasks_completed',
+          },
+        ]);
+      }
+      rows.push([
+        { text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' },
+      ]);
+
+      const keyboard = { inline_keyboard: rows };
 
       try {
         await ctx.editMessageTextWithMarkdown(message, {
@@ -6718,17 +6736,30 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
         },
       ]);
 
-      const keyboard = {
-        inline_keyboard: [
-          ...pendingButtons,
-          ...(completedButtons.length
-            ? [[{ text: '— Выполненные —', callback_data: 'noop_separator' }]]
-            : []),
-          ...completedButtons,
-          [{ text: '👀 Посмотреть активные', callback_data: 'tasks_today' }],
-          [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
-        ],
-      };
+      const rowsAll: any[] = [
+        ...pendingButtons,
+        ...(completedButtons.length
+          ? [[{ text: '— Выполненные —', callback_data: 'noop_separator' }]]
+          : []),
+        ...completedButtons,
+      ];
+
+      rowsAll.push([
+        { text: '👀 Посмотреть активные', callback_data: 'tasks_today' },
+      ]);
+      if (completedButtons.length > 0) {
+        rowsAll.push([
+          {
+            text: '🗂️ Посмотреть выполненные',
+            callback_data: 'tasks_completed',
+          },
+        ]);
+      }
+      rowsAll.push([
+        { text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' },
+      ]);
+
+      const keyboard = { inline_keyboard: rowsAll };
 
       await ctx.editMessageTextWithMarkdown(message, {
         reply_markup: keyboard,
@@ -6783,6 +6814,48 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       this.logger.error('Error showing today tasks:', error);
       await ctx.editMessageTextWithMarkdown(
         '❌ Ошибка при получении задач на сегодня',
+      );
+    }
+  }
+
+  private async showCompletedTasks(ctx: BotContext) {
+    try {
+      const tasks = await this.taskService.findTasksByUserId(
+        ctx.userId,
+        'COMPLETED' as any,
+      );
+
+      if (!tasks || tasks.length === 0) {
+        await ctx.editMessageTextWithMarkdown(`
+📂 *Выполненные задачи*
+
+Пока нет выполненных задач.
+        `);
+        return;
+      }
+
+      let message = `📂 *Выполненные задачи (${tasks.length}):*\n\n`;
+      message += `*Просмотрите историю выполненных задач:*`;
+
+      const keyboard = {
+        inline_keyboard: [
+          ...tasks.slice(0, 20).map((task) => [
+            {
+              text: `✅ ${task.title.substring(0, 40)}${task.title.length > 40 ? '...' : ''} (${task.xpReward} XP)`,
+              callback_data: `task_view_${task.id}`,
+            },
+          ]),
+          [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
+        ],
+      };
+
+      await ctx.editMessageTextWithMarkdown(message, {
+        reply_markup: keyboard,
+      });
+    } catch (error) {
+      this.logger.error('Error showing completed tasks:', error);
+      await ctx.editMessageTextWithMarkdown(
+        '❌ Ошибка при получении выполненных задач',
       );
     }
   }
