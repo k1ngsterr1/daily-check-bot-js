@@ -3987,17 +3987,43 @@ XP (опыт) начисляется за выполнение задач. С к
         const tasks = await this.taskService.findTasksByUserId(ctx.userId);
         const completedTasks = tasks.filter((t) => t.completedAt !== null);
         let recommendation = '';
-        if (tasks.length === 0) {
-            recommendation =
-                '📝 Создайте первую задачу! Начните с чего-то простого на сегодня.';
+        try {
+            await ctx.editMessageTextWithMarkdown(`⏳ *ИИ анализирует ваш профиль и готовит персональные рекомендации...*`, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
+                    ],
+                },
+            });
         }
-        else if (completedTasks.length < tasks.length * 0.3) {
-            recommendation =
-                '🎯 Сфокусируйтесь на завершении текущих задач. Качество важнее количества!';
+        catch (e) {
+            this.logger.warn('Could not show AI analyzing message, continuing', e);
         }
-        else {
-            recommendation =
-                '🚀 Отличная работа! Попробуйте технику Помодоро для повышения продуктивности.';
+        try {
+            this.logger.log(`Requesting task advice from OpenAI for user ${user.id}`);
+            const aiAdvice = await this.openaiService.getTaskAdvice(user.id, this.aiContextService);
+            if (aiAdvice && aiAdvice.trim().length > 0) {
+                recommendation = aiAdvice.trim();
+            }
+            else {
+                recommendation =
+                    '📝 Попробуйте начать с небольшой, конкретной задачи и завершить её сегодня.';
+            }
+        }
+        catch (err) {
+            this.logger.error('Error fetching task advice from OpenAI:', err);
+            if (tasks.length === 0) {
+                recommendation =
+                    '📝 Создайте первую задачу! Начните с чего-то простого на сегодня.';
+            }
+            else if (completedTasks.length < tasks.length * 0.3) {
+                recommendation =
+                    '🎯 Сфокусируйтесь на завершении текущих задач. Качество важнее количества!';
+            }
+            else {
+                recommendation =
+                    '🚀 Отличная работа! Попробуйте технику Помодоро для повышения продуктивности.';
+            }
         }
         await ctx.editMessageTextWithMarkdown(`
 💡 *Рекомендации по задачам*
@@ -4021,6 +4047,18 @@ ${recommendation}
             const user = await this.userService.findByTelegramId(ctx.userId);
             const habits = await this.habitService.findHabitsByUserId(ctx.userId);
             const completedHabits = habits.filter((h) => h.totalCompletions > 0);
+            try {
+                await ctx.editMessageTextWithMarkdown(`⏳ *ИИ анализирует ваш профиль и готовит персональные рекомендации по привычкам...*`, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
+                        ],
+                    },
+                });
+            }
+            catch (e) {
+                this.logger.warn('Could not show AI analyzing habits message, continuing', e);
+            }
             const userProfile = {
                 totalHabits: habits.length,
                 activeHabits: habits.filter((h) => h.isActive).length,
@@ -4050,11 +4088,6 @@ ${recommendation}
             personalizedRecommendations.forEach((rec, index) => {
                 message += `${index + 1}. ${rec}\n`;
             });
-            message += `\n🧠 *Научно доказанные советы:*\n`;
-            message += `• 21 день для простых привычек, 66 дней для сложных\n`;
-            message += `• Начинайте с 2-минутного правила\n`;
-            message += `• Используйте правило "никогда не пропускайте дважды"\n`;
-            message += `• Фокус на процессе, а не на результате`;
             const keyboard = {
                 inline_keyboard: [
                     [
@@ -4065,12 +4098,6 @@ ${recommendation}
                         {
                             text: '🎯 Мои привычки',
                             callback_data: 'habits_list',
-                        },
-                    ],
-                    [
-                        {
-                            text: '🤖 Создать ИИ-привычку',
-                            callback_data: 'ai_create_habit',
                         },
                     ],
                     [
