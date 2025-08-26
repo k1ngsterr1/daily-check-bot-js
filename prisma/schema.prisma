@@ -249,6 +249,8 @@ model FocusSession {
   status               FocusSessionStatus  @default(ACTIVE)
   startedAt            DateTime?           @map("started_at")
   endedAt              DateTime?           @map("ended_at")
+  pausedAt             DateTime?           @map("paused_at")
+  totalPausedTime      Int                 @default(0) @map("total_paused_time") // in milliseconds
   breaksTaken          Int                 @default(0) @map("breaks_taken")
   breakDuration        Int                 @default(0) @map("break_duration") // total break time
   category             String?

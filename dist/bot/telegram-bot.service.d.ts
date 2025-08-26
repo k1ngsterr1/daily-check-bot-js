@@ -49,12 +49,7 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private getReferralStats;
     onModuleInit(): Promise<void>;
     private startMotivationalMessagesService;
-    private startDailyCacheCleanup;
-    private checkAndSendMotivationalMessages;
-    private checkUserMotivationalTime;
-    private sentMessagesCache;
-    private skippedHabitsToday;
-    private sendUserMotivationalMessage;
+    private sendMotivationalMessages;
     onModuleDestroy(): Promise<void>;
     private startOnboarding;
     private showOnboardingStep1;
@@ -63,19 +58,14 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private showMainMenu;
     launch(): Promise<void>;
     stop(): Promise<void>;
-    private setupPersonalizedMenu;
     getBotInstance(): Telegraf<BotContext>;
     private showTasksMenu;
     private startAddingTask;
     private handleTaskCreation;
-    private handleNaturalTaskCreation;
     private showTasksList;
     private showAllTasksList;
     private showTodayTasks;
-    private showCompletedTasks;
-    private showAllCompletedTasks;
     private completeTask;
-    private restoreTask;
     private getPriorityEmoji;
     private askForTimezone;
     private showManualTimezoneSelection;
@@ -99,13 +89,9 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private transcribeAudio;
     private processReminderFromText;
     private isReminderWithoutTime;
-    private analyzeVoiceMessageWithAI;
-    private addTaskFromText;
-    private addHabitFromText;
     private isReminderRequest;
     private isVerbByEnding;
     private findVerbsInText;
-    private isTaskCreationRequest;
     private isSimpleReminderRequest;
     private isTaskRequest;
     private isGeneralChatMessage;
@@ -170,10 +156,4 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private handleTomorrowReminder;
     private askForCustomReminderTime;
     private createHabitFromExample;
-    private showNotificationSchedules;
-    private generateHabitMotivationalMessage;
-    isHabitSkippedToday(habitId: string): boolean;
-    private clearSkippedHabitsCache;
-    private calculateTimeUntilNextMotivational;
-    private calculateTimeUntilNextHabitReminder;
 }
