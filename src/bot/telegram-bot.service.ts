@@ -5207,9 +5207,26 @@ ${recommendation}
         ],
       };
 
-      await ctx.editMessageTextWithMarkdown(message, {
-        reply_markup: keyboard,
-      });
+      try {
+        await ctx.editMessageTextWithMarkdown(message, {
+          reply_markup: keyboard,
+        });
+      } catch (err) {
+        // If Telegram reports that message is not modified, send a new message instead
+        const e = err as any;
+        const desc = e?.response?.description || e?.message || '';
+        if (
+          typeof desc === 'string' &&
+          desc.includes('message is not modified')
+        ) {
+          this.logger.log(
+            'Edit resulted in no-op, sending a new message instead',
+          );
+          await ctx.replyWithMarkdown(message, { reply_markup: keyboard });
+        } else {
+          throw err;
+        }
+      }
     } catch (error) {
       this.logger.error('Error in handleAIHabitHelp:', error);
       await ctx.editMessageTextWithMarkdown(
@@ -6290,9 +6307,25 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
     `;
 
     if (shouldEdit) {
-      await ctx.editMessageTextWithMarkdown(message, {
-        reply_markup: keyboard,
-      });
+      try {
+        await ctx.editMessageTextWithMarkdown(message, {
+          reply_markup: keyboard,
+        });
+      } catch (err) {
+        const e = err as any;
+        const desc = e?.response?.description || e?.message || '';
+        if (
+          typeof desc === 'string' &&
+          desc.includes('message is not modified')
+        ) {
+          this.logger.log(
+            'Edit resulted in no-op (all tasks identical), sending a new message instead',
+          );
+          await ctx.replyWithMarkdown(message, { reply_markup: keyboard });
+        } else {
+          throw err;
+        }
+      }
     } else {
       await ctx.replyWithMarkdown(message, { reply_markup: keyboard });
     }
