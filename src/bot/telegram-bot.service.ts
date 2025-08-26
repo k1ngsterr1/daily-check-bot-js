@@ -693,18 +693,6 @@ ${statusMessage}
         return;
       }
 
-      // Handle natural language reminders (e.g., "напомни мне купить хлеб")
-      if (this.isReminderRequest(ctx.message.text)) {
-        await this.handleNaturalReminderRequest(ctx, ctx.message.text);
-        return;
-      }
-
-      // Handle simple reminder requests without time (e.g., "напомни мне купить хлеб")
-      if (this.isSimpleReminderRequest(ctx.message.text)) {
-        await this.handleSimpleReminderRequest(ctx, ctx.message.text);
-        return;
-      }
-
       // Check if user needs to provide timezone first
       if (
         !user.timezone &&
@@ -724,6 +712,75 @@ ${statusMessage}
       // Handle task creation
       if (ctx.session.step === 'waiting_for_task_title') {
         await this.handleTaskCreation(ctx, ctx.message.text);
+        return;
+      }
+
+      // Handle habit creation
+      if (ctx.session.step === 'waiting_for_habit_title') {
+        const habitTitle = ctx.message.text.trim();
+
+        if (!habitTitle || habitTitle.length < 2) {
+          await ctx.replyWithMarkdown(
+            '⚠️ Название привычки должно содержать минимум 2 символа. Попробуйте еще раз:',
+          );
+          return;
+        }
+
+        try {
+          await this.habitService.createHabit({
+            userId: ctx.userId,
+            title: habitTitle,
+            description: undefined,
+            frequency: 'DAILY' as const,
+            targetCount: 1,
+          });
+
+          ctx.session.step = undefined;
+
+          await ctx.replyWithMarkdown(
+            `
+✅ *Привычка "${habitTitle}" успешно добавлена!*
+
+🎯 Теперь вы можете отслеживать её выполнение в разделе "Мои привычки".
+
+*Напоминание:* Регулярность - ключ к формированию привычек!
+          `,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🔄 Мои привычки', callback_data: 'menu_habits' }],
+                  [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                ],
+              },
+            },
+          );
+        } catch (error) {
+          this.logger.error(`Error creating habit: ${error}`);
+          await ctx.replyWithMarkdown(
+            '❌ Произошла ошибка при создании привычки. Попробуйте позже.',
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                ],
+              },
+            },
+          );
+        }
+        return;
+      }
+
+      // Handle natural language reminders (e.g., "напомни мне купить хлеб")
+      // But NOT when user is actively creating a task
+      if (!ctx.session.step && this.isReminderRequest(ctx.message.text)) {
+        await this.handleNaturalReminderRequest(ctx, ctx.message.text);
+        return;
+      }
+
+      // Handle simple reminder requests without time (e.g., "напомни мне купить хлеб")
+      // But NOT when user is actively creating a task
+      if (!ctx.session.step && this.isSimpleReminderRequest(ctx.message.text)) {
+        await this.handleSimpleReminderRequest(ctx, ctx.message.text);
         return;
       }
 
@@ -7378,57 +7435,117 @@ ${ratingEmoji} Ваша оценка: ${rating}/5
   }
 
   private async handleAIAnalyzeProfile(ctx: BotContext) {
-    const user = await this.userService.findByTelegramId(ctx.userId);
-    const tasks = await this.taskService.findTasksByUserId(ctx.userId);
-    const completedTasks = tasks.filter((task) => task.completedAt !== null);
+    try {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown(
+        '🤖 *Анализирую ваш профиль с помощью ИИ...*\n\nПожалуйста, подождите...',
+      );
 
-    const accountDays = Math.floor(
-      (Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24),
-    );
-    const completionRate =
-      tasks.length > 0
-        ? Math.round((completedTasks.length / tasks.length) * 100)
-        : 0;
+      // Собираем все данные пользователя
+      const user = await this.userService.findByTelegramId(ctx.userId);
+      const tasks = await this.taskService.findTasksByUserId(ctx.userId);
+      const habits = await this.habitService.findHabitsByUserId(ctx.userId);
 
-    let status = '';
-    if (user.totalXp < 500) {
-      status = '🌱 Новичок - только начинаете путь к продуктивности!';
-    } else if (user.totalXp < 2000) {
-      status = '📈 Развиваетесь - уже видны первые результаты!';
-    } else {
-      status = '🚀 Опытный пользователь - отличные результаты!';
-    }
+      // Получаем статистику
+      const taskStats = await this.taskService.getTaskStats(ctx.userId);
+      const habitStats = await this.habitService.getHabitStats(ctx.userId);
 
-    await ctx.editMessageTextWithMarkdown(
-      `
-📊 *Анализ профиля*
+      const completedTasks = tasks.filter(
+        (task) => task.status === 'COMPLETED',
+      );
+      const accountDays = Math.floor(
+        (Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24),
+      );
+      const completionRate =
+        tasks.length > 0
+          ? Math.round((completedTasks.length / tasks.length) * 100)
+          : 0;
 
-${status}
-
-**Статистика:**
-⭐ Опыт: ${user.totalXp} XP (уровень ${user.level})
-📅 С ботом: ${accountDays} дней
-📝 Задач создано: ${tasks.length}
-✅ Выполнено: ${completedTasks.length} (${completionRate}%)
-
-**Рекомендация:**
-${
-  completionRate > 70
-    ? '🎯 Отлично! Попробуйте более сложные цели.'
-    : completionRate > 40
-      ? '💪 Хорошо! Сфокусируйтесь на завершении задач.'
-      : '� Начните с малого - одна задача в день!'
-}
-      `,
-      {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
-            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-          ],
+      // Формируем детальную информацию для ИИ
+      const userDataForAI = {
+        profile: {
+          totalXp: user.totalXp,
+          level: user.level,
+          accountDays: accountDays,
+          createdAt: user.createdAt,
         },
-      },
-    );
+        tasks: {
+          total: tasks.length,
+          completed: completedTasks.length,
+          completionRate: completionRate,
+          taskList: tasks.map((task) => ({
+            title: task.title,
+            status: task.status,
+            priority: task.priority,
+            createdAt: task.createdAt,
+            completedAt: task.completedAt,
+            description: task.description,
+          })),
+        },
+        habits: {
+          total: habits.length,
+          habitList: habits.map((habit) => ({
+            title: habit.title,
+            frequency: habit.frequency,
+            category: habit.category,
+            createdAt: habit.createdAt,
+            streak: habit.currentStreak,
+          })),
+        },
+      };
+
+      // Отправляем запрос к ИИ для анализа
+      const aiPrompt = `
+      Проанализируй профиль пользователя и дай персональные рекомендации:
+
+      ПРОФИЛЬ:
+      - Опыт: ${userDataForAI.profile.totalXp} XP (уровень ${userDataForAI.profile.level})
+      - Дней с ботом: ${userDataForAI.profile.accountDays}
+      
+      ЗАДАЧИ:
+      - Всего создано: ${userDataForAI.tasks.total}
+      - Выполнено: ${userDataForAI.tasks.completed} (${userDataForAI.tasks.completionRate}%)
+      - Список задач: ${JSON.stringify(userDataForAI.tasks.taskList, null, 2)}
+      
+      ПРИВЫЧКИ:
+      - Всего: ${userDataForAI.habits.total}
+      - Список привычек: ${JSON.stringify(userDataForAI.habits.habitList, null, 2)}
+
+      Дай детальный анализ:
+      1. Оценка текущего прогресса
+      2. Выявление паттернов в поведении
+      3. Персональные рекомендации для улучшения продуктивности
+      4. Конкретные шаги для развития
+      
+      Ответ должен быть на русском языке, мотивирующим и полезным. Максимум 1000 символов.
+    `;
+
+      const aiAnalysis = await this.openaiService.getAIResponse(aiPrompt);
+
+      await ctx.editMessageTextWithMarkdown(
+        `🤖 *ИИ Анализ профиля*\n\n${aiAnalysis}`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    } catch (error) {
+      console.error('Error in AI profile analysis:', error);
+      await ctx.editMessageTextWithMarkdown(
+        '❌ *Ошибка при анализе профиля*\n\nПопробуйте еще раз позже.',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    }
   }
 
   private async handleAIChatMessage(ctx: BotContext, message: string) {
