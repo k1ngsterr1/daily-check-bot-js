@@ -195,6 +195,9 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
           `User ${user.id} started bot. Onboarding passed: ${user.onboardingPassed}`,
         );
 
+        // Устанавливаем персонализированное квадратное меню
+        await this.setupPersonalizedMenu(ctx);
+
         // Проверяем, прошел ли пользователь онбординг
         if (!user.onboardingPassed) {
           this.logger.log(`Starting onboarding for user ${user.id}`);
@@ -311,12 +314,16 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 😊 Отметить настроение
 ⏰ Сессия фокуса
 
+💡 *Подсказка:* Используйте квадратное меню справа от поля ввода для быстрого доступа к командам!
+
 Для получения подробной информации используйте /menu
       `);
     });
 
     // Main menu command
     this.bot.command('menu', async (ctx) => {
+      // Обновляем персонализированное меню при каждом вызове
+      await this.setupPersonalizedMenu(ctx);
       await this.showMainMenu(ctx);
     });
 
@@ -345,6 +352,9 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       const helpMessage = `
 🤖 *Ticky AI - Справка*
 
+**🔵 КВАДРАТНОЕ МЕНЮ:**
+Найдите кнопку ⬛ справа от поля ввода — это ваше быстрое меню со всеми командами!
+
 **Доступные команды:**
 /start - Начать работу с ботом
 /help - Показать эту справку
@@ -364,6 +374,10 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 📊 Статистика и аналитика
 ⏰ Умные напоминания о привычках
 💎 Система биллинга с пробным периодом
+
+💡 **Удобное управление:**
+🟩 Квадратное меню справа от поля ввода содержит все основные команды
+📱 Нажмите на квадратную кнопку рядом с полем ввода для быстрого доступа
 
 Для получения подробной информации используйте /menu
       `;
@@ -4453,6 +4467,16 @@ XP (опыт) начисляется за выполнение задач. С к
       await this.showTodayTasks(ctx);
     });
 
+    this.bot.action('tasks_completed', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.showCompletedTasks(ctx);
+    });
+
+    this.bot.action('tasks_completed_more', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.showAllCompletedTasks(ctx);
+    });
+
     // Handle AI advice for tasks
     this.bot.action('tasks_ai_advice', async (ctx) => {
       await ctx.answerCbQuery();
@@ -4464,6 +4488,18 @@ XP (опыт) начисляется за выполнение задач. С к
       await ctx.answerCbQuery();
       const taskId = ctx.match[1];
       await this.completeTask(ctx, taskId);
+    });
+
+    // Handle completed task click (no-op)
+    this.bot.action('task_info_noop', async (ctx) => {
+      await ctx.answerCbQuery('✅ Эта задача уже выполнена!');
+    });
+
+    // Handle task restoration (make incomplete)
+    this.bot.action(/^task_restore_(.+)$/, async (ctx) => {
+      await ctx.answerCbQuery();
+      const taskId = ctx.match[1];
+      await this.restoreTask(ctx, taskId);
     });
 
     // Handle back to tasks menu
@@ -6065,7 +6101,9 @@ ${timeAdvice}
     };
 
     await ctx.replyWithMarkdown(
-      `🤖 *Привет! Я Ticky AI — твой AI-ассистент по привычкам и задачам с геймификацией.*`,
+      `🤖 *Привет! Я Ticky AI — твой AI-ассистент по привычкам и задачам с геймификацией.*
+
+🔵 *Важно!* Обратите внимание на квадратную кнопку меню справа от поля ввода — это ваш быстрый доступ ко всем командам!`,
       { reply_markup: keyboard },
     );
 
@@ -6127,6 +6165,9 @@ ${timeAdvice}
   }
 
   private async showMainMenu(ctx: BotContext, shouldEdit: boolean = false) {
+    // Обновляем квадратное меню при каждом показе главного меню
+    await this.setupPersonalizedMenu(ctx);
+
     const keyboard = {
       inline_keyboard: [
         [{ text: '➕ Добавить задачу/привычку', callback_data: 'add_item' }],
@@ -6136,9 +6177,9 @@ ${timeAdvice}
           { text: '🧠 Чат с ИИ', callback_data: 'ai_chat' },
         ],
         [
-          { text: '📊 Лимиты', callback_data: 'show_limits' },
-          { text: '❓ Помощь', callback_data: 'faq_support' },
           { text: '📊 Прогресс', callback_data: 'my_progress' },
+          { text: '❓ Помощь', callback_data: 'faq_support' },
+          { text: '📊 Лимиты', callback_data: 'show_limits' },
         ],
       ],
     };
@@ -6200,7 +6241,7 @@ ${tasksProgressBar}${userStats}
 
   async launch() {
     try {
-      // Устанавливаем команды в меню бота
+      // Устанавливаем команды в меню бота (квадратное меню справа)
       await this.bot.telegram.setMyCommands([
         { command: 'start', description: '🎬 Начать работу с ботом' },
         { command: 'menu', description: '🏠 Главное меню' },
@@ -6208,26 +6249,32 @@ ${tasksProgressBar}${userStats}
         { command: 'habits', description: '🔄 Мои привычки' },
         { command: 'reminders', description: '⏰ Активные напоминания' },
         { command: 'mood', description: '😊 Дневник настроения' },
-        { command: 'focus', description: '🍅 Режим фокуса' },
+        { command: 'focus', description: '🍅 Режим фокуса (Pomodoro)' },
         { command: 'billing', description: '💎 Мои лимиты и подписка' },
         { command: 'feedback', description: '💬 Обратная связь' },
-        { command: 'help', description: '🆘 Справка' },
+        { command: 'help', description: '🆘 Справка и поддержка' },
       ]);
 
-      // Устанавливаем Menu Button - кнопку меню рядом с полем ввода
+      this.logger.log('Bot commands установлены успешно');
+
+      // Устанавливаем Menu Button глобально - квадратное меню справа от поля ввода
       await this.bot.telegram.setChatMenuButton({
         menuButton: {
           type: 'commands',
         },
       });
 
-      // Альтернативно можно установить Web App кнопку для более расширенного меню
-      // await this.bot.telegram.setChatMenuButton({
-      //   menuButton: {
-      //     type: 'web_app',
-      //     text: 'Меню',
-      //     web_app: { url: 'https://your-domain.com/menu' }
-      //   }
+      this.logger.log('Global Menu button установлено успешно');
+
+      // Также устанавливаем описание бота
+      await this.bot.telegram.setMyDescription(
+        '🤖 Ticky AI - ваш персональный помощник продуктивности. Управляйте задачами, привычками и достигайте целей с ИИ!',
+      );
+
+      // Устанавливаем короткое описание для профиля
+      await this.bot.telegram.setMyShortDescription(
+        '🎯 Персональный ИИ помощник для продуктивности',
+      );
       // });
 
       // Запускаем бота без ожидания
@@ -6267,6 +6314,51 @@ ${tasksProgressBar}${userStats}
     this.logger.log('🛑 Telegram bot stopped');
   }
 
+  // Метод для настройки персонализированного квадратного меню
+  private async setupPersonalizedMenu(ctx: BotContext) {
+    try {
+      const chatId = ctx.chat?.id;
+
+      if (!chatId) {
+        this.logger.warn('Chat ID не найден, пропускаем установку меню');
+        return;
+      }
+
+      // Устанавливаем персональное меню для пользователя
+      await this.bot.telegram.setChatMenuButton({
+        chatId: chatId,
+        menuButton: {
+          type: 'commands',
+        },
+      });
+
+      this.logger.log(
+        `✅ Квадратное меню установлено для пользователя ${ctx.userId} в чате ${chatId}`,
+      );
+
+      // Дополнительно проверим, что команды установлены корректно
+      const commands = await this.bot.telegram.getMyCommands();
+      this.logger.log(`📝 Доступно команд в меню: ${commands.length}`);
+    } catch (error) {
+      this.logger.error('❌ Ошибка установки квадратного меню:', error);
+
+      // Попробуем альтернативный способ
+      try {
+        await this.bot.telegram.setChatMenuButton({
+          menuButton: {
+            type: 'default',
+          },
+        });
+        this.logger.log('✅ Установлено дефолтное меню как резервный вариант');
+      } catch (fallbackError) {
+        this.logger.error(
+          '❌ Не удалось установить даже дефолтное меню:',
+          fallbackError,
+        );
+      }
+    }
+  }
+
   getBotInstance(): Telegraf<BotContext> {
     return this.bot;
   }
@@ -6279,7 +6371,10 @@ ${tasksProgressBar}${userStats}
           { text: '➕ Добавить задачу', callback_data: 'tasks_add' },
           { text: '📋 Все задачи', callback_data: 'tasks_list' },
         ],
-        [{ text: '📅 Задачи на сегодня', callback_data: 'tasks_today' }],
+        [
+          { text: '📅 Задачи на сегодня', callback_data: 'tasks_today' },
+          { text: '✅ Выполненные', callback_data: 'tasks_completed' },
+        ],
         [{ text: '🤖 AI-совет по задачам', callback_data: 'tasks_ai_advice' }],
         [{ text: '🔙 Назад в меню', callback_data: 'back_to_main' }],
       ],
@@ -6418,22 +6513,39 @@ ${tasksProgressBar}${userStats}
       let message = `📋 *Ваши задачи:*\n\n`;
       message += `🔄 **Активных:** ${pendingTasks.length}\n`;
       message += `✅ **Выполненных:** ${completedTasks.length}\n\n`;
-      message += `*Выберите задачу для завершения:*`;
 
-      // Create keyboard with task completion buttons
+      // Показываем все задачи вместе
+      const allTasks = [...pendingTasks, ...completedTasks];
+
+      if (pendingTasks.length > 0) {
+        message += `*Выберите задачу для завершения:*`;
+      }
+
+      // Create keyboard with task buttons
       const keyboard = {
         inline_keyboard: [
-          ...pendingTasks.slice(0, 8).map((task) => [
-            {
-              text: `${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''} (${task.xpReward} XP)`,
-              callback_data: `task_complete_${task.id}`,
-            },
-          ]),
-          ...(pendingTasks.length > 8
+          ...allTasks.slice(0, 12).map((task) => {
+            const isCompleted = task.status === 'COMPLETED';
+            const emoji = isCompleted
+              ? '🟢'
+              : this.getPriorityEmoji(task.priority);
+            const text = `${emoji} ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''} ${isCompleted ? '✅' : `(${task.xpReward} XP)`}`;
+
+            return [
+              {
+                text: text,
+                // Только активные задачи можно завершать
+                callback_data: isCompleted
+                  ? 'task_info_noop'
+                  : `task_complete_${task.id}`,
+              },
+            ];
+          }),
+          ...(allTasks.length > 12
             ? [
                 [
                   {
-                    text: `... и еще ${pendingTasks.length - 8} задач`,
+                    text: `... и еще ${allTasks.length - 12} задач`,
                     callback_data: 'tasks_list_more',
                   },
                 ],
@@ -6461,28 +6573,50 @@ ${tasksProgressBar}${userStats}
       const pendingTasks = tasks.filter(
         (task) => task.status === 'PENDING' || task.status === 'IN_PROGRESS',
       );
+      const completedTasks = tasks.filter(
+        (task) => task.status === 'COMPLETED',
+      );
 
-      if (pendingTasks.length === 0) {
+      if (tasks.length === 0) {
         await ctx.editMessageTextWithMarkdown(`
-📋 *Все активные задачи*
+📋 *Все задачи*
 
-У вас нет активных задач. Все выполнено! 🎉
+У вас пока нет задач. Добавьте первую задачу!
         `);
         return;
       }
 
-      let message = `📋 *Все активные задачи (${pendingTasks.length}):*\n\n`;
-      message += `*Выберите задачу для завершения:*`;
+      let message = `📋 *Все ваши задачи (${tasks.length}):*\n\n`;
+      message += `🔄 **Активных:** ${pendingTasks.length}\n`;
+      message += `✅ **Выполненных:** ${completedTasks.length}\n\n`;
 
-      // Create keyboard with all pending tasks
+      // Показываем все задачи
+      const allTasks = [...pendingTasks, ...completedTasks];
+
+      if (pendingTasks.length > 0) {
+        message += `*Выберите активную задачу для завершения:*`;
+      }
+
+      // Create keyboard with all tasks
       const keyboard = {
         inline_keyboard: [
-          ...pendingTasks.map((task) => [
-            {
-              text: `${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 35)}${task.title.length > 35 ? '...' : ''} (${task.xpReward} XP)`,
-              callback_data: `task_complete_${task.id}`,
-            },
-          ]),
+          ...allTasks.map((task) => {
+            const isCompleted = task.status === 'COMPLETED';
+            const emoji = isCompleted
+              ? '🟢'
+              : this.getPriorityEmoji(task.priority);
+            const text = `${emoji} ${task.title.substring(0, 35)}${task.title.length > 35 ? '...' : ''} ${isCompleted ? '✅' : `(${task.xpReward} XP)`}`;
+
+            return [
+              {
+                text: text,
+                // Только активные задачи можно завершать
+                callback_data: isCompleted
+                  ? 'task_info_noop'
+                  : `task_complete_${task.id}`,
+              },
+            ];
+          }),
           [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
         ],
       };
@@ -6519,16 +6653,33 @@ ${tasksProgressBar}${userStats}
       let message = `📅 *Задачи на сегодня:*\n\n`;
       message += `🔄 **К выполнению:** ${pendingTasks.length}\n`;
       message += `✅ **Выполнено:** ${completedTasks.length}\n\n`;
-      message += `*Выберите задачу для завершения:*`;
+
+      // Показываем все задачи на сегодня вместе
+      const allTasks = [...pendingTasks, ...completedTasks];
+
+      if (pendingTasks.length > 0) {
+        message += `*Выберите задачу для завершения:*`;
+      }
 
       const keyboard = {
         inline_keyboard: [
-          ...pendingTasks.map((task) => [
-            {
-              text: `${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''} (${task.xpReward} XP)`,
-              callback_data: `task_complete_${task.id}`,
-            },
-          ]),
+          ...allTasks.map((task) => {
+            const isCompleted = task.status === 'COMPLETED';
+            const emoji = isCompleted
+              ? '🟢'
+              : this.getPriorityEmoji(task.priority);
+            const text = `${emoji} ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''} ${isCompleted ? '✅' : `(${task.xpReward} XP)`}`;
+
+            return [
+              {
+                text: text,
+                // Только активные задачи можно завершать
+                callback_data: isCompleted
+                  ? 'task_info_noop'
+                  : `task_complete_${task.id}`,
+              },
+            ];
+          }),
           [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
         ],
       };
@@ -6540,6 +6691,148 @@ ${tasksProgressBar}${userStats}
       this.logger.error('Error showing today tasks:', error);
       await ctx.editMessageTextWithMarkdown(
         '❌ Ошибка при получении задач на сегодня',
+      );
+    }
+  }
+
+  private async showCompletedTasks(ctx: BotContext) {
+    try {
+      const tasks = await this.taskService.findTasksByUserId(ctx.userId);
+      const completedTasks = tasks.filter(
+        (task) => task.status === 'COMPLETED',
+      );
+
+      if (completedTasks.length === 0) {
+        await ctx.editMessageTextWithMarkdown(
+          `
+✅ *Выполненные задачи*
+
+У вас пока нет выполненных задач. Завершите первую задачу!
+        `,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: '🔙 Назад к задачам',
+                    callback_data: 'back_to_tasks',
+                  },
+                ],
+              ],
+            },
+          },
+        );
+        return;
+      }
+
+      let message = `✅ *Выполненные задачи (${completedTasks.length}):*\n\n`;
+      message += `*Нажмите на задачу, чтобы сделать её снова активной:*`;
+
+      const keyboard = {
+        inline_keyboard: [
+          ...completedTasks.slice(0, 15).map((task) => [
+            {
+              text: `🟢 ${task.title.substring(0, 35)}${task.title.length > 35 ? '...' : ''} ✅`,
+              callback_data: `task_restore_${task.id}`,
+            },
+          ]),
+          ...(completedTasks.length > 15
+            ? [
+                [
+                  {
+                    text: `... и еще ${completedTasks.length - 15} выполненных задач`,
+                    callback_data: 'tasks_completed_more',
+                  },
+                ],
+              ]
+            : []),
+          [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
+        ],
+      };
+
+      await ctx.editMessageTextWithMarkdown(message, {
+        reply_markup: keyboard,
+      });
+    } catch (error) {
+      this.logger.error('Error showing completed tasks:', error);
+      await ctx.editMessageTextWithMarkdown(
+        '❌ Ошибка при получении выполненных задач',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    }
+  }
+
+  private async showAllCompletedTasks(ctx: BotContext) {
+    try {
+      const tasks = await this.taskService.findTasksByUserId(ctx.userId);
+      const completedTasks = tasks.filter(
+        (task) => task.status === 'COMPLETED',
+      );
+
+      if (completedTasks.length === 0) {
+        await ctx.editMessageTextWithMarkdown(
+          `
+✅ *Все выполненные задачи*
+
+У вас пока нет выполненных задач. Завершите первую задачу!
+        `,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: '🔙 Назад к задачам',
+                    callback_data: 'back_to_tasks',
+                  },
+                ],
+              ],
+            },
+          },
+        );
+        return;
+      }
+
+      let message = `✅ *Все выполненные задачи (${completedTasks.length}):*\n\n`;
+      message += `*Нажмите на задачу, чтобы сделать её снова активной:*`;
+
+      const keyboard = {
+        inline_keyboard: [
+          ...completedTasks.map((task) => [
+            {
+              text: `🟢 ${task.title.substring(0, 40)}${task.title.length > 40 ? '...' : ''} ✅`,
+              callback_data: `task_restore_${task.id}`,
+            },
+          ]),
+          [
+            {
+              text: '🔙 К выполненным задачам',
+              callback_data: 'tasks_completed',
+            },
+          ],
+          [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
+        ],
+      };
+
+      await ctx.editMessageTextWithMarkdown(message, {
+        reply_markup: keyboard,
+      });
+    } catch (error) {
+      this.logger.error('Error showing all completed tasks:', error);
+      await ctx.editMessageTextWithMarkdown(
+        '❌ Ошибка при получении всех выполненных задач',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
       );
     }
   }
@@ -6589,8 +6882,9 @@ ${progressBar} ${Math.round(progress * 100)}%
 
       await ctx.editMessageTextWithMarkdown(message);
 
+      // Показываем обновленный список задач вместо меню задач
       setTimeout(
-        () => this.showTasksMenu(ctx),
+        () => this.showTasksList(ctx),
         statsUpdate.leveledUp ? 3000 : 2000,
       );
     } catch (error) {
@@ -6602,6 +6896,47 @@ ${progressBar} ${Math.round(progress * 100)}%
           '❌ Ошибка при выполнении задачи',
         );
       }
+    }
+  }
+
+  private async restoreTask(ctx: BotContext, taskId: string) {
+    try {
+      // Восстанавливаем задачу напрямую через Prisma
+      await this.prisma.task.update({
+        where: { id: taskId, userId: ctx.userId },
+        data: {
+          status: 'PENDING',
+          completedAt: null,
+        },
+      });
+
+      const task = await this.taskService.findTaskById(taskId, ctx.userId);
+
+      let message = `
+🔄 *Задача восстановлена!*
+
+📝 ${task.title}
+🎯 Задача снова активна и ждет выполнения!
+
+Теперь вы можете завершить её снова и получить XP.
+`;
+
+      await ctx.editMessageTextWithMarkdown(message);
+
+      // Показываем обновленный список выполненных задач
+      setTimeout(() => this.showCompletedTasks(ctx), 2000);
+    } catch (error) {
+      this.logger.error('Error restoring task:', error);
+      await ctx.editMessageTextWithMarkdown(
+        '❌ Ошибка при восстановлении задачи',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
     }
   }
 

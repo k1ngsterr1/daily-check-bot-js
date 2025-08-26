@@ -58,6 +58,7 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private showMainMenu;
     launch(): Promise<void>;
     stop(): Promise<void>;
+    private setupPersonalizedMenu;
     getBotInstance(): Telegraf<BotContext>;
     private showTasksMenu;
     private startAddingTask;
@@ -65,7 +66,10 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private showTasksList;
     private showAllTasksList;
     private showTodayTasks;
+    private showCompletedTasks;
+    private showAllCompletedTasks;
     private completeTask;
+    private restoreTask;
     private getPriorityEmoji;
     private askForTimezone;
     private showManualTimezoneSelection;
