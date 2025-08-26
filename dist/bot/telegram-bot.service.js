@@ -544,6 +544,12 @@ ${statusMessage}
                 await this.handleAIHabitCreationMessage(ctx, ctx.message.text);
                 return;
             }
+            this.logger.log(`Checking text message: "${ctx.message.text}"`);
+            if (!ctx.session.step && this.isTaskCreationRequest(ctx.message.text)) {
+                this.logger.log(`Processing as task creation: "${ctx.message.text}"`);
+                await this.handleNaturalTaskCreation(ctx, ctx.message.text);
+                return;
+            }
             if (!user.timezone &&
                 (ctx.session.step === 'adding_task' ||
                     ctx.session.step === 'adding_habit')) {
@@ -605,6 +611,7 @@ ${statusMessage}
                 return;
             }
             if (!ctx.session.step && this.isSimpleReminderRequest(ctx.message.text)) {
+                this.logger.log(`Processing as simple reminder: "${ctx.message.text}"`);
                 await this.handleSimpleReminderRequest(ctx, ctx.message.text);
                 return;
             }
@@ -3512,6 +3519,99 @@ XP (опыт) начисляется за выполнение задач. С к
             await ctx.answerCbQuery();
             await this.showMainMenu(ctx, true);
         });
+        this.bot.action(/^confirm_task:(.+)$/, async (ctx) => {
+            await ctx.answerCbQuery();
+            const taskTitle = ctx.match[1];
+            try {
+                const task = await this.taskService.createTask({
+                    userId: ctx.userId,
+                    title: taskTitle.trim(),
+                    description: '',
+                    priority: 'MEDIUM',
+                });
+                await this.billingService.incrementUsage(ctx.userId, 'dailyTasks');
+                const user = await this.userService.findByTelegramId(ctx.userId);
+                await this.userService.updateUser(ctx.userId, {
+                    totalTasks: user.totalTasks + 1,
+                });
+                await ctx.editMessageTextWithMarkdown(`✅ *Задача успешно создана!*\n\n📝 *${task.title}*\n⚡ XP за выполнение: ${task.xpReward}`, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '📋 Мои задачи', callback_data: 'menu_tasks' }],
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                        ],
+                    },
+                });
+            }
+            catch (error) {
+                this.logger.error('Error confirming task creation:', error);
+                await ctx.editMessageTextWithMarkdown('❌ *Ошибка при создании задачи*\n\nПопробуйте еще раз.', {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                        ],
+                    },
+                });
+            }
+        });
+        this.bot.action('confirm_task_creation', async (ctx) => {
+            await ctx.answerCbQuery();
+            if (!ctx.session.pendingTaskTitle) {
+                await ctx.editMessageTextWithMarkdown('❌ *Ошибка:* Не найден текст задачи.', {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                        ],
+                    },
+                });
+                return;
+            }
+            try {
+                const taskTitle = ctx.session.pendingTaskTitle;
+                const task = await this.taskService.createTask({
+                    userId: ctx.userId,
+                    title: taskTitle.trim(),
+                    description: '',
+                    priority: 'MEDIUM',
+                });
+                await this.billingService.incrementUsage(ctx.userId, 'dailyTasks');
+                const user = await this.userService.findByTelegramId(ctx.userId);
+                await this.userService.updateUser(ctx.userId, {
+                    totalTasks: user.totalTasks + 1,
+                });
+                ctx.session.pendingTaskTitle = undefined;
+                await ctx.editMessageTextWithMarkdown(`✅ *Задача успешно создана!*\n\n📝 *${task.title}*\n⚡ XP за выполнение: ${task.xpReward}`, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '📋 Мои задачи', callback_data: 'menu_tasks' }],
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                        ],
+                    },
+                });
+            }
+            catch (error) {
+                this.logger.error('Error confirming task creation:', error);
+                ctx.session.pendingTaskTitle = undefined;
+                await ctx.editMessageTextWithMarkdown('❌ *Ошибка при создании задачи*\n\nПопробуйте еще раз.', {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                        ],
+                    },
+                });
+            }
+        });
+        this.bot.action('cancel_task', async (ctx) => {
+            await ctx.answerCbQuery();
+            ctx.session.pendingTaskTitle = undefined;
+            await ctx.editMessageTextWithMarkdown('❌ *Создание задачи отменено*', {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                    ],
+                },
+            });
+        });
         this.bot.action('start', async (ctx) => {
             await ctx.answerCbQuery();
             await this.showMainMenu(ctx, true);
@@ -4055,6 +4155,164 @@ XP (опыт) начисляется за выполнение задач. С к
             ctx.session.waitingForReminderTime = false;
             await ctx.editMessageText('❌ Создание напоминания отменено');
         });
+        this.bot.action('create_as_task_instead', async (ctx) => {
+            await ctx.answerCbQuery('📝 Создаю задачу...');
+            if (!ctx.session.pendingReminder?.text) {
+                await ctx.editMessageText('❌ Ошибка: не найден текст для создания задачи.', {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                        ],
+                    },
+                });
+                return;
+            }
+            try {
+                const taskText = ctx.session.pendingReminder.text;
+                const task = await this.taskService.createTask({
+                    userId: ctx.userId,
+                    title: taskText,
+                    description: '',
+                    priority: 'MEDIUM',
+                    dueDate: new Date(),
+                });
+                ctx.session.pendingReminder = undefined;
+                ctx.session.waitingForReminderTime = false;
+                await ctx.editMessageText(`✅ *Задача создана!*
+
+📝 **${task.title}**
+
+Задача добавлена в список на сегодня.`, {
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                { text: '📋 Мои задачи', callback_data: 'tasks_list' },
+                                { text: '➕ Ещё задача', callback_data: 'tasks_add' },
+                            ],
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                        ],
+                    },
+                });
+            }
+            catch (error) {
+                this.logger.error('Error creating task from reminder:', error);
+                await ctx.editMessageText('❌ Ошибка при создании задачи. Попробуйте позже.', {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                { text: '📝 Попробовать снова', callback_data: 'tasks_add' },
+                                { text: '🏠 Главное меню', callback_data: 'back_to_menu' },
+                            ],
+                        ],
+                    },
+                });
+            }
+        });
+        this.bot.action('create_as_reminder_instead', async (ctx) => {
+            await ctx.answerCbQuery('⏰ Создаю напоминание...');
+            if (!ctx.session.pendingTaskTitle) {
+                await ctx.editMessageText('❌ Ошибка: не найден текст для создания напоминания.', {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                        ],
+                    },
+                });
+                return;
+            }
+            try {
+                const reminderText = ctx.session.pendingTaskTitle;
+                ctx.session.pendingTaskTitle = undefined;
+                const timeMatch = this.extractTimeFromText(reminderText);
+                if (timeMatch) {
+                    await this.handleReminderRequest(ctx, this.extractReminderText(reminderText), timeMatch.hours, timeMatch.minutes);
+                }
+                else {
+                    ctx.session.pendingReminder = {
+                        text: this.extractReminderText(reminderText),
+                        originalText: reminderText,
+                    };
+                    ctx.session.waitingForReminderTime = true;
+                    await ctx.editMessageText(`⏰ *Создание напоминания*
+
+📝 **Текст:** "${this.extractReminderText(reminderText)}"
+
+💡 **Выберите время или напишите своё:**
+
+*Примеры:*
+• "в 15:30"
+• "через 2 часа" 
+• "завтра в 10:00"
+• "в понедельник в 14:00"`, {
+                        parse_mode: 'Markdown',
+                        reply_markup: {
+                            inline_keyboard: [
+                                [
+                                    {
+                                        text: '⏰ Через 15 мин',
+                                        callback_data: 'remind_in_15min',
+                                    },
+                                    {
+                                        text: '⏰ Через 30 мин',
+                                        callback_data: 'remind_in_30min',
+                                    },
+                                ],
+                                [
+                                    {
+                                        text: '⏰ Через 1 час',
+                                        callback_data: 'remind_in_1hour',
+                                    },
+                                    {
+                                        text: '⏰ Через 2 часа',
+                                        callback_data: 'remind_in_2hours',
+                                    },
+                                ],
+                                [
+                                    {
+                                        text: '⏰ Завтра утром (9:00)',
+                                        callback_data: 'remind_tomorrow_morning',
+                                    },
+                                    {
+                                        text: '⏰ Завтра вечером (18:00)',
+                                        callback_data: 'remind_tomorrow_evening',
+                                    },
+                                ],
+                                [
+                                    {
+                                        text: '🕐 Указать точное время',
+                                        callback_data: 'remind_custom_time',
+                                    },
+                                ],
+                                [
+                                    {
+                                        text: '📝 Создать как задачу',
+                                        callback_data: 'create_as_task_instead',
+                                    },
+                                ],
+                                [{ text: '❌ Отмена', callback_data: 'cancel_reminder' }],
+                            ],
+                        },
+                    });
+                }
+            }
+            catch (error) {
+                this.logger.error('Error creating reminder from task:', error);
+                await ctx.editMessageText('❌ Ошибка при создании напоминания. Попробуйте позже.', {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '⏰ Попробовать снова',
+                                    callback_data: 'create_as_reminder_instead',
+                                },
+                                { text: '🏠 Главное меню', callback_data: 'back_to_menu' },
+                            ],
+                        ],
+                    },
+                });
+            }
+        });
         this.bot.catch((err, ctx) => {
             this.logger.error(`Bot error for ${ctx.updateType}:`, err);
             ctx.reply('🚫 Произошла ошибка. Попробуйте позже или обратитесь к администратору.', {
@@ -4430,10 +4688,11 @@ ${recommendation}
         }
     }
     extractReminderText(text) {
-        const cleanText = text
-            .toLowerCase()
+        let cleanText = text
             .replace(/^(напомни мне|напомни|поставь напоминание|создай напоминание|remind me|remind)\s*/i, '')
-            .replace(/\s*(через|в|в течение|after|in)\s*\d+.*$/i, '')
+            .replace(/\s*(через|в течение|after|in)\s+\d+\s*(минут|час|часа|часов)/i, '')
+            .replace(/\s+в\s+\d{1,2}:\d{2}/i, '')
+            .replace(/\s+\d{1,2}:\d{2}/i, '')
             .trim();
         return cleanText || 'Напоминание';
     }
@@ -4499,6 +4758,12 @@ ${recommendation}
                         {
                             text: '🕐 Указать точное время',
                             callback_data: 'remind_custom_time',
+                        },
+                    ],
+                    [
+                        {
+                            text: '📝 Создать как задачу',
+                            callback_data: 'create_as_task_instead',
                         },
                     ],
                     [{ text: '❌ Отмена', callback_data: 'cancel_reminder' }],
@@ -4577,6 +4842,12 @@ ${recommendation}
                         {
                             text: '🕐 Указать точное время',
                             callback_data: 'remind_custom_time',
+                        },
+                    ],
+                    [
+                        {
+                            text: '📝 Создать как задачу',
+                            callback_data: 'create_as_task_instead',
                         },
                     ],
                     [{ text: '❌ Отмена', callback_data: 'cancel_reminder' }],
@@ -4971,7 +5242,7 @@ ${timeAdvice}
                 [
                     { text: '📊 Прогресс', callback_data: 'my_progress' },
                     { text: '❓ Помощь', callback_data: 'faq_support' },
-                    { text: '📊 Лимиты', callback_data: 'show_limits' },
+                    { text: '🔒 Лимиты', callback_data: 'show_limits' },
                 ],
             ],
         };
@@ -5201,6 +5472,40 @@ ${tasksProgressBar}${userStats}
 Попробуйте еще раз или обратитесь к администратору.
       `);
             ctx.session.step = undefined;
+        }
+    }
+    async handleNaturalTaskCreation(ctx, message) {
+        try {
+            ctx.session.pendingTaskTitle = message;
+            await ctx.replyWithMarkdown(`✅ *Создаю задачу:*\n"${message}"\n\n🤖 Подтвердите создание задачи.`, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '✅ Подтвердить',
+                                callback_data: 'confirm_task_creation',
+                            },
+                            { text: '❌ Отмена', callback_data: 'cancel_task' },
+                        ],
+                        [
+                            {
+                                text: '⏰ Создать напоминание',
+                                callback_data: 'create_as_reminder_instead',
+                            },
+                        ],
+                    ],
+                },
+            });
+        }
+        catch (error) {
+            this.logger.error('Error in natural task creation:', error);
+            await ctx.replyWithMarkdown('❌ *Ошибка при создании задачи*\n\nПопробуйте еще раз или обратитесь к администратору.', {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                    ],
+                },
+            });
         }
     }
     async showTasksList(ctx) {
@@ -7079,7 +7384,47 @@ _Просто напишите время в удобном формате_
         }
         return detectedVerbs;
     }
+    isTaskCreationRequest(text) {
+        const reminderMarkers = [
+            'напомни',
+            'напомню',
+            'напоминание',
+            'поставь напоминание',
+            'установи напоминание',
+            'создай напоминание',
+        ];
+        const hasReminderMarker = reminderMarkers.some((marker) => text.toLowerCase().includes(marker));
+        if (hasReminderMarker) {
+            this.logger.log(`Text "${text}" has reminder marker - returning false`);
+            return false;
+        }
+        const timeWords = ['сегодня', 'завтра', 'послезавтра'];
+        const actionWords = [
+            'провести',
+            'сделать',
+            'выполнить',
+            'купить',
+            'встретить',
+            'позвонить',
+            'написать',
+            'отправить',
+            'подготовить',
+            'организовать',
+            'запланировать',
+            'закончить',
+            'завершить',
+        ];
+        const hasTimeWord = timeWords.some((timeWord) => text.toLowerCase().includes(timeWord));
+        const hasActionWord = actionWords.some((actionWord) => text.toLowerCase().includes(actionWord));
+        const result = hasTimeWord && hasActionWord;
+        this.logger.log(`isTaskCreationRequest for "${text}": hasTimeWord=${hasTimeWord}, hasActionWord=${hasActionWord}, result=${result}`);
+        return result;
+    }
     isSimpleReminderRequest(text) {
+        if (this.isTaskCreationRequest(text)) {
+            this.logger.log(`Text "${text}" is a task creation request - not a reminder`);
+            return false;
+        }
         const simpleReminderPatterns = [
             /^напомни\s+мне\s+.+/i,
             /^напомню\s+себе\s+.+/i,
@@ -7091,198 +7436,7 @@ _Просто напишите время в удобном формате_
         if (simpleReminderPatterns.some((pattern) => pattern.test(text))) {
             return true;
         }
-        const timeWords = [
-            'завтра',
-            'послезавтра',
-            'сегодня',
-            'вечером',
-            'утром',
-            'днем',
-            'ночью',
-            'в понедельник',
-            'во вторник',
-            'в среду',
-            'в четверг',
-            'в пятницу',
-            'в субботу',
-            'в воскресенье',
-            'на следующей неделе',
-            'в следующем месяце',
-            'в следующем году',
-        ];
-        const actionVerbs = [
-            'сделать',
-            'выполнить',
-            'купить',
-            'скушать',
-            'съесть',
-            'позвонить',
-            'написать',
-            'отправить',
-            'подготовить',
-            'организовать',
-            'запланировать',
-            'встретить',
-            'пойти',
-            'поехать',
-            'забрать',
-            'отнести',
-            'принести',
-            'вернуть',
-            'показать',
-            'рассказать',
-            'заплатить',
-            'оплатить',
-            'заказать',
-            'записаться',
-            'посмотреть',
-            'проверить',
-            'изучить',
-            'прочитать',
-            'приготовить',
-            'почистить',
-            'убрать',
-            'помыть',
-            'постирать',
-            'погладить',
-            'сходить',
-            'съездить',
-            'дойти',
-            'добраться',
-            'доехать',
-            'приехать',
-            'прийти',
-            'заехать',
-            'зайти',
-            'завернуть',
-            'заскочить',
-            'навестить',
-            'посетить',
-            'встретиться',
-            'увидеться',
-            'поговорить',
-            'обсудить',
-            'решить',
-            'закончить',
-            'завершить',
-            'начать',
-            'приступить',
-            'продолжить',
-            'остановить',
-            'прекратить',
-            'открыть',
-            'закрыть',
-            'включить',
-            'выключить',
-            'настроить',
-            'установить',
-            'скачать',
-            'загрузить',
-            'отправиться',
-            'выйти',
-            'уйти',
-            'вернуться',
-            'отдохнуть',
-            'поспать',
-            'проснуться',
-            'встать',
-            'лечь',
-            'собраться',
-            'одеться',
-            'переодеться',
-            'умыться',
-            'почистить',
-            'покушать',
-            'поесть',
-            'попить',
-            'выпить',
-            'попробовать',
-            'попытаться',
-            'поработать',
-            'поучиться',
-            'потренироваться',
-            'позаниматься',
-            'поиграть',
-            'погулять',
-            'побегать',
-            'потанцевать',
-            'петь',
-            'рисовать',
-            'писать',
-            'читать',
-            'слушать',
-            'смотреть',
-            'учить',
-            'изучать',
-            'повторить',
-            'запомнить',
-            'забыть',
-            'вспомнить',
-            'найти',
-            'искать',
-            'потерять',
-            'сломать',
-            'починить',
-            'исправить',
-            'подарить',
-            'получить',
-            'взять',
-            'дать',
-            'отдать',
-            'одолжить',
-            'занять',
-            'продать',
-            'покупать',
-            'продавать',
-            'менять',
-            'обменять',
-            'считать',
-            'подсчитать',
-            'рассчитать',
-            'измерить',
-            'взвесить',
-            'сравнить',
-            'выбрать',
-            'решить',
-            'определить',
-            'узнать',
-            'разузнать',
-            'спросить',
-            'ответить',
-            'объяснить',
-            'понять',
-            'разобраться',
-            'помочь',
-            'поддержать',
-            'защитить',
-            'спасти',
-            'вылечить',
-            'полечить',
-            'болеть',
-            'выздороветь',
-            'отремонтировать',
-        ];
-        const hasTimeWord = timeWords.some((timeWord) => text.toLowerCase().includes(timeWord.toLowerCase()));
-        const knownActionVerbs = actionVerbs.some((verb) => text.toLowerCase().includes(verb.toLowerCase()));
-        const detectedVerbs = this.findVerbsInText(text);
-        const hasDetectedVerb = detectedVerbs.length > 0;
-        if (hasDetectedVerb) {
-            this.logger.log(`Detected verbs in "${text}": ${detectedVerbs.join(', ')}`);
-        }
-        const hasActionVerb = knownActionVerbs || hasDetectedVerb;
-        const reminderIndicators = [
-            /нужно\s+/i,
-            /надо\s+/i,
-            /должен\s+/i,
-            /должна\s+/i,
-            /стоит\s+/i,
-            /хочу\s+/i,
-            /планирую\s+/i,
-            /собираюсь\s+/i,
-            /буду\s+/i,
-        ];
-        const hasReminderIndicator = reminderIndicators.some((pattern) => pattern.test(text));
-        return hasTimeWord && (hasActionVerb || hasReminderIndicator);
+        return false;
     }
     isTaskRequest(text) {
         if (this.isReminderRequest(text)) {

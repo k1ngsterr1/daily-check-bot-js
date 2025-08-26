@@ -16,6 +16,7 @@ export interface BotContext extends Context {
         };
         waitingForReminderTime?: boolean;
         pendingAction?: string;
+        pendingTaskTitle?: string;
     };
     userId: string;
     replyWithMarkdown(text: string, extra?: any): Promise<any>;

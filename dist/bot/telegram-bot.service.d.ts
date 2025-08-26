@@ -63,6 +63,7 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private showTasksMenu;
     private startAddingTask;
     private handleTaskCreation;
+    private handleNaturalTaskCreation;
     private showTasksList;
     private showAllTasksList;
     private showTodayTasks;
@@ -96,6 +97,7 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private isReminderRequest;
     private isVerbByEnding;
     private findVerbsInText;
+    private isTaskCreationRequest;
     private isSimpleReminderRequest;
     private isTaskRequest;
     private isGeneralChatMessage;
