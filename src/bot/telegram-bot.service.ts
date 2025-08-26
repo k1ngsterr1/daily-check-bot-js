@@ -6091,12 +6091,6 @@ ${aiRecommendation}`,
           ],
           [
             {
-              text: '🤖 Создать ИИ-привычку',
-              callback_data: 'ai_create_habit',
-            },
-          ],
-          [
-            {
               text: '⬅️ Назад к ИИ меню',
               callback_data: 'ai_back_menu',
             },
