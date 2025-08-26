@@ -6643,6 +6643,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
                 ],
               ]
             : []),
+          [{ text: '👀 Посмотреть активные', callback_data: 'tasks_today' }],
           [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
         ],
       };
@@ -6724,6 +6725,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
             ? [[{ text: '— Выполненные —', callback_data: 'noop_separator' }]]
             : []),
           ...completedButtons,
+          [{ text: '👀 Посмотреть активные', callback_data: 'tasks_today' }],
           [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
         ],
       };
