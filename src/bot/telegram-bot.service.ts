@@ -5943,77 +5943,139 @@ ${aiRecommendation}`,
 
   private async handleAIHabitHelp(ctx: BotContext) {
     try {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown(
+        '🤖 *Анализирую ваши привычки...*\n\nПожалуйста, подождите...',
+      );
+
       const user = await this.userService.findByTelegramId(ctx.userId);
       const habits = await this.habitService.findHabitsByUserId(ctx.userId);
       const completedHabits = habits.filter((h) => h.totalCompletions > 0);
 
-      // Анализируем профиль пользователя для персональных рекомендаций
-      const userProfile = {
-        totalHabits: habits.length,
-        activeHabits: habits.filter((h) => h.isActive).length,
-        completedHabits: completedHabits.length,
+      // Собираем детальную информацию о привычках
+      const habitAnalysis = {
+        total: habits.length,
+        active: habits.filter((h) => h.isActive).length,
+        completed: completedHabits.length,
         avgStreak:
           habits.length > 0
             ? habits.reduce((sum, h) => sum + h.currentStreak, 0) /
               habits.length
             : 0,
+        maxStreak:
+          habits.length > 0
+            ? Math.max(...habits.map((h) => h.currentStreak))
+            : 0,
+        totalCompletions: habits.reduce(
+          (sum, h) => sum + h.totalCompletions,
+          0,
+        ),
+
+        // Анализ по категориям
+        categoriesStats: habits.reduce(
+          (acc, habit) => {
+            const category = habit.category || 'Без категории';
+            acc[category] = (acc[category] || 0) + 1;
+            return acc;
+          },
+          {} as Record<string, number>,
+        ),
+
+        // Анализ по частоте
+        frequencyStats: habits.reduce(
+          (acc, habit) => {
+            acc[habit.frequency] = (acc[habit.frequency] || 0) + 1;
+            return acc;
+          },
+          {} as Record<string, number>,
+        ),
+
+        // Детальный список привычек
+        habitDetails: habits.map((h) => ({
+          title: h.title,
+          category: h.category || 'Без категории',
+          frequency: h.frequency,
+          currentStreak: h.currentStreak,
+          totalCompletions: h.totalCompletions,
+          isActive: h.isActive,
+          createdAt: h.createdAt,
+          updatedAt: h.updatedAt,
+        })),
+
+        // Привычки с лучшими результатами
+        topHabits: habits
+          .filter((h) => h.currentStreak > 0)
+          .sort((a, b) => b.currentStreak - a.currentStreak)
+          .slice(0, 3)
+          .map((h) => ({
+            title: h.title,
+            streak: h.currentStreak,
+            category: h.category || 'Без категории',
+          })),
+
+        // Проблемные привычки
+        strugglingHabits: habits
+          .filter(
+            (h) =>
+              h.isActive && h.currentStreak === 0 && h.totalCompletions > 0,
+          )
+          .map((h) => ({
+            title: h.title,
+            category: h.category || 'Без категории',
+            totalCompletions: h.totalCompletions,
+            updatedAt: h.updatedAt,
+          })),
       };
 
-      let personalizedRecommendations: string[] = [];
-      let motivationalMessage = '';
+      // Формируем персональный промпт для ИИ
+      const aiPrompt = `
+      Проанализируй привычки пользователя и дай персональные рекомендации:
 
-      // Генерируем персональные рекомендации
-      if (habits.length === 0) {
-        personalizedRecommendations = [
-          '💧 Начните с простого: пить 1 стакан воды утром',
-          '🚶‍♂️ 5-минутная прогулка после еды',
-          '📚 Читать 1 страницу книги перед сном',
-          '🧘‍♀️ 2-минутная медитация утром',
-        ];
-        motivationalMessage =
-          'Отличное время для начала! Выберите одну простую привычку.';
-      } else if (userProfile.avgStreak < 3) {
-        personalizedRecommendations = [
-          '🎯 Сосредоточьтесь на одной привычке до автоматизма',
-          '⏰ Привяжите привычку к существующему действию',
-          '🏆 Отмечайте каждый день в календаре',
-          '📱 Используйте напоминания в одно и то же время',
-        ];
-        motivationalMessage =
-          'Главное - постоянство! Лучше делать мало, но каждый день.';
-      } else {
-        personalizedRecommendations = [
-          '📈 Усложните существующие привычки постепенно',
-          '🔗 Свяжите привычки в цепочки (habit stacking)',
-          '🎉 Добавьте систему наград за достижения',
-          '📊 Отслеживайте прогресс еженедельно',
-        ];
-        motivationalMessage =
-          'У вас отличная дисциплина! Время масштабировать успех.';
-      }
+      ОБЩАЯ СТАТИСТИКА:
+      - Всего привычек: ${habitAnalysis.total}
+      - Активных: ${habitAnalysis.active}
+      - С выполнениями: ${habitAnalysis.completed}
+      - Средняя серия: ${Math.round(habitAnalysis.avgStreak)} дней
+      - Максимальная серия: ${habitAnalysis.maxStreak} дней
+      - Всего выполнений: ${habitAnalysis.totalCompletions}
 
-      // Формируем ответ
+      СТАТИСТИКА ПО КАТЕГОРИЯМ:
+      ${JSON.stringify(habitAnalysis.categoriesStats, null, 2)}
+
+      СТАТИСТИКА ПО ЧАСТОТЕ:
+      ${JSON.stringify(habitAnalysis.frequencyStats, null, 2)}
+
+      ВСЕ ПРИВЫЧКИ (детали):
+      ${JSON.stringify(habitAnalysis.habitDetails, null, 2)}
+
+      ЛУЧШИЕ ПРИВЫЧКИ:
+      ${JSON.stringify(habitAnalysis.topHabits, null, 2)}
+
+      ПРОБЛЕМНЫЕ ПРИВЫЧКИ:
+      ${JSON.stringify(habitAnalysis.strugglingHabits, null, 2)}
+
+      Дай персональные рекомендации:
+      1. Анализ текущего состояния привычек пользователя
+      2. Что работает хорошо - отметь успехи
+      3. Проблемные зоны и что нужно улучшить
+      4. Конкретные рекомендации по каждой категории привычек
+      5. Научно обоснованные советы для формирования новых привычек
+      
+      Ответ должен быть персональным, основанным на реальных данных, мотивирующим. Максимум 1200 символов.
+      `;
+
+      const aiRecommendation = await this.openaiService.getAIResponse(aiPrompt);
+
       let message = `🎯 *Персональные рекомендации по привычкам*\n\n`;
 
       if (habits.length > 0) {
         message += `📊 *Ваш профиль:*\n`;
-        message += `• Привычек: ${userProfile.totalHabits} (активных: ${userProfile.activeHabits})\n`;
-        message += `• Средняя серия: ${Math.round(userProfile.avgStreak)} дней\n`;
-        message += `• Выполняемых: ${completedHabits.length}\n\n`;
+        message += `• Привычек: ${habitAnalysis.total} (активных: ${habitAnalysis.active})\n`;
+        message += `• Средняя серия: ${Math.round(habitAnalysis.avgStreak)} дней\n`;
+        message += `• Выполняемых: ${habitAnalysis.completed}\n\n`;
       }
 
-      message += `💡 *${motivationalMessage}*\n\n`;
-      message += `🎯 *Рекомендации для вас:*\n`;
-
-      personalizedRecommendations.forEach((rec, index) => {
-        message += `${index + 1}. ${rec}\n`;
-      });
-
-      message += `\n🧠 *Научно доказанные советы:*\n`;
-      message += `• 21 день для простых привычек, 66 дней для сложных\n`;
-      message += `• Начинайте с 2-минутного правила\n`;
-      message += `• Используйте правило "никогда не пропускайте дважды"\n`;
-      message += `• Фокус на процессе, а не на результате`;
+      message += `${aiRecommendation}`;
 
       const keyboard = {
         inline_keyboard: [
@@ -6048,11 +6110,12 @@ ${aiRecommendation}`,
     } catch (error) {
       this.logger.error('Error in handleAIHabitHelp:', error);
       await ctx.editMessageTextWithMarkdown(
-        '❌ Ошибка при анализе привычек. Попробуйте позже.',
+        '❌ *Ошибка при анализе привычек*\n\nПопробуйте еще раз позже.',
         {
           reply_markup: {
             inline_keyboard: [
               [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
             ],
           },
         },
