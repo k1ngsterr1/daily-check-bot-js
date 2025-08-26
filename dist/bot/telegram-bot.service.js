@@ -4886,10 +4886,10 @@ ${timeAdvice}
         const totalTasks = todayTasks.length;
         let tasksProgressBar = '';
         if (totalTasks > 0) {
-            const taskProgress = todayTasks
-                .map((task) => (task.status === 'COMPLETED' ? '✅' : '⬜'))
-                .join('');
-            tasksProgressBar = `\n📋 **Задачи на ${new Date().toLocaleDateString('ru-RU')}:**\nПрогресс: ${taskProgress} ${completedTasks.length}/${totalTasks}`;
+            const completedCount = completedTasks.length;
+            const taskProgress = '✅'.repeat(completedCount) +
+                '⬜'.repeat(Math.max(0, totalTasks - completedCount));
+            tasksProgressBar = `\n📋 **Задачи на ${new Date().toLocaleDateString('ru-RU')}:**\nПрогресс: ${taskProgress} ${completedCount}/${totalTasks}`;
         }
         else {
             tasksProgressBar = `\n📋 **Задачи на сегодня:** Пока нет задач`;
@@ -5169,7 +5169,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
                 inline_keyboard: [
                     ...pendingButtons,
                     ...(completedButtons.length
-                        ? [{ text: '— Выполненные —', callback_data: 'noop_separator' }]
+                        ? [[{ text: '— Выполненные —', callback_data: 'noop_separator' }]]
                         : []),
                     ...completedButtons,
                     [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
