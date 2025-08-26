@@ -159,6 +159,7 @@ model User {
   habits            Habit[]
   moods             MoodEntry[]
   focusSessions     FocusSession[]
+  habitSkips        HabitSkip[]
   reminders         Reminder[]
   userAchievements  UserAchievement[]
   payments          Payment[]
@@ -218,6 +219,7 @@ model Habit {
 
   // Relations
   user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skips             HabitSkip[]
 
   @@map("habits")
 }
@@ -265,6 +267,23 @@ model FocusSession {
   user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("focus_sessions")
+}
+
+model HabitSkip {
+  id                   String              @id @default(cuid())
+  userId               String              @map("user_id") @db.VarChar(50)
+  habitId              String              @map("habit_id")
+  skipDate             DateTime            @map("skip_date") @db.Date
+  reason               String?             // Optional reason for skipping
+  createdAt            DateTime            @default(now()) @map("created_at")
+
+  // Relations
+  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  habit                Habit               @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  // Ensure one skip per habit per day
+  @@unique([userId, habitId, skipDate])
+  @@map("habit_skips")
 }
 
 model Achievement {

@@ -908,7 +908,7 @@ ${statusMessage}
         });
         this.bot.action('menu_focus', async (ctx) => {
             await ctx.answerCbQuery();
-            await ctx.editMessageTextWithMarkdown('⏰ *Сессия фокуса* - функция в разработке');
+            await this.showPomodoroMenu(ctx);
         });
         this.bot.action('menu_stats', async (ctx) => {
             await ctx.answerCbQuery();
@@ -2663,44 +2663,7 @@ ${trialText}**Premium подписка включает:**
         });
         this.bot.action('pomodoro_focus', async (ctx) => {
             await ctx.answerCbQuery();
-            await ctx.editMessageTextWithMarkdown(`
-🍅 *Техника Помодоро*
-
-Техника Pomodoro (метод помидора) — метод тайм-менеджмента, разработанный итальянским студентом Франческо Чирилло в 1980-х годах.
-
-Помогает повысить концентрацию и побороть прокрастинацию
-
-**Как это работает:**
-⏰ 25 минут фокуса на задаче
-☕ 5 минут отдых
-🔄 Повторить 4 раза
-🏖️ Большой перерыв 15-30 минут
-
-*Выберите действие:*
-        `, {
-                reply_markup: {
-                    inline_keyboard: [
-                        [
-                            {
-                                text: '🚀 Начать сессию',
-                                callback_data: 'start_pomodoro_session',
-                            },
-                        ],
-                        [
-                            {
-                                text: '📊 История сессий',
-                                callback_data: 'pomodoro_history',
-                            },
-                            {
-                                text: '⚙️ Настройки',
-                                callback_data: 'pomodoro_settings',
-                            },
-                        ],
-                        [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
-                        [{ text: '🏠 Главное меню', callback_data: 'start' }],
-                    ],
-                },
-            });
+            await this.showPomodoroMenu(ctx);
         });
         this.bot.action('start_pomodoro_session', async (ctx) => {
             await ctx.answerCbQuery();
@@ -4890,12 +4853,36 @@ ${timeAdvice}
         let tasksProgressBar = '';
         if (totalTasks > 0) {
             const taskProgress = todayTasks
-                .map((task) => (task.status === 'COMPLETED' ? '�' : '⬜'))
+                .map((task) => (task.status === 'COMPLETED' ? '✅' : '⬜'))
                 .join('');
             tasksProgressBar = `\n📋 **Задачи на ${new Date().toLocaleDateString('ru-RU')}:**\nПрогресс: ${taskProgress} ${completedTasks.length}/${totalTasks}`;
         }
         else {
             tasksProgressBar = `\n📋 **Задачи на сегодня:** Пока нет задач`;
+        }
+        const activeSession = this.activePomodoroSessions.get(ctx.userId);
+        let pomodoroStatus = '';
+        if (activeSession) {
+            const currentTime = new Date();
+            const totalElapsed = currentTime.getTime() -
+                activeSession.startTime.getTime() -
+                (activeSession.totalPausedTime || 0);
+            const elapsed = Math.floor(totalElapsed / (1000 * 60));
+            const remaining = Math.max(0, 25 - elapsed);
+            if (activeSession.pausedAt) {
+                pomodoroStatus =
+                    '\n⏸️ **Фокус-сессия на паузе** (осталось ~' + remaining + ' мин)';
+            }
+            else if (activeSession.breakTimer) {
+                pomodoroStatus = '\n☕ **Активен перерыв** помодоро';
+            }
+            else {
+                pomodoroStatus =
+                    '\n🍅 **Активная фокус-сессия** (осталось ~' + remaining + ' мин)';
+            }
+            keyboard.inline_keyboard.unshift([
+                { text: '🍅 К активной сессии', callback_data: 'pomodoro_focus' },
+            ]);
         }
         const userStats = `\n🏆 Очки: ${user.totalXp} | 🔥 Уровень: ${user.level}`;
         let statusText = '';
@@ -4909,7 +4896,7 @@ ${timeAdvice}
 👋 *Привет, ${this.userService.getDisplayName(user)}!*
 
 ${statusText}🤖 Я Ticky AI – твой личный AI помощник для управления задачами и привычками.
-${tasksProgressBar}${userStats}
+${tasksProgressBar}${pomodoroStatus}${userStats}
     `;
         if (shouldEdit) {
             await ctx.editMessageTextWithMarkdown(message, {
@@ -7493,57 +7480,7 @@ ${aiAnalysis}
         }
     }
     async showFocusSession(ctx) {
-        const message = `
-🍅 *Техника Помодоро*
-
-**Как это работает:**
-⏰ 25 минут фокуса на задаче
-☕ 5 минут отдых
-🔄 Повторить 4 раза
-🏖️ Большой перерыв 15-30 минут
-
-**Ваши статистики:**
-🎯 Сессий сегодня: 0
-⚡ Общее время фокуса: 0 мин
-📈 Лучший день: 0 сессий
-
-*Выберите действие:*
-      `;
-        const keyboard = {
-            reply_markup: {
-                inline_keyboard: [
-                    [
-                        {
-                            text: '🚀 Начать сессию',
-                            callback_data: 'start_pomodoro_session',
-                        },
-                    ],
-                    [
-                        {
-                            text: '📊 История сессий',
-                            callback_data: 'pomodoro_history',
-                        },
-                        {
-                            text: '⚙️ Настройки',
-                            callback_data: 'pomodoro_settings',
-                        },
-                    ],
-                    [
-                        {
-                            text: '🤖 AI-советы по фокусу',
-                            callback_data: 'focus_ai_tips',
-                        },
-                    ],
-                    [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-                ],
-            },
-        };
-        if (ctx.callbackQuery) {
-            await ctx.editMessageTextWithMarkdown(message, keyboard);
-        }
-        else {
-            await ctx.replyWithMarkdown(message, keyboard);
-        }
+        await this.showPomodoroMenu(ctx);
     }
     async showRemindersMenu(ctx) {
         try {
@@ -9906,6 +9843,193 @@ ${this.getItemActivationMessage(itemType)}`, {
                 },
             });
         }
+    }
+    async showPomodoroMenu(ctx) {
+        const activeSession = this.activePomodoroSessions.get(ctx.userId);
+        if (activeSession) {
+            await this.showActivePomodoroSession(ctx, activeSession);
+            return;
+        }
+        const message = `
+🍅 *Техника Помодоро*
+
+Техника Pomodoro (метод помидора) — метод тайм-менеджмента, разработанный итальянским студентом Франческо Чирилло в 1980-х годах.
+
+Помогает повысить концентрацию и побороть прокрастинацию
+
+**Как это работает:**
+⏰ 25 минут фокуса на задаче
+☕ 5 минут отдых
+🔄 Повторить 4 раза
+🏖️ Большой перерыв 15-30 минут
+
+*Выберите действие:*
+    `;
+        const keyboard = {
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        {
+                            text: '🚀 Начать сессию',
+                            callback_data: 'start_pomodoro_session',
+                        },
+                    ],
+                    [
+                        {
+                            text: '📊 История сессий',
+                            callback_data: 'pomodoro_history',
+                        },
+                        {
+                            text: '⚙️ Настройки',
+                            callback_data: 'pomodoro_settings',
+                        },
+                    ],
+                    [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
+                    [{ text: '🏠 Главное меню', callback_data: 'start' }],
+                ],
+            },
+        };
+        if (ctx.callbackQuery) {
+            await ctx.editMessageTextWithMarkdown(message, keyboard);
+        }
+        else {
+            await ctx.replyWithMarkdown(message, keyboard);
+        }
+    }
+    async showActivePomodoroSession(ctx, session) {
+        const currentTime = new Date();
+        const totalElapsed = currentTime.getTime() -
+            session.startTime.getTime() -
+            (session.totalPausedTime || 0);
+        const elapsed = Math.floor(totalElapsed / (1000 * 60));
+        const remaining = Math.max(0, 25 - elapsed);
+        let message;
+        let keyboard;
+        if (session.pausedAt) {
+            const remainingMinutes = remaining;
+            const remainingSeconds = Math.max(0, Math.floor((25 * 60 * 1000 - totalElapsed) / 1000) % 60);
+            message = `
+⏸️ *Сессия на паузе*
+
+⏰ Осталось времени: ${remainingMinutes}:${remainingSeconds.toString().padStart(2, '0')}
+⚡ Прошло: ${elapsed} мин
+🎯 Фокус-сессия приостановлена
+
+*Готовы продолжить?*
+      `;
+            keyboard = {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '▶️ Продолжить',
+                                callback_data: 'resume_pomodoro',
+                            },
+                            {
+                                text: '⏹️ Завершить',
+                                callback_data: 'stop_pomodoro',
+                            },
+                        ],
+                        [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
+                        [{ text: '🏠 Главное меню', callback_data: 'start' }],
+                    ],
+                },
+            };
+        }
+        else if (session.breakTimer) {
+            message = `
+☕ *Время перерыва*
+
+🎉 Фокус-сессия завершена!
+⏰ Идет 5-минутный перерыв
+💪 Разомнитесь и отдохните
+
+*Перерыв скоро закончится*
+      `;
+            keyboard = {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '🚀 Начать новую сессию',
+                                callback_data: 'start_pomodoro_session',
+                            },
+                        ],
+                        [
+                            {
+                                text: '📊 История сессий',
+                                callback_data: 'pomodoro_history',
+                            },
+                        ],
+                        [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
+                        [{ text: '🏠 Главное меню', callback_data: 'start' }],
+                    ],
+                },
+            };
+        }
+        else {
+            const user = await this.getOrCreateUser(ctx);
+            const endTime = new Date(session.startTime.getTime() +
+                (session.totalPausedTime || 0) +
+                25 * 60 * 1000);
+            const endTimeFormatted = user.timezone
+                ? this.formatTimeWithTimezone(endTime, user.timezone)
+                : endTime.toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                });
+            message = `
+🍅 *Активная сессия фокуса*
+
+⏰ **Таймер**: осталось ${remaining} мин (до ${endTimeFormatted})
+⚡ **Прошло**: ${elapsed} мин
+🎯 Сосредоточьтесь на одной задаче
+💪 Продолжайте работать!
+
+🔔 **Вы получите уведомление, когда время истечет**
+      `;
+            keyboard = {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: '⏸️ Пауза',
+                                callback_data: 'pause_pomodoro',
+                            },
+                            {
+                                text: '⏹️ Стоп',
+                                callback_data: 'stop_pomodoro',
+                            },
+                        ],
+                        [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
+                        [{ text: '🏠 Главное меню', callback_data: 'start' }],
+                    ],
+                },
+            };
+        }
+        if (ctx.callbackQuery) {
+            await ctx.editMessageTextWithMarkdown(message, keyboard);
+        }
+        else {
+            await ctx.replyWithMarkdown(message, keyboard);
+        }
+    }
+    async isHabitSkippedToday(habitId, userId) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(today.getDate() + 1);
+        const skip = await this.prisma.habitSkip.findFirst({
+            where: {
+                habitId,
+                ...(userId ? { userId } : {}),
+                skipDate: {
+                    gte: today,
+                    lt: tomorrow,
+                },
+            },
+        });
+        return !!skip;
     }
 };
 exports.TelegramBotService = TelegramBotService;

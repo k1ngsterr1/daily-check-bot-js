@@ -12685,4 +12685,31 @@ ${this.getItemActivationMessage(itemType)}`,
       await ctx.replyWithMarkdown(message, keyboard);
     }
   }
+
+  /**
+   * Check if habit is skipped for today (checks HabitSkip table)
+   */
+  async isHabitSkippedToday(
+    habitId: string,
+    userId?: string,
+  ): Promise<boolean> {
+    // userId is optional for backward compatibility, but should be provided for accuracy
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+
+    // Find skip for this habit and user for today
+    const skip = await this.prisma.habitSkip.findFirst({
+      where: {
+        habitId,
+        ...(userId ? { userId } : {}),
+        skipDate: {
+          gte: today,
+          lt: tomorrow,
+        },
+      },
+    });
+    return !!skip;
+  }
 }
