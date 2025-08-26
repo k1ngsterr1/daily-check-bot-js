@@ -8653,8 +8653,56 @@ ${this.getItemActivationMessage(itemType)}`, {
         }
         const mightBeReminder = /напомни|напоминание|не забыть|вспомнить|помни/i.test(text);
         if (mightBeReminder || text.length > 10) {
-            await this.showVoiceAnalysisOptions(ctx, text);
-            return;
+            await ctx.replyWithMarkdown('🤖 *ИИ анализирует ваше сообщение...*');
+            try {
+                const prompt = `Классифицируй коротко назначение этого сообщения на русском языке. Верни только JSON без дополнительного текста в формате:\n{"intent":"reminder|task|habit|ask_ai","text":"...нормализованный текст...","time":"...если есть, в читабельном формате или пусто"}\n\nТекст: "${text.replace(/"/g, '\\"')}"`;
+                const aiRaw = await this.openaiService.getAIResponse(prompt);
+                let aiJson = null;
+                try {
+                    const firstBrace = aiRaw.indexOf('{');
+                    const lastBrace = aiRaw.lastIndexOf('}');
+                    const jsonStr = firstBrace !== -1 && lastBrace !== -1
+                        ? aiRaw.slice(firstBrace, lastBrace + 1)
+                        : aiRaw;
+                    aiJson = JSON.parse(jsonStr);
+                }
+                catch (parseError) {
+                    this.logger.warn('AI classification returned non-JSON, falling back to options UI', parseError);
+                }
+                if (aiJson && aiJson.intent) {
+                    const intent = aiJson.intent;
+                    const normalizedText = aiJson.text || text;
+                    const detectedTime = aiJson.time || null;
+                    if (intent === 'reminder') {
+                        if (!detectedTime) {
+                            await this.createTaskFromText(ctx, normalizedText);
+                            return;
+                        }
+                        await this.processReminderFromText(ctx, normalizedText);
+                        return;
+                    }
+                    if (intent === 'task') {
+                        await this.createTaskFromText(ctx, normalizedText);
+                        return;
+                    }
+                    if (intent === 'habit') {
+                        const habitName = normalizedText;
+                        await this.createHabitFromVoice(ctx, habitName);
+                        return;
+                    }
+                    if (intent === 'ask_ai') {
+                        await ctx.replyWithMarkdown(`💬 *Я могу помочь:*\n${await this.aiContextService.generatePersonalizedMessage(ctx.userId, 'motivation', normalizedText)}`);
+                        return;
+                    }
+                }
+                await this.showVoiceAnalysisOptions(ctx, text);
+                return;
+            }
+            catch (error) {
+                this.logger.error('Error during AI classification of voice text:', error);
+                await this.showVoiceAnalysisOptions(ctx, text);
+                return;
+            }
         }
         const taskName = this.extractTaskName(text);
         await this.createTaskFromVoice(ctx, taskName);
