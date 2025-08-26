@@ -137,10 +137,24 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
           // If the error is about message editing, try to send a new message
           await ctx.replyWithMarkdown(
             '❌ Произошла ошибка. Попробуйте позже или обратитесь к администратору.',
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                ],
+              },
+            },
           );
         } else {
           await ctx.replyWithMarkdown(
             '❌ Произошла ошибка. Попробуйте позже или обратитесь к администратору.',
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                ],
+              },
+            },
           );
         }
       } catch (responseError) {
@@ -193,6 +207,13 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         this.logger.error('Error in start command:', error);
         await ctx.replyWithMarkdown(
           '❌ Произошла ошибка при запуске бота. Попробуйте еще раз.',
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+              ],
+            },
+          },
         );
       }
     });
@@ -361,7 +382,13 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         await this.showFeedbackSurvey(ctx);
       } catch (error) {
         this.logger.error('Error in feedback command:', error);
-        await ctx.replyWithMarkdown('❌ Произошла ошибка. Попробуйте позже.');
+        await ctx.replyWithMarkdown('❌ Произошла ошибка. Попробуйте позже.', {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        });
       }
     });
 
@@ -789,6 +816,7 @@ ${statusMessage}
                       callback_data: 'choose_dependency',
                     },
                   ],
+                  [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
                 ],
               },
             },
@@ -884,6 +912,13 @@ ${statusMessage}
           this.logger.error(`Error creating habit: ${error}`);
           await ctx.replyWithMarkdown(
             '❌ Произошла ошибка при создании привычки. Попробуйте позже.',
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                ],
+              },
+            },
           );
         }
         return;
@@ -2749,13 +2784,141 @@ ${trialText}**Premium подписка включает:**
                   text: '🎯 Выбрать зависимость',
                   callback_data: 'choose_dependency',
                 },
-                { text: '⬅️ Назад', callback_data: 'more_functions' },
+                {
+                  text: '📊 Мои результаты',
+                  callback_data: 'dependency_results',
+                },
               ],
+              [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
               [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
             ],
           },
         },
       );
+    });
+
+    this.bot.action('dependency_results', async (ctx) => {
+      await ctx.answerCbQuery();
+
+      try {
+        // Получаем все активные зависимости пользователя
+        const dependencies = await this.prisma.dependencySupport.findMany({
+          where: {
+            userId: ctx.userId,
+            status: 'ACTIVE',
+          },
+          orderBy: {
+            createdAt: 'asc',
+          },
+        });
+
+        if (dependencies.length === 0) {
+          await ctx.editMessageTextWithMarkdown(
+            `
+📊 *Мои результаты по зависимостям*
+
+❌ **У вас пока нет активных зависимостей для отслеживания.**
+
+Начните отслеживать свой прогресс, выбрав зависимость!
+            `,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: '🎯 Выбрать зависимость',
+                      callback_data: 'choose_dependency',
+                    },
+                  ],
+                  [{ text: '⬅️ Назад', callback_data: 'dependencies' }],
+                  [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                ],
+              },
+            },
+          );
+          return;
+        }
+
+        // Формируем статистику по каждой зависимости
+        let statsMessage = `📊 *Мои результаты по зависимостям*\n\n`;
+
+        for (const dependency of dependencies) {
+          const dependencyNames = {
+            SMOKING: '🚭 Курение',
+            ALCOHOL: '🍺 Алкоголь',
+            SOCIAL: '📱 Соцсети',
+            GAMING: '🎮 Игры',
+            SHOPPING: '🛒 Покупки',
+            SWEETS: '🍰 Сладкое',
+          };
+
+          const depName =
+            dependencyNames[dependency.type] ||
+            `✍️ ${dependency.customName || dependency.type}`;
+          const startDate = dependency.createdAt;
+          const now = new Date();
+          const totalDays = Math.floor(
+            (now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24),
+          );
+          const cleanDays = dependency.daysClean || 0;
+          const successRate =
+            totalDays > 0 ? Math.round((cleanDays / totalDays) * 100) : 100;
+          const keptPromises = dependency.keptPromises || 0;
+
+          statsMessage += `${depName}\n`;
+          statsMessage += `📅 **Начал:** ${startDate.toLocaleDateString('ru-RU')}\n`;
+          statsMessage += `🏆 **Дней без зависимости:** ${cleanDays}\n`;
+          statsMessage += `📈 **Всего дней отслеживания:** ${totalDays}\n`;
+          statsMessage += `✅ **Выполненных обещаний:** ${keptPromises}\n`;
+          statsMessage += `📊 **Процент успеха:** ${successRate}%\n`;
+
+          // Добавляем мотивационное сообщение
+          if (cleanDays >= 30) {
+            statsMessage += `🎉 **Отличный результат! Больше месяца без зависимости!**\n`;
+          } else if (cleanDays >= 7) {
+            statsMessage += `💪 **Хорошо идете! Уже неделя без зависимости!**\n`;
+          } else if (cleanDays >= 1) {
+            statsMessage += `🌱 **Первые шаги! Продолжайте в том же духе!**\n`;
+          } else {
+            statsMessage += `🚀 **Начинайте сначала! У вас все получится!**\n`;
+          }
+
+          statsMessage += `\n`;
+        }
+
+        statsMessage += `💡 *Помните: каждый день без зависимости - это победа!*`;
+
+        await ctx.editMessageTextWithMarkdown(statsMessage, {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '🔄 Обновить статистику',
+                  callback_data: 'dependency_results',
+                },
+              ],
+              [{ text: '⬅️ Назад', callback_data: 'dependencies' }],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        });
+      } catch (error) {
+        this.logger.error('Error fetching dependency results:', error);
+        await ctx.editMessageTextWithMarkdown(
+          `
+❌ *Ошибка получения статистики*
+
+Не удалось загрузить ваши результаты. Попробуйте позже.
+          `,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '⬅️ Назад', callback_data: 'dependencies' }],
+              ],
+            },
+          },
+        );
+      }
     });
 
     this.bot.action('choose_dependency', async (ctx) => {
@@ -2943,6 +3106,12 @@ ${trialText}**Premium подписка включает:**
                       {
                         text: '⬅️ Назад',
                         callback_data: 'choose_dependency',
+                      },
+                    ],
+                    [
+                      {
+                        text: '🏠 Главное меню',
+                        callback_data: 'back_to_menu',
                       },
                     ],
                   ],
@@ -4795,6 +4964,13 @@ XP (опыт) начисляется за выполнение задач. С к
       this.logger.error(`Bot error for ${ctx.updateType}:`, err);
       ctx.reply(
         '🚫 Произошла ошибка. Попробуйте позже или обратитесь к администратору.',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
       );
     });
   }
@@ -7550,6 +7726,13 @@ _Попробуйте еще раз_
       this.logger.error(`${type} message processing error:`, error);
       await ctx.replyWithMarkdown(
         `❌ Произошла ошибка при обработке ${type === 'voice' ? 'голосового сообщения' : 'аудио файла'}.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
       );
     }
   }
@@ -9015,6 +9198,13 @@ _Просто напишите время в удобном формате_
       this.logger.error(`Error creating task from text: ${error}`);
       await ctx.replyWithMarkdown(
         '❌ Произошла ошибка при создании задачи. Попробуйте позже.',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
       );
     }
   }
@@ -9591,6 +9781,7 @@ ${aiAnalysis}
           reply_markup: {
             inline_keyboard: [
               [{ text: '⬅️ Назад', callback_data: 'reminders' }],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
             ],
           },
         },
@@ -9749,6 +9940,7 @@ ${aiAnalysis}
           reply_markup: {
             inline_keyboard: [
               [{ text: '⬅️ Назад', callback_data: 'reminders' }],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
             ],
           },
         },
@@ -9872,6 +10064,7 @@ ${aiAnalysis}
           reply_markup: {
             inline_keyboard: [
               [{ text: '⬅️ Назад', callback_data: 'reminders' }],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
             ],
           },
         },
@@ -9931,6 +10124,7 @@ ${aiAnalysis}
           reply_markup: {
             inline_keyboard: [
               [{ text: '⬅️ Назад', callback_data: 'manage_reminders' }],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
             ],
           },
         },
@@ -10172,6 +10366,7 @@ ${this.getItemActivationMessage(itemType)}`,
           reply_markup: {
             inline_keyboard: [
               [{ text: '⬅️ Назад в магазин', callback_data: 'xp_shop' }],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
             ],
           },
         },
@@ -10776,6 +10971,13 @@ ${this.getItemActivationMessage(itemType)}`,
       this.logger.error(`Error creating habit from voice: ${error}`);
       await ctx.replyWithMarkdown(
         '❌ Произошла ошибка при создании привычки. Попробуйте позже.',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
       );
     }
   }
@@ -10833,6 +11035,13 @@ ${this.getItemActivationMessage(itemType)}`,
       this.logger.error(`Error creating task from voice: ${error}`);
       await ctx.replyWithMarkdown(
         '❌ Произошла ошибка при создании задачи. Попробуйте позже.',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
       );
     }
   }
@@ -11149,6 +11358,13 @@ ${this.getItemActivationMessage(itemType)}`,
       console.error(`Error creating long-term task: ${error}`);
       await ctx.replyWithMarkdown(
         '❌ Произошла ошибка при создании задачи. Попробуйте позже.',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
       );
     }
 
@@ -11221,6 +11437,13 @@ ${this.getItemActivationMessage(itemType)}`,
       console.error(`Error creating task with deadline: ${error}`);
       await ctx.replyWithMarkdown(
         '❌ Произошла ошибка при создании задачи. Попробуйте позже.',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
       );
     }
   }
