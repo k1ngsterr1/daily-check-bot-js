@@ -28,7 +28,7 @@ export class NotificationService {
 
   async onModuleInit() {
     this.logger.log(
-      'Notification service initialized - habit reminders enabled',
+      'Notification service initialized (habit reminders disabled to avoid duplicates)',
     );
   }
 
@@ -206,14 +206,6 @@ export class NotificationService {
 
   async sendHabitReminder(habit: any) {
     try {
-      // Check if habit is skipped for today
-      if (this.telegramBotService.isHabitSkippedToday(habit.id)) {
-        this.logger.log(
-          `Habit ${habit.id} is skipped for today, not sending reminder`,
-        );
-        return;
-      }
-
       const user =
         habit.user ||
         (await this.prisma.user.findUnique({
@@ -222,6 +214,16 @@ export class NotificationService {
 
       if (!user) {
         this.logger.warn(`User not found for habit ${habit.id}`);
+        return;
+      }
+
+      // Проверка пропуска привычки на сегодня
+      if (
+        await this.telegramBotService.isHabitSkippedToday(habit.id, user.id)
+      ) {
+        this.logger.log(
+          `Habit ${habit.id} is skipped for today, not sending reminder`,
+        );
         return;
       }
 

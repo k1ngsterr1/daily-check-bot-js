@@ -67,7 +67,7 @@ let NotificationService = NotificationService_1 = class NotificationService {
         this.schedulerRegistry = schedulerRegistry;
     }
     async onModuleInit() {
-        this.logger.log('Notification service initialized - habit reminders enabled');
+        this.logger.log('Notification service initialized (habit reminders disabled to avoid duplicates)');
     }
     async loadActiveHabitReminders() {
         const activeHabits = await this.prisma.habit.findMany({
@@ -177,16 +177,16 @@ let NotificationService = NotificationService_1 = class NotificationService {
     }
     async sendHabitReminder(habit) {
         try {
-            if (this.telegramBotService.isHabitSkippedToday(habit.id)) {
-                this.logger.log(`Habit ${habit.id} is skipped for today, not sending reminder`);
-                return;
-            }
             const user = habit.user ||
                 (await this.prisma.user.findUnique({
                     where: { id: habit.userId },
                 }));
             if (!user) {
                 this.logger.warn(`User not found for habit ${habit.id}`);
+                return;
+            }
+            if (await this.telegramBotService.isHabitSkippedToday(habit.id, user.id)) {
+                this.logger.log(`Habit ${habit.id} is skipped for today, not sending reminder`);
                 return;
             }
             const message = this.generateReminderMessage(habit);
