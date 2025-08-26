@@ -517,6 +517,16 @@ ${statusMessage}
       }
     });
 
+    // Info command - show notification schedules
+    this.bot.command('info', async (ctx) => {
+      try {
+        await this.showNotificationSchedules(ctx);
+      } catch (error) {
+        this.logger.error('Error showing info:', error);
+        await ctx.replyWithMarkdown('❌ Ошибка при получении информации.');
+      }
+    });
+
     // Onboarding callback handlers
     this.bot.action('onboarding_start', async (ctx) => {
       await ctx.answerCbQuery();
@@ -1957,6 +1967,113 @@ ${user.todayTasks > 0 || user.todayHabits > 0 ? '🟢 Активный день!
           },
         },
       );
+    });
+
+    this.bot.action('settings_timezone', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown(
+        `🌍 *Настройка часового пояса*
+
+Выберите ваш часовой пояс для точной отправки мотивационных сообщений:
+
+🕘 9:00, 15:00 и 22:00 по вашему местному времени`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '🇷🇺 Москва (UTC+3)',
+                  callback_data: 'tz_Europe/Moscow',
+                },
+                { text: '🇺🇦 Киев (UTC+2)', callback_data: 'tz_Europe/Kiev' },
+              ],
+              [
+                { text: '🇰🇿 Алматы (UTC+6)', callback_data: 'tz_Asia/Almaty' },
+                {
+                  text: '🇺🇿 Ташкент (UTC+5)',
+                  callback_data: 'tz_Asia/Tashkent',
+                },
+              ],
+              [
+                { text: '🇦🇿 Баку (UTC+4)', callback_data: 'tz_Asia/Baku' },
+                { text: '🇧🇾 Минск (UTC+3)', callback_data: 'tz_Europe/Minsk' },
+              ],
+              [
+                {
+                  text: '🇺🇸 Нью-Йорк (UTC-5)',
+                  callback_data: 'tz_America/New_York',
+                },
+                {
+                  text: '🇬🇧 Лондон (UTC+0)',
+                  callback_data: 'tz_Europe/London',
+                },
+              ],
+              [
+                { text: '⬅️ Назад к информации', callback_data: 'info_back' },
+                { text: '🏠 Главное меню', callback_data: 'back_to_menu' },
+              ],
+            ],
+          },
+        },
+      );
+    });
+
+    // Timezone selection handlers
+    this.bot.action(/^tz_(.+)$/, async (ctx) => {
+      const timezone = ctx.match[1];
+      await ctx.answerCbQuery();
+
+      try {
+        await this.userService.updateUser(ctx.userId, { timezone });
+
+        const timezoneNames = {
+          'Europe/Moscow': '🇷🇺 Москва (UTC+3)',
+          'Europe/Kiev': '🇺🇦 Киев (UTC+2)',
+          'Asia/Almaty': '🇰🇿 Алматы (UTC+6)',
+          'Asia/Tashkent': '🇺🇿 Ташкент (UTC+5)',
+          'Asia/Baku': '🇦🇿 Баку (UTC+4)',
+          'Europe/Minsk': '🇧🇾 Минск (UTC+3)',
+          'America/New_York': '🇺🇸 Нью-Йорк (UTC-5)',
+          'Europe/London': '🇬🇧 Лондон (UTC+0)',
+        };
+
+        await ctx.editMessageTextWithMarkdown(
+          `✅ *Часовой пояс обновлен*
+
+Установлен: ${timezoneNames[timezone] || timezone}
+
+🌟 Мотивационные сообщения будут приходить:
+• 🌅 9:00 - Утренняя мотивация  
+• 🌞 15:00 - Дневная поддержка
+• 🌙 22:00 - Вечернее подведение итогов
+
+Все уведомления теперь настроены по вашему местному времени!`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: '📋 Показать расписание',
+                    callback_data: 'info_back',
+                  },
+                ],
+                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+              ],
+            },
+          },
+        );
+      } catch (error) {
+        this.logger.error('Error updating timezone:', error);
+        await ctx.editMessageTextWithMarkdown(
+          '❌ Ошибка при обновлении часового пояса. Попробуйте позже.',
+        );
+      }
+    });
+
+    // Info back handler
+    this.bot.action('info_back', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.showNotificationSchedules(ctx);
     });
 
     this.bot.action('setup_notifications', async (ctx) => {
@@ -7138,44 +7255,179 @@ ${timeAdvice}
       this.logger.error('Failed to launch bot:', error);
     });
 
+    // Инициализация системы уведомлений о привычках
+    this.notificationService.loadActiveHabitReminders().catch((error) => {
+      this.logger.error('Failed to load habit reminders:', error);
+    });
+
     // Инициализация системы мотивационных сообщений для зависимостей
     this.startMotivationalMessagesService();
+
+    // Очистка кеша пропущенных привычек каждую полночь
+    this.startDailyCacheCleanup();
   }
 
   private startMotivationalMessagesService() {
-    // Отправка мотивационных сообщений каждый час с 8:00 до 22:00
+    // Запускаем проверку каждые 10 минут для отправки мотивационных сообщений
     setInterval(
       async () => {
-        const currentHour = new Date().getHours();
-
-        // Работаем только с 8:00 до 22:00
-        if (currentHour >= 8 && currentHour <= 22) {
-          await this.sendMotivationalMessages();
-        }
+        await this.checkAndSendMotivationalMessages();
       },
-      60 * 60 * 1000,
-    ); // каждый час
+      10 * 60 * 1000, // каждые 10 минут
+    );
 
-    this.logger.log('Motivational messages service started');
+    this.logger.log(
+      'Motivational messages service started - checking every 10 minutes',
+    );
   }
 
-  private async sendMotivationalMessages() {
+  private startDailyCacheCleanup() {
+    // Проверяем каждые 30 минут, наступил ли новый день
+    setInterval(
+      () => {
+        const now = new Date();
+        const hours = now.getHours();
+        const minutes = now.getMinutes();
+
+        // В 00:00 очищаем кеш пропущенных привычек
+        if (hours === 0 && minutes <= 30) {
+          this.clearSkippedHabitsCache();
+        }
+      },
+      30 * 60 * 1000,
+    ); // каждые 30 минут
+
+    this.logger.log('Daily cache cleanup service started');
+  }
+
+  private async checkAndSendMotivationalMessages() {
     try {
-      // Здесь вы бы получили список пользователей с активными зависимостями
-      // Пока что это заглушка для демонстрации структуры
+      // Получаем всех пользователей с активными привычками
+      const usersWithHabits = await this.prisma.user.findMany({
+        where: {
+          habits: {
+            some: {
+              isActive: true,
+            },
+          },
+        },
+        include: {
+          habits: {
+            where: {
+              isActive: true,
+            },
+          },
+        },
+      });
 
-      // const usersWithDependencies = await this.getUsersWithActiveDependencies();
-      //
-      // for (const user of usersWithDependencies) {
-      //   const motivationalMessage = await this.generateMotivationalMessage(user.dependency);
-      //   await this.bot.telegram.sendMessage(user.telegramId, motivationalMessage, {
-      //     parse_mode: 'Markdown'
-      //   });
-      // }
+      this.logger.log(
+        `Found ${usersWithHabits.length} users with active habits`,
+      );
 
-      this.logger.log('Motivational messages sent');
+      for (const user of usersWithHabits) {
+        await this.checkUserMotivationalTime(user);
+      }
     } catch (error) {
-      this.logger.error('Error sending motivational messages:', error);
+      this.logger.error('Error checking motivational messages:', error);
+    }
+  }
+
+  private async checkUserMotivationalTime(user: any) {
+    try {
+      const userTimezone = user.timezone || 'Europe/Moscow';
+      const now = new Date();
+
+      // Получаем текущее время в часовом поясе пользователя
+      const userTime = new Date(
+        now.toLocaleString('en-US', { timeZone: userTimezone }),
+      );
+      const currentHour = userTime.getHours();
+      const currentMinute = userTime.getMinutes();
+
+      // Проверяем, нужно ли отправить сообщение в одно из трех времен:
+      // 9:00, 15:00, 22:00 (с допуском ±5 минут)
+      const targetHours = [9, 15, 22];
+      const shouldSend = targetHours.some((hour) => {
+        return (
+          currentHour === hour && currentMinute >= 0 && currentMinute <= 10
+        );
+      });
+
+      if (shouldSend) {
+        // Проверяем, отправляли ли уже сегодня в это время
+        const today = new Date().toDateString();
+        const lastSentKey = `motivational_${user.id}_${currentHour}_${today}`;
+
+        // Простая проверка - используем кеш в памяти (для production нужна БД)
+        if (!this.sentMessagesCache) {
+          this.sentMessagesCache = new Set();
+        }
+
+        if (!this.sentMessagesCache.has(lastSentKey)) {
+          await this.sendUserMotivationalMessage(user, currentHour);
+          this.sentMessagesCache.add(lastSentKey);
+        }
+      }
+    } catch (error) {
+      this.logger.error(
+        `Error checking motivational time for user ${user.id}:`,
+        error,
+      );
+    }
+  }
+
+  private sentMessagesCache = new Set<string>();
+  private skippedHabitsToday = new Set<string>(); // Track habits skipped today
+
+  private async sendUserMotivationalMessage(user: any, hour: number) {
+    try {
+      let timeContext = '';
+      if (hour === 9) {
+        timeContext = 'утренняя мотивация для продуктивного дня';
+      } else if (hour === 15) {
+        timeContext = 'дневная поддержка и напоминание о целях';
+      } else if (hour === 22) {
+        timeContext =
+          'вечернее подведение итогов и подготовка к завтрашнему дню';
+      }
+
+      // Выбираем случайную привычку пользователя для персонализации
+      const randomHabit =
+        user.habits[Math.floor(Math.random() * user.habits.length)];
+
+      const prompt = `Создай короткое мотивационное сообщение на русском языке (максимум 80 слов) с учетом времени дня: "${timeContext}".
+      У пользователя есть привычка: "${randomHabit.title}".
+      Сделай сообщение личным, вдохновляющим и подходящим для времени дня.
+      Используй эмодзи для эмоциональности. Обращайся на "ты".
+      Не упоминай конкретное время.`;
+
+      const motivationalMessage =
+        await this.openaiService.getAIResponse(prompt);
+
+      // Очищаем сообщение от лишних символов
+      const cleanMessage = motivationalMessage.replace(/['"«»]/g, '').trim();
+
+      await this.sendMessageToUser(parseInt(user.id), cleanMessage, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '📊 Мои привычки', callback_data: 'habits_menu' },
+              { text: '✅ Задачи', callback_data: 'tasks_menu' },
+            ],
+            [{ text: '🎯 Главное меню', callback_data: 'back_to_menu' }],
+          ],
+        },
+      });
+
+      this.logger.log(
+        `Sent motivational message to user ${user.id} at ${hour}:00`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error sending motivational message to user ${user.id}:`,
+        error,
+      );
     }
   }
 
@@ -13244,6 +13496,16 @@ ${this.getItemActivationMessage(itemType)}`,
       const userId = ctx.from?.id.toString();
       if (!userId) return;
 
+      // Remove habit from skipped list if it was skipped
+      const today = new Date().toDateString();
+      const skipKey = `${habitId}_${today}`;
+      if (this.skippedHabitsToday.has(skipKey)) {
+        this.skippedHabitsToday.delete(skipKey);
+        this.logger.log(
+          `Removed habit ${habitId} from skipped list after completion`,
+        );
+      }
+
       // Mark habit as completed
       const result = await this.habitService.completeHabit(habitId, userId);
 
@@ -13397,11 +13659,17 @@ ${this.getItemActivationMessage(itemType)}`,
         return;
       }
 
-      // You might want to track skipped habits in your database
-      // For now, just update the message
+      // Add habit to skipped list for today
+      const today = new Date().toDateString();
+      const skipKey = `${habitId}_${today}`;
+      this.skippedHabitsToday.add(skipKey);
+
+      // Cancel any active interval reminders for this habit today
+      await this.notificationService.cancelHabitReminder(habitId);
 
       const message = `⏭️ Привычка "${habit.title}" пропущена на сегодня.
 
+Интервальные напоминания остановлены до завтра.
 Не расстраивайтесь! Завтра новый день - новые возможности! 🌅`;
 
       await ctx.editMessageText(message, {
@@ -13412,6 +13680,10 @@ ${this.getItemActivationMessage(itemType)}`,
           ],
         },
       });
+
+      this.logger.log(
+        `Habit ${habitId} skipped for today by user ${ctx.userId}`,
+      );
     } catch (error) {
       this.logger.error('Error skipping habit from notification:', error);
       await ctx.editMessageText('❌ Ошибка при пропуске привычки.');
@@ -14269,6 +14541,270 @@ ${this.getItemActivationMessage(itemType)}`,
           },
         },
       );
+    }
+  }
+
+  /**
+   * Show notification schedules for user's habits
+   */
+  private async showNotificationSchedules(ctx: BotContext) {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: ctx.userId },
+        include: {
+          habits: {
+            where: { isActive: true },
+          },
+        },
+      });
+
+      if (!user) {
+        await ctx.replyWithMarkdown('❌ Пользователь не найден.');
+        return;
+      }
+
+      const userTimezone = user.timezone || 'Europe/Moscow';
+      let message = '📋 *Расписание уведомлений*\n\n';
+
+      // Мотивационные сообщения
+      message += '🌟 *Мотивационные сообщения*\n';
+      message += `📍 Ваш часовой пояс: ${userTimezone}\n\n`;
+      message += '⏰ *Расписание отправки:*\n';
+      message += '• 🌅 9:00 - Утренняя мотивация\n';
+      message += '• 🌞 15:00 - Дневная поддержка\n';
+      message += '• 🌙 22:00 - Вечернее подведение итогов\n\n';
+
+      // Рассчитываем время до следующих мотивационных сообщений
+      const timeUntilNext =
+        this.calculateTimeUntilNextMotivational(userTimezone);
+
+      if (timeUntilNext.nextTime) {
+        message += `⏳ *Следующее сообщение:*\n`;
+        message += `${timeUntilNext.emoji} ${timeUntilNext.nextTime} (через ${timeUntilNext.timeLeft})\n\n`;
+      }
+
+      if (user.habits.length > 0) {
+        message += `💡 Персонализированные сообщения на основе ваших ${user.habits.length} привычек\n\n`;
+      } else {
+        message += '� Создайте привычки для персонализированных сообщений\n\n';
+      }
+
+      // Уведомления о привычках
+      const habitsWithReminders = user.habits.filter(
+        (habit) => habit.reminderTime,
+      );
+
+      message += '🔔 *Напоминания о привычках*\n';
+      if (habitsWithReminders.length === 0) {
+        message += '❌ Напоминания не настроены\n';
+        message +=
+          '_Настройте в разделе "Привычки" → "Настроить напоминание"_\n\n';
+      } else {
+        message += `✅ Активно: ${habitsWithReminders.length} напоминаний\n\n`;
+
+        for (const habit of habitsWithReminders) {
+          message += `🎯 *${habit.title}*\n`;
+          message += `⏰ Время: ${habit.reminderTime}\n`;
+
+          const timeUntilHabit = this.calculateTimeUntilNextHabitReminder(
+            habit,
+            userTimezone,
+          );
+          message += `📅 Частота: ${habit.frequency === 'DAILY' ? 'Ежедневно' : 'По расписанию'}\n`;
+
+          if (timeUntilHabit) {
+            message += `⏳ Следующее: через ${timeUntilHabit}\n`;
+          }
+
+          message += '\n';
+          message += `� Частота: ${habit.frequency === 'DAILY' ? 'Ежедневно' : 'По расписанию'}\n\n`;
+        }
+      }
+
+      message += '� *Все уведомления отправляются по вашему местному времени*';
+
+      await ctx.replyWithMarkdown(message, {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🔧 Настроить привычки', callback_data: 'habits_menu' },
+              {
+                text: '⚙️ Настроить часовой пояс',
+                callback_data: 'settings_timezone',
+              },
+            ],
+            [{ text: '🔙 Главное меню', callback_data: 'back_to_menu' }],
+          ],
+        },
+      });
+    } catch (error) {
+      this.logger.error('Error showing notification schedules:', error);
+      await ctx.replyWithMarkdown(
+        '❌ Произошла ошибка при получении расписания уведомлений.',
+      );
+    }
+  }
+
+  /**
+   * Generate AI-powered motivational message for a habit
+   */
+  private async generateHabitMotivationalMessage(habit: any): Promise<string> {
+    try {
+      const prompt = `Create a short, motivational reminder message (max 50 words) in Russian for the habit: "${habit.title}". 
+      Make it personal, encouraging, and action-oriented. Focus on the benefits and positive emotions.
+      Don't use phrases like "Давайте" or "мы". Use "вы" or direct address.`;
+
+      const aiResponse = await this.openaiService.getAIResponse(prompt);
+
+      // Extract clean message from AI response
+      const cleanMessage = aiResponse
+        .replace(/['"«»]/g, '')
+        .replace(/^\w+:\s*/, '')
+        .trim();
+
+      return cleanMessage || `Время выполнить: ${habit.title}! 💪`;
+    } catch (error) {
+      this.logger.error('Error generating motivational message:', error);
+      return `Время выполнить: ${habit.title}! 💪`;
+    }
+  }
+
+  /**
+   * Check if habit is skipped for today
+   */
+  public isHabitSkippedToday(habitId: string): boolean {
+    const today = new Date().toDateString();
+    const skipKey = `${habitId}_${today}`;
+    return this.skippedHabitsToday.has(skipKey);
+  }
+
+  /**
+   * Clear skipped habits cache daily (called at midnight)
+   */
+  private clearSkippedHabitsCache() {
+    this.skippedHabitsToday.clear();
+    this.logger.log('Cleared skipped habits cache for new day');
+  }
+
+  /**
+   * Calculate time until next motivational message
+   */
+  private calculateTimeUntilNextMotivational(timezone: string) {
+    const now = new Date();
+    const userTime = new Date(
+      now.toLocaleString('en-US', { timeZone: timezone }),
+    );
+    const currentHour = userTime.getHours();
+    const currentMinute = userTime.getMinutes();
+
+    const schedules = [
+      { hour: 9, emoji: '🌅', label: 'Утреннее сообщение' },
+      { hour: 15, emoji: '🌞', label: 'Дневное сообщение' },
+      { hour: 22, emoji: '🌙', label: 'Вечернее сообщение' },
+    ];
+
+    // Найдем следующее время отправки
+    for (const schedule of schedules) {
+      if (
+        currentHour < schedule.hour ||
+        (currentHour === schedule.hour && currentMinute < 10)
+      ) {
+        const targetTime = new Date(userTime);
+        targetTime.setHours(schedule.hour, 0, 0, 0);
+
+        const diffMs = targetTime.getTime() - userTime.getTime();
+        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+        const diffMinutes = Math.floor(
+          (diffMs % (1000 * 60 * 60)) / (1000 * 60),
+        );
+
+        let timeLeft = '';
+        if (diffHours > 0) {
+          timeLeft = `${diffHours}ч ${diffMinutes}м`;
+        } else {
+          timeLeft = `${diffMinutes}м`;
+        }
+
+        return {
+          nextTime: `${schedule.hour}:00`,
+          timeLeft,
+          emoji: schedule.emoji,
+        };
+      }
+    }
+
+    // Если уже прошли все сегодняшние времена, показываем завтрашнее утреннее
+    const tomorrowMorning = new Date(userTime);
+    tomorrowMorning.setDate(tomorrowMorning.getDate() + 1);
+    tomorrowMorning.setHours(9, 0, 0, 0);
+
+    const diffMs = tomorrowMorning.getTime() - userTime.getTime();
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+
+    return {
+      nextTime: '9:00 (завтра)',
+      timeLeft: `${diffHours}ч ${diffMinutes}м`,
+      emoji: '🌅',
+    };
+  }
+
+  /**
+   * Calculate time until next habit reminder
+   */
+  private calculateTimeUntilNextHabitReminder(
+    habit: any,
+    timezone: string,
+  ): string | null {
+    if (!habit.reminderTime) return null;
+
+    try {
+      const now = new Date();
+      const userTime = new Date(
+        now.toLocaleString('en-US', { timeZone: timezone }),
+      );
+
+      // Парсим время напоминания (например, "каждую минуту", "каждый час", "09:00")
+      const reminderTime = habit.reminderTime.toLowerCase();
+
+      if (reminderTime.includes('минуту')) {
+        return 'до 1 минуты';
+      } else if (reminderTime.includes('час')) {
+        const currentMinute = userTime.getMinutes();
+        const minutesLeft = 60 - currentMinute;
+        return `${minutesLeft}м`;
+      } else if (reminderTime.match(/\d{1,2}:\d{2}/)) {
+        // Конкретное время (например, "09:00")
+        const [hours, minutes] = reminderTime
+          .match(/(\d{1,2}):(\d{2})/)
+          .slice(1)
+          .map(Number);
+
+        const targetTime = new Date(userTime);
+        targetTime.setHours(hours, minutes, 0, 0);
+
+        // Если время уже прошло сегодня, берем завтра
+        if (targetTime <= userTime) {
+          targetTime.setDate(targetTime.getDate() + 1);
+        }
+
+        const diffMs = targetTime.getTime() - userTime.getTime();
+        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+        const diffMinutes = Math.floor(
+          (diffMs % (1000 * 60 * 60)) / (1000 * 60),
+        );
+
+        if (diffHours > 0) {
+          return `${diffHours}ч ${diffMinutes}м`;
+        } else {
+          return `${diffMinutes}м`;
+        }
+      }
+
+      return null;
+    } catch (error) {
+      this.logger.error('Error calculating habit reminder time:', error);
+      return null;
     }
   }
 }

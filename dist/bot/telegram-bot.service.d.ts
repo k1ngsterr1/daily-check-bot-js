@@ -49,7 +49,12 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private getReferralStats;
     onModuleInit(): Promise<void>;
     private startMotivationalMessagesService;
-    private sendMotivationalMessages;
+    private startDailyCacheCleanup;
+    private checkAndSendMotivationalMessages;
+    private checkUserMotivationalTime;
+    private sentMessagesCache;
+    private skippedHabitsToday;
+    private sendUserMotivationalMessage;
     onModuleDestroy(): Promise<void>;
     private startOnboarding;
     private showOnboardingStep1;
@@ -165,4 +170,10 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private handleTomorrowReminder;
     private askForCustomReminderTime;
     private createHabitFromExample;
+    private showNotificationSchedules;
+    private generateHabitMotivationalMessage;
+    isHabitSkippedToday(habitId: string): boolean;
+    private clearSkippedHabitsCache;
+    private calculateTimeUntilNextMotivational;
+    private calculateTimeUntilNextHabitReminder;
 }
