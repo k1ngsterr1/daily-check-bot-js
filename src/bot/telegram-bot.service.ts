@@ -742,6 +742,40 @@ ${statusMessage}
         return;
       }
 
+      // Handle editing task title flow
+      if (
+        ctx.session.step === 'editing_task_title' &&
+        ctx.session.pendingTaskTitle
+      ) {
+        const newTitle = ctx.message.text?.trim();
+        if (!newTitle || newTitle.length < 1) {
+          await ctx.replyWithMarkdown(
+            '⚠️ Название задачи не может быть пустым. Попробуйте ещё раз:',
+          );
+          return;
+        }
+
+        const taskId = ctx.session.pendingTaskTitle;
+        try {
+          await this.taskService.updateTask(taskId, ctx.userId, {
+            title: newTitle,
+          } as any);
+
+          ctx.session.step = undefined;
+          ctx.session.pendingTaskTitle = undefined;
+
+          await ctx.replyWithMarkdown('✅ Название задачи обновлено.');
+          // Refresh today's tasks view
+          await this.showTodayTasks(ctx);
+        } catch (err) {
+          this.logger.error('Error updating task title:', err);
+          await ctx.replyWithMarkdown(
+            '❌ Не удалось обновить задачу. Попробуйте позже.',
+          );
+        }
+        return;
+      }
+
       // Handle task creation
       if (ctx.session.step === 'waiting_for_task_title') {
         await this.handleTaskCreation(ctx, ctx.message.text);
@@ -4575,7 +4609,64 @@ XP (опыт) начисляется за выполнение задач. С к
     });
 
     this.bot.action(/^task_view_(.+)$/, async (ctx) => {
-      await ctx.answerCbQuery('✅ Задача уже выполнена');
+      await ctx.answerCbQuery();
+      const taskId = ctx.match[1];
+      try {
+        const task = await this.taskService.findTaskById(taskId, ctx.userId);
+
+        const message = `✅ *${task.title}*\n
+Статус: *${task.status}*\n`;
+
+        const keyboard = {
+          inline_keyboard: [
+            [
+              {
+                text: '🔁 Вернуть в активные',
+                callback_data: `task_reopen_${task.id}`,
+              },
+              {
+                text: '✏️ Редактировать название',
+                callback_data: `task_edit_${task.id}`,
+              },
+            ],
+            [{ text: '🗑️ Удалить', callback_data: `task_delete_${task.id}` }],
+            [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
+          ],
+        };
+
+        await ctx.editMessageTextWithMarkdown(message, {
+          reply_markup: keyboard,
+        });
+      } catch (err) {
+        this.logger.error('Error showing completed task view:', err);
+        await ctx.editMessageTextWithMarkdown('❌ Не удалось получить задачу');
+      }
+    });
+
+    // Reopen a completed task
+    this.bot.action(/^task_reopen_(.+)$/, async (ctx) => {
+      await ctx.answerCbQuery();
+      const taskId = ctx.match[1];
+      try {
+        await this.taskService.updateTask(taskId, ctx.userId, {
+          status: 'PENDING',
+        } as any);
+        await ctx.replyWithMarkdown('✅ Задача возвращена в активные.');
+        await this.showTodayTasks(ctx);
+      } catch (err) {
+        this.logger.error('Error reopening task:', err);
+        await ctx.replyWithMarkdown('❌ Не удалось вернуть задачу.');
+      }
+    });
+
+    // Start edit title flow
+    this.bot.action(/^task_edit_(.+)$/, async (ctx) => {
+      await ctx.answerCbQuery();
+      const taskId = ctx.match[1];
+      // Set session to editing mode and ask for new title
+      ctx.session.step = 'editing_task_title';
+      ctx.session.pendingTaskTitle = taskId;
+      await ctx.replyWithMarkdown('✏️ Отправьте новое название задачи:');
     });
 
     // Handle back to main menu
@@ -6795,21 +6886,78 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       message += `✅ **Выполнено:** ${completedTasks.length}\n\n`;
       message += `*Выберите задачу для завершения:*`;
 
-      const keyboard = {
-        inline_keyboard: [
-          ...pendingTasks.map((task) => [
+      const rows: any[] = [];
+
+      // Pending tasks (complete / delete)
+      rows.push(
+        ...pendingTasks.slice(0, 8).map((task) => [
+          {
+            text: `${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''} (${task.xpReward} XP)`,
+            callback_data: `task_complete_${task.id}`,
+          },
+          {
+            text: '🗑️ Удалить',
+            callback_data: `task_delete_${task.id}`,
+          },
+        ]),
+      );
+
+      if (pendingTasks.length > 8) {
+        rows.push([
+          {
+            text: `... и еще ${pendingTasks.length - 8} задач`,
+            callback_data: 'tasks_list_more',
+          },
+        ]);
+      }
+
+      // Completed tasks: show and allow editing/reopen/delete
+      if (completedTasks.length > 0) {
+        rows.push([
+          {
+            text: '— Выполненные (редактируемые) —',
+            callback_data: 'noop_separator',
+          },
+        ]);
+        rows.push(
+          ...completedTasks.slice(0, 20).map((task) => [
             {
-              text: `${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''} (${task.xpReward} XP)`,
-              callback_data: `task_complete_${task.id}`,
+              text: `✅ ${task.title.substring(0, 40)}${task.title.length > 40 ? '...' : ''} (${task.xpReward} XP)`,
+              callback_data: `task_view_${task.id}`,
+            },
+            {
+              text: '✏️ Редактировать',
+              callback_data: `task_edit_${task.id}`,
             },
           ]),
-          [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
-        ],
-      };
+        );
+      }
 
-      await ctx.editMessageTextWithMarkdown(message, {
-        reply_markup: keyboard,
-      });
+      rows.push([
+        { text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' },
+      ]);
+
+      const keyboard = { inline_keyboard: rows };
+
+      try {
+        await ctx.editMessageTextWithMarkdown(message, {
+          reply_markup: keyboard,
+        });
+      } catch (err) {
+        const e = err as any;
+        const desc = e?.response?.description || e?.message || '';
+        if (
+          typeof desc === 'string' &&
+          desc.includes('message is not modified')
+        ) {
+          this.logger.log(
+            'Edit resulted in no-op (showTodayTasks), sending a new message instead',
+          );
+          await ctx.replyWithMarkdown(message, { reply_markup: keyboard });
+        } else {
+          throw err;
+        }
+      }
     } catch (error) {
       this.logger.error('Error showing today tasks:', error);
       await ctx.editMessageTextWithMarkdown(
