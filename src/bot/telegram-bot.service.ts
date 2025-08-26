@@ -4485,10 +4485,19 @@ XP (опыт) начисляется за выполнение задач. С к
       await this.completeTask(ctx, taskId);
     });
 
-    // Handle back to tasks menu
+    // Handle back to tasks menu (open full tasks list)
     this.bot.action('back_to_tasks', async (ctx) => {
       await ctx.answerCbQuery();
-      await this.showTasksMenu(ctx);
+      await this.showTasksList(ctx);
+    });
+
+    // No-op separator (for decorative rows) and view completed task
+    this.bot.action('noop_separator', async (ctx) => {
+      await ctx.answerCbQuery();
+    });
+
+    this.bot.action(/^task_view_(.+)$/, async (ctx) => {
+      await ctx.answerCbQuery('✅ Задача уже выполнена');
     });
 
     // Handle back to main menu
@@ -4672,6 +4681,13 @@ XP (опыт) начисляется за выполнение задач. С к
       await ctx.answerCbQuery('✅ Отмечено как выполненное!');
       await ctx.editMessageTextWithMarkdown(
         `✅ *Напоминание выполнено!*\n\nОтлично! Задача отмечена как выполненная.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
       );
     });
 
@@ -4692,6 +4708,13 @@ XP (опыт) начисляется за выполнение задач. С к
 
       await ctx.editMessageTextWithMarkdown(
         `✅ *Напоминание выполнено!*\n\nОтлично! Задача отмечена как выполненная.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
       );
     });
 
@@ -5505,8 +5528,19 @@ ${recommendation}
 
       if (unit.includes('минут')) {
         targetTime.setMinutes(targetTime.getMinutes() + amount);
+        // Normalize to minute boundary (seconds and ms = 0)
+        targetTime.setSeconds(0, 0);
+        // If normalization moved time to the past or equal to now, push to next minute
+        if (targetTime.getTime() <= now.getTime()) {
+          targetTime.setTime(targetTime.getTime() + 60 * 1000);
+        }
       } else if (unit.includes('час')) {
         targetTime.setHours(targetTime.getHours() + amount);
+        // Normalize to minute boundary (seconds and ms = 0)
+        targetTime.setSeconds(0, 0);
+        if (targetTime.getTime() <= now.getTime()) {
+          targetTime.setTime(targetTime.getTime() + 60 * 1000);
+        }
       }
 
       return {
@@ -5592,12 +5626,16 @@ ${recommendation}
     };
 
     if (timeInfo) {
-      // Если время явно указано — сохраняем и подтверждаем создание напоминания
+      // Если время явно указано — создаём напоминание сразу
       ctx.session.waitingForReminderTime = false;
-      ctx.session.pendingReminderTime = timeInfo; // { hours, minutes }
+      ctx.session.pendingReminderTime = undefined;
 
-      await ctx.replyWithMarkdown(
-        `✅ Напоминание будет создано: "${cleanedText}" в ${timeInfo.hours}:${timeInfo.minutes}`,
+      // Делегируем создание и расписание напоминания в общий обработчик
+      await this.handleReminderRequest(
+        ctx,
+        cleanedText,
+        timeInfo.hours,
+        timeInfo.minutes,
       );
       return;
     }
@@ -6513,15 +6551,32 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       let message = `📋 *Все активные задачи (${pendingTasks.length}):*\n\n`;
       message += `*Выберите задачу для завершения:*`;
 
-      // Create keyboard with all pending tasks
+      // Create keyboard with pending tasks first, then completed tasks marked green
+      const pendingButtons = pendingTasks.map((task) => [
+        {
+          text: `${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 35)}${task.title.length > 35 ? '...' : ''} (${task.xpReward} XP)`,
+          callback_data: `task_complete_${task.id}`,
+        },
+      ]);
+
+      // Gather completed tasks for display
+      const completedTasks = tasks.filter((t) => t.status === 'COMPLETED');
+
+      const completedButtons = completedTasks.map((task) => [
+        {
+          text: `✅ ${task.title.substring(0, 35)}${task.title.length > 35 ? '...' : ''} (${task.xpReward} XP)`,
+          // Use a safe view callback to avoid rerunning completion
+          callback_data: `task_view_${task.id}`,
+        },
+      ]);
+
       const keyboard = {
         inline_keyboard: [
-          ...pendingTasks.map((task) => [
-            {
-              text: `${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 35)}${task.title.length > 35 ? '...' : ''} (${task.xpReward} XP)`,
-              callback_data: `task_complete_${task.id}`,
-            },
-          ]),
+          ...pendingButtons,
+          ...(completedButtons.length
+            ? [{ text: '— Выполненные —', callback_data: 'noop_separator' }]
+            : []),
+          ...completedButtons,
           [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
         ],
       };
@@ -6626,12 +6681,16 @@ ${progressBar} ${Math.round(progress * 100)}%
 
       message += '\nОтличная работа! 👏';
 
-      await ctx.editMessageTextWithMarkdown(message);
-
-      setTimeout(
-        () => this.showTasksMenu(ctx),
-        statsUpdate.leveledUp ? 3000 : 2000,
-      );
+      await ctx.editMessageTextWithMarkdown(message, {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🏠 Главное меню', callback_data: 'back_to_menu' },
+              { text: '📋 Меню задач', callback_data: 'back_to_tasks' },
+            ],
+          ],
+        },
+      });
     } catch (error) {
       this.logger.error('Error completing task:', error);
       if (error.message.includes('already completed')) {
@@ -7329,6 +7388,12 @@ ${personalizedResponse}${aiNotice}
       // Calculate reminder time
       const now = new Date();
       const reminderDate = new Date(now.getTime() + minutesFromNow * 60 * 1000);
+      // Normalize to exact minute boundary (seconds and ms = 0)
+      reminderDate.setSeconds(0, 0);
+      // If normalization made the reminderDate <= now (possible when now has seconds > 0), push it forward by one minute
+      if (reminderDate.getTime() <= now.getTime()) {
+        reminderDate.setTime(reminderDate.getTime() + 60 * 1000);
+      }
 
       // Schedule the reminder
       setTimeout(
@@ -7367,7 +7432,8 @@ ${reminderText}`,
             this.logger.error('Error sending reminder:', error);
           }
         },
-        minutesFromNow * 60 * 1000,
+        // Use precise delay based on absolute timestamp to respect normalized seconds
+        Math.max(0, reminderDate.getTime() - now.getTime()),
       );
 
       const timeStr = this.formatTimeWithTimezone(reminderDate, user?.timezone);
@@ -7600,6 +7666,12 @@ ${reminderText}`,
             const minutesToAdd = parseInt(minutesMatch[1]);
             const futureTime = new Date();
             futureTime.setMinutes(futureTime.getMinutes() + minutesToAdd);
+            // Normalize to minute boundary (seconds and ms = 0)
+            futureTime.setSeconds(0, 0);
+            // Ensure resulting time is in the future after normalization
+            if (futureTime.getTime() <= Date.now()) {
+              futureTime.setTime(futureTime.getTime() + 60 * 1000);
+            }
             hours = futureTime.getHours().toString();
             minutes = futureTime.getMinutes().toString().padStart(2, '0');
           }
