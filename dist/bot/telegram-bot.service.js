@@ -4772,6 +4772,7 @@ ${timeAdvice}
         await this.showOnboardingStep1(ctx);
     }
     async showOnboardingStep1(ctx) {
+        ctx.session.aiChatMode = false;
         const keyboard = {
             inline_keyboard: [
                 [
@@ -5618,6 +5619,9 @@ ${completionRate > 70
         });
     }
     async handleAIChatMessage(ctx, message) {
+        if (!ctx.session.aiChatMode) {
+            return;
+        }
         try {
             const limitCheck = await this.billingService.checkUsageLimit(ctx.userId, 'dailyAiQueries');
             if (!limitCheck.allowed) {
@@ -5689,12 +5693,17 @@ ${completionRate > 70
             }
             await ctx.replyWithMarkdown('🤔 *Анализирую ваш вопрос...*');
             const personalizedResponse = await this.aiContextService.generatePersonalizedMessage(ctx.userId, 'motivation', `${message}. Ответь кратко, до 100 слов, конкретно и по делу.`);
+            let aiNotice = '';
+            if (this.isReminderRequest(message) || this.isTaskRequest(message)) {
+                aiNotice =
+                    '\n\n⚠️ Похоже, вы хотите создать задачу или напоминание.\nПожалуйста, выйдите из ИИ-чата и используйте главное меню для этого.';
+            }
             await this.billingService.incrementUsage(ctx.userId, 'dailyAiQueries');
             const usageInfo = await this.billingService.checkUsageLimit(ctx.userId, 'dailyAiQueries');
             await ctx.replyWithMarkdown(`
 🧠 *ИИ отвечает:*
 
-${personalizedResponse}
+${personalizedResponse}${aiNotice}
 
 📊 ИИ-запросов: ${usageInfo.current}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit}
       `, {
@@ -5702,8 +5711,19 @@ ${personalizedResponse}
                     inline_keyboard: [
                         [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
                         [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                        [{ text: '🚪 Выйти из ИИ-чата', callback_data: 'exit_ai_chat' }],
                     ],
                 },
+            });
+            this.bot.action('exit_ai_chat', async (ctx) => {
+                ctx.session.aiChatMode = false;
+                await ctx.editMessageTextWithMarkdown('🧠 Режим ИИ-чата завершён. Вы можете продолжить работу через главное меню.', {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                        ],
+                    },
+                });
             });
         }
         catch (error) {
@@ -7224,10 +7244,17 @@ _Просто напишите время в удобном формате_
                 responseMessage += `\n\n💡 *Подсказки:*
 • Напоминание: "напомни купить молоко в 17:30"
 • Интервальное: "напоминай пить воду каждые 30 минут"`;
+                const reminderCallback = `create_reminder_from_task_${encodeURIComponent(task.title)}`;
                 await ctx.replyWithMarkdown(responseMessage, {
                     reply_markup: {
                         inline_keyboard: [
                             [{ text: '📝 Мои задачи', callback_data: 'tasks_list' }],
+                            [
+                                {
+                                    text: '🔔 Создать как напоминание',
+                                    callback_data: reminderCallback,
+                                },
+                            ],
                             [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
                         ],
                     },

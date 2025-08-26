@@ -6010,6 +6010,8 @@ ${timeAdvice}
   }
 
   private async showOnboardingStep1(ctx: BotContext) {
+    // При переходе в главное меню отключаем режим ИИ-чата
+    ctx.session.aiChatMode = false;
     const keyboard = {
       inline_keyboard: [
         [
@@ -7083,6 +7085,10 @@ ${
   }
 
   private async handleAIChatMessage(ctx: BotContext, message: string) {
+    // Не отвечать, если режим ИИ-чата не активен
+    if (!ctx.session.aiChatMode) {
+      return;
+    }
     try {
       // Check billing limits for AI queries
       const limitCheck = await this.billingService.checkUsageLimit(
@@ -7190,6 +7196,13 @@ ${
           `${message}. Ответь кратко, до 100 слов, конкретно и по делу.`,
         );
 
+      // Проверка: не похоже ли сообщение на задачу или напоминание
+      let aiNotice = '';
+      if (this.isReminderRequest(message) || this.isTaskRequest(message)) {
+        aiNotice =
+          '\n\n⚠️ Похоже, вы хотите создать задачу или напоминание.\nПожалуйста, выйдите из ИИ-чата и используйте главное меню для этого.';
+      }
+
       // Increment AI usage counter
       await this.billingService.incrementUsage(ctx.userId, 'dailyAiQueries');
 
@@ -7203,7 +7216,7 @@ ${
         `
 🧠 *ИИ отвечает:*
 
-${personalizedResponse}
+${personalizedResponse}${aiNotice}
 
 📊 ИИ-запросов: ${usageInfo.current}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit}
       `,
@@ -7212,10 +7225,25 @@ ${personalizedResponse}
             inline_keyboard: [
               [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
               [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+              [{ text: '🚪 Выйти из ИИ-чата', callback_data: 'exit_ai_chat' }],
             ],
           },
         },
       );
+      // Регистрируем обработчик выхода из ИИ-чата
+      this.bot.action('exit_ai_chat', async (ctx) => {
+        ctx.session.aiChatMode = false;
+        await ctx.editMessageTextWithMarkdown(
+          '🧠 Режим ИИ-чата завершён. Вы можете продолжить работу через главное меню.',
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+              ],
+            },
+          },
+        );
+      });
     } catch (error) {
       await ctx.replyWithMarkdown(
         `
@@ -9166,15 +9194,23 @@ _Просто напишите время в удобном формате_
         });
 
         let responseMessage = `✅ *Задача создана!*\n\n📝 **"${task.title}"**\n\nЗадача добавлена в ваш список. Вы можете найти её в разделе "Мои задачи и привычки".`;
-
         responseMessage += `\n\n💡 *Подсказки:*
 • Напоминание: "напомни купить молоко в 17:30"
 • Интервальное: "напоминай пить воду каждые 30 минут"`;
+
+        // Кнопка для создания напоминания на основе задачи
+        const reminderCallback = `create_reminder_from_task_${encodeURIComponent(task.title)}`;
 
         await ctx.replyWithMarkdown(responseMessage, {
           reply_markup: {
             inline_keyboard: [
               [{ text: '📝 Мои задачи', callback_data: 'tasks_list' }],
+              [
+                {
+                  text: '🔔 Создать как напоминание',
+                  callback_data: reminderCallback,
+                },
+              ],
               [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
             ],
           },
