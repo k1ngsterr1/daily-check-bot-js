@@ -3594,6 +3594,28 @@ XP (опыт) начисляется за выполнение задач. С к
             await ctx.answerCbQuery();
             await this.startAIChat(ctx);
         });
+        this.bot.action('exit_ai_chat', async (ctx) => {
+            await ctx.answerCbQuery();
+            ctx.session.aiChatMode = false;
+            await ctx.editMessageTextWithMarkdown('✅ *Вы вышли из режима ИИ-чата*\n\nТеперь вы можете создавать задачи, привычки и пользоваться всеми функциями бота.', {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                    ],
+                },
+            });
+        });
+        this.bot.action('continue_ai_chat', async (ctx) => {
+            await ctx.answerCbQuery();
+            await ctx.editMessageTextWithMarkdown('🤖 *Продолжаем чат с ИИ*\n\nЗадайте свой вопрос или попросите помощь.', {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '🚪 Выйти из ИИ-чата', callback_data: 'exit_ai_chat' }],
+                        [{ text: '⬅️ К меню ИИ', callback_data: 'ai_back_menu' }],
+                    ],
+                },
+            });
+        });
         this.bot.action('ai_analyze_profile', async (ctx) => {
             await ctx.answerCbQuery();
             await this.handleAIAnalyzeProfile(ctx);
@@ -5978,6 +6000,49 @@ ${ratingEmoji} Ваша оценка: ${rating}/5
     }
     async handleAIChatMessage(ctx, message) {
         try {
+            const systemActionPatterns = [
+                /^создать\s+задачу/i,
+                /^добавить\s+задачу/i,
+                /^новая\s+задача/i,
+                /завтра\s+.*(сделать|выполнить|купить|встретить|позвонить|написать|отправить|подготовить)/i,
+                /сегодня\s+.*(сделать|выполнить|купить|встретить|позвонить|написать|отправить|подготовить|провести)/i,
+                /послезавтра\s+.*(сделать|выполнить|купить|встретить|позвонить|написать|отправить|подготовить)/i,
+                /^создать\s+привычку/i,
+                /^добавить\s+привычку/i,
+                /^новая\s+привычка/i,
+                /^меню/i,
+                /^главное\s+меню/i,
+                /^назад/i,
+                /^задачи/i,
+                /^мои\s+задачи/i,
+                /^привычки/i,
+                /^мои\s+привычки/i,
+                /^статистика/i,
+                /^профиль/i,
+            ];
+            const isSystemAction = systemActionPatterns.some((pattern) => pattern.test(message.trim()));
+            this.logger.log(`AI Chat Message: "${message}", isSystemAction: ${isSystemAction}`);
+            if (isSystemAction) {
+                await ctx.replyWithMarkdown(`⚠️ *Вы находитесь в режиме чата с ИИ*\n\nЧтобы создать задачу, привычку или перейти в меню, сначала выйдите из ИИ-чата.\n\n💡 *Ваше сообщение:* "${message}"`, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '🚪 Выйти из ИИ-чата',
+                                    callback_data: 'exit_ai_chat',
+                                },
+                            ],
+                            [
+                                {
+                                    text: '🤖 Продолжить с ИИ',
+                                    callback_data: 'continue_ai_chat',
+                                },
+                            ],
+                        ],
+                    },
+                });
+                return;
+            }
             const limitCheck = await this.billingService.checkUsageLimit(ctx.userId, 'dailyAiQueries');
             if (!limitCheck.allowed) {
                 await ctx.replyWithMarkdown(limitCheck.message || '🚫 Превышен лимит ИИ-запросов', {

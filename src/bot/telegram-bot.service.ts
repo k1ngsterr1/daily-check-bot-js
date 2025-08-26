@@ -693,6 +693,12 @@ ${statusMessage}
         return;
       }
 
+      // Check if this looks like a task creation request (natural language)
+      if (!ctx.session.step && this.isTaskCreationRequest(ctx.message.text)) {
+        await this.handleNaturalTaskCreation(ctx, ctx.message.text);
+        return;
+      }
+
       // Check if user needs to provide timezone first
       if (
         !user.timezone &&
@@ -4367,6 +4373,64 @@ XP (опыт) начисляется за выполнение задач. С к
       await this.showMainMenu(ctx, true);
     });
 
+    // Handle task confirmation from natural language
+    this.bot.action(/^confirm_task:(.+)$/, async (ctx) => {
+      await ctx.answerCbQuery();
+      const taskTitle = ctx.match[1];
+
+      try {
+        const task = await this.taskService.createTask({
+          userId: ctx.userId,
+          title: taskTitle.trim(),
+          description: '',
+          priority: 'MEDIUM' as any,
+        });
+
+        await this.billingService.incrementUsage(ctx.userId, 'dailyTasks');
+
+        const user = await this.userService.findByTelegramId(ctx.userId);
+        await this.userService.updateUser(ctx.userId, {
+          totalTasks: user.totalTasks + 1,
+        });
+
+        await ctx.editMessageTextWithMarkdown(
+          `✅ *Задача успешно создана!*\n\n📝 *${task.title}*\n⚡ XP за выполнение: ${task.xpReward}`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '📋 Мои задачи', callback_data: 'menu_tasks' }],
+                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+              ],
+            },
+          },
+        );
+      } catch (error) {
+        this.logger.error('Error confirming task creation:', error);
+        await ctx.editMessageTextWithMarkdown(
+          '❌ *Ошибка при создании задачи*\n\nПопробуйте еще раз.',
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+              ],
+            },
+          },
+        );
+      }
+    });
+
+    // Handle task cancellation
+    this.bot.action('cancel_task', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown('❌ *Создание задачи отменено*', {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+          ],
+        },
+      });
+    });
+
     // Handle "Главное меню" button clicks
     this.bot.action('start', async (ctx) => {
       await ctx.answerCbQuery();
@@ -4469,6 +4533,38 @@ XP (опыт) начисляется за выполнение задач. С к
     this.bot.action('ai_back_menu', async (ctx) => {
       await ctx.answerCbQuery();
       await this.startAIChat(ctx);
+    });
+
+    // Exit AI Chat
+    this.bot.action('exit_ai_chat', async (ctx) => {
+      await ctx.answerCbQuery();
+      ctx.session.aiChatMode = false;
+      await ctx.editMessageTextWithMarkdown(
+        '✅ *Вы вышли из режима ИИ-чата*\n\nТеперь вы можете создавать задачи, привычки и пользоваться всеми функциями бота.',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    });
+
+    // Continue AI Chat
+    this.bot.action('continue_ai_chat', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown(
+        '🤖 *Продолжаем чат с ИИ*\n\nЗадайте свой вопрос или попросите помощь.',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🚪 Выйти из ИИ-чата', callback_data: 'exit_ai_chat' }],
+              [{ text: '⬅️ К меню ИИ', callback_data: 'ai_back_menu' }],
+            ],
+          },
+        },
+      );
     });
 
     // AI specialized handlers
@@ -6547,6 +6643,40 @@ ${tasksProgressBar}${userStats}
     }
   }
 
+  private async handleNaturalTaskCreation(ctx: BotContext, message: string) {
+    try {
+      // Подтверждаем создание задачи
+      await ctx.replyWithMarkdown(
+        `✅ *Создаю задачу:*\n"${message}"\n\n🤖 Задача будет автоматически добавлена в ваш список.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '✅ Подтвердить',
+                  callback_data: `confirm_task:${message}`,
+                },
+                { text: '❌ Отмена', callback_data: 'cancel_task' },
+              ],
+            ],
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.error('Error in natural task creation:', error);
+      await ctx.replyWithMarkdown(
+        '❌ *Ошибка при создании задачи*\n\nПопробуйте еще раз или обратитесь к администратору.',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    }
+  }
+
   private async showTasksList(ctx: BotContext) {
     try {
       const tasks = await this.taskService.findTasksByUserId(ctx.userId);
@@ -7550,6 +7680,67 @@ ${ratingEmoji} Ваша оценка: ${rating}/5
 
   private async handleAIChatMessage(ctx: BotContext, message: string) {
     try {
+      // Check if user is trying to perform system actions while in AI chat mode
+      const systemActionPatterns = [
+        // Task creation patterns
+        /^создать\s+задачу/i,
+        /^добавить\s+задачу/i,
+        /^новая\s+задача/i,
+        // Task content patterns (when user writes something that looks like a task)
+        /завтра\s+.*(сделать|выполнить|купить|встретить|позвонить|написать|отправить|подготовить)/i,
+        /сегодня\s+.*(сделать|выполнить|купить|встретить|позвонить|написать|отправить|подготовить|провести)/i,
+        /послезавтра\s+.*(сделать|выполнить|купить|встретить|позвонить|написать|отправить|подготовить)/i,
+        // Habit creation patterns
+        /^создать\s+привычку/i,
+        /^добавить\s+привычку/i,
+        /^новая\s+привычка/i,
+        // Menu navigation patterns
+        /^меню/i,
+        /^главное\s+меню/i,
+        /^назад/i,
+        // Other system commands
+        /^задачи/i,
+        /^мои\s+задачи/i,
+        /^привычки/i,
+        /^мои\s+привычки/i,
+        /^статистика/i,
+        /^профиль/i,
+      ];
+
+      const isSystemAction = systemActionPatterns.some((pattern) =>
+        pattern.test(message.trim()),
+      );
+
+      // Debug logging
+      this.logger.log(
+        `AI Chat Message: "${message}", isSystemAction: ${isSystemAction}`,
+      );
+
+      if (isSystemAction) {
+        await ctx.replyWithMarkdown(
+          `⚠️ *Вы находитесь в режиме чата с ИИ*\n\nЧтобы создать задачу, привычку или перейти в меню, сначала выйдите из ИИ-чата.\n\n💡 *Ваше сообщение:* "${message}"`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: '🚪 Выйти из ИИ-чата',
+                    callback_data: 'exit_ai_chat',
+                  },
+                ],
+                [
+                  {
+                    text: '🤖 Продолжить с ИИ',
+                    callback_data: 'continue_ai_chat',
+                  },
+                ],
+              ],
+            },
+          },
+        );
+        return;
+      }
+
       // Check billing limits for AI queries
       const limitCheck = await this.billingService.checkUsageLimit(
         ctx.userId,
@@ -8937,6 +9128,54 @@ _Просто напишите время в удобном формате_
     }
 
     return detectedVerbs;
+  }
+
+  private isTaskCreationRequest(text: string): boolean {
+    // Проверяем, что это НЕ напоминание (нет явных маркеров напоминаний)
+    const reminderMarkers = [
+      'напомни',
+      'напомню',
+      'напоминание',
+      'поставь напоминание',
+      'установи напоминание',
+      'создай напоминание',
+    ];
+
+    const hasReminderMarker = reminderMarkers.some((marker) =>
+      text.toLowerCase().includes(marker),
+    );
+
+    if (hasReminderMarker) {
+      return false; // Это напоминание, не задача
+    }
+
+    // Проверяем паттерны задач: временное слово + действие
+    const timeWords = ['сегодня', 'завтра', 'послезавтра'];
+    const actionWords = [
+      'провести',
+      'сделать',
+      'выполнить',
+      'купить',
+      'встретить',
+      'позвонить',
+      'написать',
+      'отправить',
+      'подготовить',
+      'организовать',
+      'запланировать',
+      'закончить',
+      'завершить',
+    ];
+
+    const hasTimeWord = timeWords.some((timeWord) =>
+      text.toLowerCase().includes(timeWord),
+    );
+
+    const hasActionWord = actionWords.some((actionWord) =>
+      text.toLowerCase().includes(actionWord),
+    );
+
+    return hasTimeWord && hasActionWord;
   }
 
   private isSimpleReminderRequest(text: string): boolean {
