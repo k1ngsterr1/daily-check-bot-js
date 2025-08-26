@@ -94,6 +94,9 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private transcribeAudio;
     private processReminderFromText;
     private isReminderWithoutTime;
+    private analyzeVoiceMessageWithAI;
+    private addTaskFromText;
+    private addHabitFromText;
     private isReminderRequest;
     private isVerbByEnding;
     private findVerbsInText;

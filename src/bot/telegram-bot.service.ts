@@ -221,75 +221,6 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       }
     });
 
-    // Voice message handler - creates tasks from voice messages
-    this.bot.on('voice', async (ctx) => {
-      try {
-        await ctx.replyWithMarkdown('🎤 Обрабатываю голосовое сообщение...');
-
-        const userId = ctx.from.id.toString();
-        const voiceMessage = ctx.message.voice;
-
-        // Create a task with default title from voice message
-        const taskTitle = `📝 Задача из голосового сообщения (${new Date().toLocaleTimeString('ru-RU')})`;
-        const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000); // Tomorrow
-
-        const task = await this.taskService.createTask({
-          userId,
-          title: taskTitle,
-          description: 'Создано из голосового сообщения. Добавьте описание.',
-          priority: 'MEDIUM',
-          dueDate,
-        });
-
-        const keyboard = {
-          inline_keyboard: [
-            [
-              {
-                text: '✅ Выполнено',
-                callback_data: `task_complete_${task.id}`,
-              },
-              {
-                text: '✏️ Редактировать',
-                callback_data: `task_edit_${task.id}`,
-              },
-            ],
-            [
-              { text: '📋 Все задачи', callback_data: 'tasks_list' },
-              { text: '🔄 Главное меню', callback_data: 'main_menu' },
-            ],
-          ],
-        };
-
-        // Check if title contains time interval
-        const intervalInfo = this.extractTimeIntervalFromText(taskTitle);
-        let responseMessage =
-          `✅ *Задача создана!*\n\n` +
-          `📝 *Название:* ${task.title}\n` +
-          `📅 *Срок:* ${task.dueDate ? task.dueDate.toLocaleDateString('ru-RU') : 'Не указан'}\n` +
-          `🎯 *Приоритет:* ${this.getPriorityEmoji(task.priority)} ${task.priority}`;
-
-        // Add next reminder time if interval detected
-        if (intervalInfo) {
-          responseMessage += `\n\n⏰ **Следующее уведомление о задаче будет отправлено в ${intervalInfo.nextTime}**`;
-        }
-
-        responseMessage += `\n\n💡 *Совет:* Нажмите "Редактировать", чтобы добавить подробное описание задачи.`;
-
-        await ctx.replyWithMarkdown(responseMessage, {
-          reply_markup: keyboard,
-        });
-
-        this.logger.log(
-          `Task created from voice message for user ${userId}: ${task.id}`,
-        );
-      } catch (error) {
-        this.logger.error('Error handling voice message:', error);
-        await ctx.replyWithMarkdown(
-          '❌ Не удалось создать задачу из голосового сообщения. Попробуйте еще раз.',
-        );
-      }
-    });
-
     // Help command
     this.bot.help(async (ctx) => {
       await ctx.replyWithMarkdown(`
@@ -9266,85 +9197,9 @@ _Попробуйте еще раз_
         return;
       }
 
-      // Handle audio reminders
-      if (this.isReminderRequest(transcribedText)) {
-        await this.processReminderFromText(ctx, transcribedText);
-        return;
-      }
-
-      // Handle voice commands for tasks
-      if (
-        transcribedText.toLowerCase().includes('добавить задачу') ||
-        transcribedText.toLowerCase().includes('новая задача') ||
-        transcribedText.toLowerCase().includes('создать задачу')
-      ) {
-        await this.startAddingTask(ctx);
-        return;
-      }
-
-      // Handle voice commands for menu
-      if (
-        transcribedText.toLowerCase().includes('меню') ||
-        transcribedText.toLowerCase().includes('главное меню') ||
-        transcribedText.toLowerCase().includes('показать меню')
-      ) {
-        await this.showMainMenu(ctx);
-        return;
-      }
-
-      // Handle voice commands for help
-      if (
-        transcribedText.toLowerCase().includes('помощь') ||
-        transcribedText.toLowerCase().includes('справка') ||
-        transcribedText.toLowerCase().includes('что ты умеешь')
-      ) {
-        await ctx.editMessageTextWithMarkdown(`
-🤖 *Ticky AI - Ваш персональный AI помощник продуктивности*
-
-*Основные команды:*
-/start - Начать работу с ботом
-/help - Показать эту справку  
-/menu - Главное меню
-/feedback - Оставить отзыв о боте
-
-*Голосовые команды:*
-🎤 "Напомни мне..." - создать напоминание
-🎤 "Добавить задачу" - создать новую задачу
-🎤 "Показать меню" - открыть главное меню
-🎤 "Что ты умеешь?" - показать справку
-
-*Быстрые действия:*
-📝 Добавить задачу или напоминание
-🧠 Пообщаться с ИИ-консультантом
-📊 Посмотреть прогресс
-
-Для получения подробной информации используйте /menu
-        `);
-        return;
-      }
-
-      // Handle voice commands for feedback
-      if (
-        transcribedText.toLowerCase().includes('обратная связь') ||
-        transcribedText.toLowerCase().includes('отзыв') ||
-        transcribedText.toLowerCase().includes('фидбек')
-      ) {
-        await this.showFeedbackSurvey(ctx);
-        return;
-      }
-
-      // Handle voice commands for habits
-      if (
-        transcribedText.toLowerCase().includes('добавить привычку') ||
-        transcribedText.toLowerCase().includes('новая привычка') ||
-        transcribedText.toLowerCase().includes('создать привычку')
-      ) {
-        await this.startAddingHabit(ctx);
-        return;
-      }
-
-      // Try to intelligently parse the transcribed text to create task/reminder/habit
-      await this.analyzeAndCreateFromVoice(ctx, transcribedText);
+      // Use AI to analyze voice message intent
+      await this.analyzeVoiceMessageWithAI(ctx, transcribedText);
+      return;
     } catch (error) {
       this.logger.error(`${type} message processing error:`, error);
       await ctx.replyWithMarkdown(
@@ -9703,6 +9558,155 @@ _Просто напишите время в удобном формате_
   ❌ Любые сообщения с временем
   ❌ Команды бота
   */
+
+  private async analyzeVoiceMessageWithAI(
+    ctx: any,
+    text: string,
+  ): Promise<void> {
+    try {
+      console.log('🤖 Анализируем голосовое сообщение с ИИ:', text);
+
+      const prompt = `Проанализируй голосовое сообщение пользователя и определи его намерение. 
+
+Текст сообщения: "${text}"
+
+Возможные типы намерений:
+- REMINDER: Пользователь хочет создать напоминание (ключевые слова: "напомни", "напомню", "напоминание", "не забыть")
+- TASK: Пользователь хочет создать задачу (ключевые слова: "добавь задачу", "нужно сделать", "поставь задачу")
+- HABIT: Пользователь хочет создать привычку (ключевые слова: "привычка", "каждый день", "регулярно")
+- QUESTION: Пользователь задает вопрос или нужна помощь
+- MENU: Пользователь хочет перейти в меню или навигацию
+- HELP: Пользователь просит помощь
+
+Ответь ТОЛЬКО одним словом из списка выше: REMINDER, TASK, HABIT, QUESTION, MENU или HELP`;
+
+      const aiResponse = await this.openaiService.getAIResponse(prompt);
+      const intent = aiResponse.trim().toUpperCase();
+
+      console.log('🎯 ИИ определил намерение:', intent);
+
+      switch (intent) {
+        case 'REMINDER':
+          await this.processReminderFromText(ctx, text);
+          break;
+        case 'TASK':
+          await this.addTaskFromText(ctx, text);
+          break;
+        case 'HABIT':
+          await this.addHabitFromText(ctx, text);
+          break;
+        case 'QUESTION':
+        case 'HELP':
+          await this.handleAIChatMessage(ctx, text);
+          break;
+        case 'MENU':
+          await this.showMainMenu(ctx);
+          break;
+        default:
+          // Fallback to question handling
+          await this.handleAIChatMessage(ctx, text);
+          break;
+      }
+    } catch (error) {
+      console.error('❌ Ошибка анализа голосового сообщения:', error);
+      // Fallback to question handling
+      await this.handleAIChatMessage(ctx, text);
+    }
+  }
+
+  private async addTaskFromText(ctx: any, text: string): Promise<void> {
+    try {
+      console.log('📝 Создаем задачу из текста:', text);
+
+      // Extract task text by removing common task-related words
+      const taskText = text
+        .replace(/добавь.*задач[уе]/gi, '')
+        .replace(/создай.*задач[уе]/gi, '')
+        .replace(/поставь.*задач[уе]/gi, '')
+        .replace(/нужно.*сделать/gi, '')
+        .replace(/задача/gi, '')
+        .trim();
+
+      if (!taskText || taskText.length < 2) {
+        await ctx.replyWithMarkdown(
+          '🤔 *Что именно добавить в задачи?*\n\nПожалуйста, уточните текст задачи.',
+        );
+        return;
+      }
+
+      const task = await this.taskService.createTask({
+        userId: ctx.userId,
+        title: taskText,
+        description: '',
+        priority: 'MEDIUM',
+      });
+
+      await ctx.replyWithMarkdown(
+        `✅ *Задача создана*\n\n📝 ${taskText}\n\n🎯 Задача добавлена в ваш список дел.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '📋 Мои задачи', callback_data: 'tasks_list' }],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    } catch (error) {
+      console.error('❌ Ошибка создания задачи:', error);
+      await ctx.replyWithMarkdown(
+        '❌ Ошибка при создании задачи. Попробуйте еще раз.',
+      );
+    }
+  }
+
+  private async addHabitFromText(ctx: any, text: string): Promise<void> {
+    try {
+      console.log('🔄 Создаем привычку из текста:', text);
+
+      // Extract habit text by removing common habit-related words
+      const habitText = text
+        .replace(/добавь.*привычк[уе]/gi, '')
+        .replace(/создай.*привычк[уе]/gi, '')
+        .replace(/поставь.*привычк[уе]/gi, '')
+        .replace(/каждый.*день/gi, '')
+        .replace(/регулярно/gi, '')
+        .replace(/привычка/gi, '')
+        .trim();
+
+      if (!habitText || habitText.length < 2) {
+        await ctx.replyWithMarkdown(
+          '🤔 *Какую привычку хотите добавить?*\n\nПожалуйста, уточните название привычки.',
+        );
+        return;
+      }
+
+      const habit = await this.habitService.createHabit({
+        userId: ctx.userId,
+        title: habitText,
+        description: '',
+        frequency: 'DAILY',
+        targetCount: 1,
+      });
+
+      await ctx.replyWithMarkdown(
+        `✅ *Привычка создана*\n\n🔄 ${habitText}\n\n💪 Привычка добавлена в ваш список для ежедневного выполнения.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔄 Мои привычки', callback_data: 'habits_list' }],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    } catch (error) {
+      console.error('❌ Ошибка создания привычки:', error);
+      await ctx.replyWithMarkdown(
+        '❌ Ошибка при создании привычки. Попробуйте еще раз.',
+      );
+    }
+  }
 
   private isReminderRequest(text: string): boolean {
     // Интервальные напоминания - добавляем в начало для приоритета!
