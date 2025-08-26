@@ -163,39 +163,33 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
   private setupErrorHandling() {
     // Global error handler for bot
     this.bot.catch(async (err, ctx) => {
-      this.logger.error('Bot error for message:', err);
+      // Log concise error information to avoid dumping large objects (ctx/update)
+      const error = err as Error;
+      this.logger.error(`Bot error: ${error?.message || String(err)}`);
+      if (error && error.stack) {
+        this.logger.debug(error.stack);
+      }
 
       try {
-        const error = err as Error;
-        if (
-          error.message &&
-          error.message.includes("message can't be edited")
-        ) {
-          // If the error is about message editing, try to send a new message
-          await ctx.replyWithMarkdown(
-            '❌ Произошла ошибка. Попробуйте позже или обратитесь к администратору.',
-            {
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-                ],
-              },
+        // Send a friendly user-facing error message without exposing internals
+        await ctx.replyWithMarkdown(
+          '❌ Произошла ошибка. Попробуйте позже или обратитесь к администратору.',
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+              ],
             },
-          );
-        } else {
-          await ctx.replyWithMarkdown(
-            '❌ Произошла ошибка. Попробуйте позже или обратитесь к администратору.',
-            {
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-                ],
-              },
-            },
-          );
-        }
+          },
+        );
       } catch (responseError) {
-        this.logger.error('Failed to send error response:', responseError);
+        const respErr = responseError as Error;
+        this.logger.error(
+          `Failed to send error response: ${respErr?.message || String(responseError)}`,
+        );
+        if (respErr && respErr.stack) {
+          this.logger.debug(respErr.stack);
+        }
       }
     });
   }
