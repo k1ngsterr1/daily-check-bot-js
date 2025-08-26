@@ -9607,8 +9607,10 @@ ${aiAnalysis}
             { text: '✏️ Управление', callback_data: 'manage_reminders' },
             { text: '📊 Статистика', callback_data: 'reminders_stats' },
           ],
-          [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
-          [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+          [
+            { text: '⬅️ Назад', callback_data: 'more_functions' },
+            { text: '🏠 Главное меню', callback_data: 'back_to_menu' },
+          ],
         ],
       };
 
@@ -9670,10 +9672,10 @@ ${aiAnalysis}
 
       let message = `🔔 *Все напоминания*\n\n`;
 
-      // Активные напоминания
+      // Активные напоминания с кнопками "Выполнено"
+      const activeButtons: any[] = [];
       if (activeReminders.length > 0) {
         message += `🟢 **Активные (${activeReminders.length}):**\n\n`;
-
         activeReminders.forEach((reminder, index) => {
           const date = new Date(reminder.scheduledTime);
           const isToday = date.toDateString() === new Date().toDateString();
@@ -9700,6 +9702,12 @@ ${aiAnalysis}
 
           message += `${index + 1}. 📝 ${reminder.title}\n`;
           message += `    ⏰ ${dateStr} в ${timeStr}\n\n`;
+          activeButtons.push([
+            {
+              text: '✅ Выполнено',
+              callback_data: `complete_reminder_${reminder.id}`,
+            },
+          ]);
         });
       } else {
         message += `🟢 **Активные:** нет\n\n`;
@@ -9707,8 +9715,7 @@ ${aiAnalysis}
 
       // Завершенные напоминания
       if (completedReminders.length > 0) {
-        message += `✅ **Недавние (последние ${completedReminders.length}):**\n\n`;
-
+        message += `✔️ **Недавние (последние ${completedReminders.length}):**\n`;
         completedReminders.forEach((reminder, index) => {
           const date = new Date(reminder.scheduledTime);
           const dateStr = date.toLocaleDateString('ru-RU', {
@@ -9719,12 +9726,8 @@ ${aiAnalysis}
             hour: '2-digit',
             minute: '2-digit',
           });
-
-          const statusIcon =
-            reminder.status === ReminderStatus.COMPLETED ? '✅' : '❌';
-
-          message += `${index + 1}. ${statusIcon} ${reminder.title}\n`;
-          message += `    📅 ${dateStr} в ${timeStr}\n\n`;
+          // Черная галочка ✔️, компактно, без лишних отступов
+          message += `${index + 1}. ✔️ ${reminder.title}\n   📅 ${dateStr} в ${timeStr}\n`;
         });
       } else {
         message += `✅ **Завершенные:** нет истории`;
@@ -9732,6 +9735,7 @@ ${aiAnalysis}
 
       const keyboard = {
         inline_keyboard: [
+          ...activeButtons,
           [
             { text: '🔔 Активные', callback_data: 'reminders' },
             { text: '➕ Создать', callback_data: 'create_reminder_help' },
@@ -9739,6 +9743,16 @@ ${aiAnalysis}
           [{ text: '⬅️ Назад', callback_data: 'reminders' }],
         ],
       };
+      // Обработчик отметки напоминания как выполненного
+      this.bot.action(/^complete_reminder_(.+)$/, async (ctx) => {
+        const reminderId = ctx.match[1];
+        await this.prisma.reminder.update({
+          where: { id: reminderId },
+          data: { status: ReminderStatus.COMPLETED },
+        });
+        await ctx.answerCbQuery('Напоминание отмечено как выполненное!');
+        await this.showAllReminders(ctx);
+      });
 
       await ctx.editMessageTextWithMarkdown(message, {
         reply_markup: keyboard,
