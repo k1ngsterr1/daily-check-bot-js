@@ -22,6 +22,7 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private readonly paymentService;
     private readonly prisma;
     private readonly notificationService;
+    setup(ctx: BotContext): Promise<void>;
     private readonly logger;
     private bot;
     private activePomodoroSessions;

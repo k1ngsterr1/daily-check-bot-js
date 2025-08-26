@@ -38,6 +38,27 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
     paymentService;
     prisma;
     notificationService;
+    async setup(ctx) {
+        await ctx.reply('Меню', {
+            reply_markup: {
+                keyboard: [
+                    [{ text: '📝 Мои задачи' }, { text: '+ Добавить задачу' }],
+                    [{ text: '✅ Отметить выполнение' }, { text: '📊 Статистика' }],
+                    [{ text: '🏆 Достижения' }, { text: '👥 Друзья' }],
+                    [{ text: '🤖 AI Чат' }, { text: '⏰ Таймер' }],
+                ],
+                resize_keyboard: true,
+                is_persistent: true,
+            },
+        });
+        await ctx.reply('Выберите действие:', {
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                ],
+            },
+        });
+    }
     logger = new common_1.Logger(TelegramBotService_1.name);
     bot;
     activePomodoroSessions = new Map();
@@ -245,7 +266,27 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
       `);
         });
         this.bot.command('menu', async (ctx) => {
-            await this.showMainMenu(ctx);
+            try {
+                const userData = {
+                    id: ctx.from?.id.toString() || ctx.userId,
+                    username: ctx.from?.username || undefined,
+                    firstName: ctx.from?.first_name || undefined,
+                    lastName: ctx.from?.last_name || undefined,
+                };
+                const user = await this.userService.findOrCreateUser(userData);
+                if (!user.onboardingPassed) {
+                    this.logger.log(`Starting onboarding for user ${user.id}`);
+                    await this.startOnboarding(ctx);
+                }
+                else {
+                    this.logger.log(`Showing main menu for user ${user.id}`);
+                    await this.showMainMenu(ctx);
+                }
+            }
+            catch (error) {
+                this.logger.error('Error in menu command:', error);
+                await ctx.replyWithMarkdown('❌ Произошла ошибка при открытии меню. Попробуйте еще раз.');
+            }
         });
         this.bot.command('tasks', async (ctx) => {
             await this.showTasksMenu(ctx);
