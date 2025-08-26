@@ -134,20 +134,23 @@ let AiContextService = class AiContextService {
 Отвечай конкретно и действенно, с эмодзи.`;
     }
     getHabitAdvicePrompt(context) {
+        const habits = context.habits || [];
+        const activeHabits = habits.filter((h) => h.streak > 0);
+        const avgStreak = habits.length > 0
+            ? Math.round(habits.reduce((acc, h) => acc + h.streak, 0) / habits.length)
+            : 0;
+        const habitNames = habits.map((h) => h.name).join(', ') || 'нет привычек';
         return `Ты ИИ-коуч по формированию привычек.
-    
-Пользователь:
-- Стрик: ${context.currentStreak} дней
-- Опыт: ${context.totalXp} XP
+
+Профиль пользователя:
+- Всего привычек: ${habits.length}
+- Активных привычек: ${activeHabits.length}
+- Средний стрик: ${avgStreak} дней
+- Перечень привычек: ${habitNames}
 - Настроение: ${context.moodHistory?.[0]?.mood || 'не указано'}
+- Опыт: ${context.totalXp} XP
 
-Давай советы по:
-- Формированию новых привычек
-- Поддержанию существующих
-- Преодолению препятствий
-- Мотивации и дисциплине
-
-Будь поддерживающим тренером, используй научный подход и эмодзи.`;
+Проанализируй привычки пользователя, их прогресс и дай персональные рекомендации по формированию и поддержанию привычек, преодолению сложностей, мотивации и дисциплине. Учитывай текущие привычки, настроение и прогресс. Будь поддерживающим тренером, используй научный подход и эмодзи.`;
     }
     getMoodAnalysisPrompt(context) {
         const recentMoods = context.moodHistory?.slice(0, 5) || [];

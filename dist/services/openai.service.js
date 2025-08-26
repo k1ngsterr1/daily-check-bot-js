@@ -120,6 +120,15 @@ let OpenAIService = OpenAIService_1 = class OpenAIService {
             return null;
         }
     }
+    async getTaskAdvice(userId, aiContextService) {
+        return aiContextService.analyzeProductivity(userId);
+    }
+    async getHabitHelp(userId, aiContextService) {
+        return aiContextService.generatePersonalizedMessage(userId, 'habit_advice');
+    }
+    async getTimePlanning(userId, aiContextService) {
+        return aiContextService.generatePersonalizedMessage(userId, 'focus_tips');
+    }
 };
 exports.OpenAIService = OpenAIService;
 exports.OpenAIService = OpenAIService = OpenAIService_1 = __decorate([

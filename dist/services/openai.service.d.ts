@@ -10,4 +10,7 @@ export declare class OpenAIService {
     } | null>;
     getAIResponse(prompt: string): Promise<string>;
     transcribeAudio(audioFile: File): Promise<string | null>;
+    getTaskAdvice(userId: string, aiContextService: any): Promise<string>;
+    getHabitHelp(userId: string, aiContextService: any): Promise<string>;
+    getTimePlanning(userId: string, aiContextService: any): Promise<string>;
 }

@@ -117,4 +117,31 @@ export class OpenAIService {
       return null;
     }
   }
+
+  /**
+   * Советы по задачам (анализ продуктивности)
+   */
+  async getTaskAdvice(userId: string, aiContextService: any): Promise<string> {
+    // Использует глубокий анализ профиля пользователя
+    return aiContextService.analyzeProductivity(userId);
+  }
+
+  /**
+   * Помощь с привычками
+   */
+  async getHabitHelp(userId: string, aiContextService: any): Promise<string> {
+    // Персонализированный совет по привычкам
+    return aiContextService.generatePersonalizedMessage(userId, 'habit_advice');
+  }
+
+  /**
+   * Планирование времени (фокус)
+   */
+  async getTimePlanning(
+    userId: string,
+    aiContextService: any,
+  ): Promise<string> {
+    // Персонализированный совет по фокусу и планированию
+    return aiContextService.generatePersonalizedMessage(userId, 'focus_tips');
+  }
 }

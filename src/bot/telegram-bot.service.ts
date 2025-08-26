@@ -273,11 +273,11 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
             [
               {
                 text: '✅ Выполнено',
-                callback_data: `task_complete_${task.id}`,
+                callback_data: `task_complete_${String(task.id).slice(0, 20)}`,
               },
               {
                 text: '✏️ Редактировать',
-                callback_data: `task_edit_${task.id}`,
+                callback_data: `task_edit_${String(task.id).slice(0, 20)}`,
               },
             ],
             [
@@ -468,21 +468,21 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
             [
               {
                 text: '✅ Выполнил',
-                callback_data: `complete_habit_${habit.id}`,
+                callback_data: `complete_habit_${String(habit.id).slice(0, 20)}`,
               },
               {
                 text: '⏰ Отложить на 15 мин',
-                callback_data: `snooze_habit_${habit.id}_15`,
+                callback_data: `snooze_habit_${String(habit.id).slice(0, 20)}_15`,
               },
             ],
             [
               {
                 text: '📊 Статистика',
-                callback_data: `habit_stats_${habit.id}`,
+                callback_data: `habit_stats_${String(habit.id).slice(0, 20)}`,
               },
               {
                 text: '❌ Пропустить сегодня',
-                callback_data: `skip_habit_${habit.id}`,
+                callback_data: `skip_habit_${String(habit.id).slice(0, 20)}`,
               },
             ],
           ],
@@ -4815,17 +4815,17 @@ XP (опыт) начисляется за выполнение задач. С к
                     [
                       {
                         text: '✅ Готово',
-                        callback_data: `reminder_done_${reminderId}`,
+                        callback_data: `reminder_done_${String(reminderId).slice(0, 20)}`,
                       },
                     ],
                     [
                       {
                         text: '⏰ Через 15 мин',
-                        callback_data: `reminder_snooze_15_${reminderId}`,
+                        callback_data: `reminder_snooze_15_${String(reminderId).slice(0, 20)}`,
                       },
                       {
                         text: '⏰ Через час',
-                        callback_data: `reminder_snooze_60_${reminderId}`,
+                        callback_data: `reminder_snooze_60_${String(reminderId).slice(0, 20)}`,
                       },
                     ],
                   ],
@@ -5044,37 +5044,19 @@ ${recommendation}
             : 0,
       };
 
-      let personalizedRecommendations: string[] = [];
+      // Получаем реальный ИИ-ответ по привычкам
+      const aiHabitAdvice = await this.openaiService.getHabitHelp(
+        user.id,
+        this.aiContextService,
+      );
       let motivationalMessage = '';
+      let personalizedRecommendations: string[] = [];
 
-      // Генерируем персональные рекомендации
-      if (habits.length === 0) {
-        personalizedRecommendations = [
-          '💧 Начните с простого: пить 1 стакан воды утром',
-          '🚶‍♂️ 5-минутная прогулка после еды',
-          '📚 Читать 1 страницу книги перед сном',
-          '🧘‍♀️ 2-минутная медитация утром',
-        ];
-        motivationalMessage =
-          'Отличное время для начала! Выберите одну простую привычку.';
-      } else if (userProfile.avgStreak < 3) {
-        personalizedRecommendations = [
-          '🎯 Сосредоточьтесь на одной привычке до автоматизма',
-          '⏰ Привяжите привычку к существующему действию',
-          '🏆 Отмечайте каждый день в календаре',
-          '📱 Используйте напоминания в одно и то же время',
-        ];
-        motivationalMessage =
-          'Главное - постоянство! Лучше делать мало, но каждый день.';
-      } else {
-        personalizedRecommendations = [
-          '📈 Усложните существующие привычки постепенно',
-          '🔗 Свяжите привычки в цепочки (habit stacking)',
-          '🎉 Добавьте систему наград за достижения',
-          '📊 Отслеживайте прогресс еженедельно',
-        ];
-        motivationalMessage =
-          'У вас отличная дисциплина! Время масштабировать успех.';
+      // Парсим ответ ИИ: первая строка — мотивация, далее — рекомендации
+      if (aiHabitAdvice) {
+        const lines = aiHabitAdvice.split('\n').filter((l) => l.trim());
+        motivationalMessage = lines[0] || '';
+        personalizedRecommendations = lines.slice(1);
       }
 
       // Формируем ответ
@@ -5241,7 +5223,7 @@ ${recommendation}
           [
             {
               text: '⏰ Настроить напоминание',
-              callback_data: `habit_set_reminder_${habit.id}`,
+              callback_data: `habit_set_reminder_${String(habit.id).slice(0, 20)}`,
             },
           ],
           [
@@ -7496,17 +7478,17 @@ ${reminderText}`,
                   [
                     {
                       text: '✅ Готово',
-                      callback_data: `reminder_done_${savedReminder.id}`,
+                      callback_data: `reminder_done_${String(savedReminder.id).slice(0, 20)}`,
                     },
                   ],
                   [
                     {
                       text: '⏰ Через 15 мин',
-                      callback_data: `reminder_snooze_15_${savedReminder.id}`,
+                      callback_data: `reminder_snooze_15_${String(savedReminder.id).slice(0, 20)}`,
                     },
                     {
                       text: '⏰ Через час',
-                      callback_data: `reminder_snooze_60_${savedReminder.id}`,
+                      callback_data: `reminder_snooze_60_${String(savedReminder.id).slice(0, 20)}`,
                     },
                   ],
                 ],
@@ -9417,7 +9399,7 @@ ${aiAdvice}
               ...habits.slice(0, 8).map((habit) => [
                 {
                   text: `✅ ${habit.title.substring(0, 30)}${habit.title.length > 30 ? '...' : ''}`,
-                  callback_data: `habit_complete_${habit.id}`,
+                  callback_data: `habit_complete_${String(habit.id).slice(0, 20)}`,
                 },
               ]),
               ...(habits.length > 8
@@ -10876,7 +10858,8 @@ ${this.getItemActivationMessage(itemType)}`,
   }
 
   private async showVoiceAnalysisOptions(ctx: BotContext, text: string) {
-    const encodedText = encodeURIComponent(text);
+    // Вместо текста используем временный id (например, timestamp или hash)
+    const tempId = Date.now().toString(36);
 
     await ctx.replyWithMarkdown(
       `🤔 *Что вы хотели сделать?*
@@ -10890,25 +10873,25 @@ ${this.getItemActivationMessage(itemType)}`,
             [
               {
                 text: '📝 Создать задачу',
-                callback_data: `create_task_from_voice:${encodedText}`,
+                callback_data: `create_task_from_voice:${tempId}`,
               },
             ],
             [
               {
                 text: '⏰ Создать напоминание',
-                callback_data: `create_reminder_from_voice:${encodedText}`,
+                callback_data: `create_reminder_from_voice:${tempId}`,
               },
             ],
             [
               {
                 text: '🔄 Создать привычку',
-                callback_data: `create_habit_from_voice:${encodedText}`,
+                callback_data: `create_habit_from_voice:${tempId}`,
               },
             ],
             [
               {
                 text: '💬 Спросить у ИИ',
-                callback_data: `ai_chat_from_voice:${encodedText}`,
+                callback_data: `ai_chat_from_voice:${tempId}`,
               },
             ],
             [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
