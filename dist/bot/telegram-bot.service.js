@@ -51,11 +51,14 @@ let TelegramBotService = TelegramBotService_1 = class TelegramBotService {
                 is_persistent: true,
             },
         });
+        const callback_data = 'back_to_menu';
+        console.log('[LOG] Creating inline button for reminder:', {
+            callback_data,
+        });
+        this.logger.log(`[LOG] Creating inline button for reminder: ${callback_data}`);
         await ctx.reply('Выберите действие:', {
             reply_markup: {
-                inline_keyboard: [
-                    [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-                ],
+                inline_keyboard: [[{ text: '🏠 Главное меню', callback_data }]],
             },
         });
     }
@@ -7261,7 +7264,13 @@ _Просто напишите время в удобном формате_
                 responseMessage += `\n\n💡 *Подсказки:*
 • Напоминание: "напомни купить молоко в 17:30"
 • Интервальное: "напоминай пить воду каждые 30 минут"`;
-                const reminderCallback = `create_reminder_from_task_${encodeURIComponent(task.title)}`;
+                this.logger.log(`[LOG] Reminder button raw title: ${task.title}`);
+                const safeTitle = Buffer.from(String(task.title || ''))
+                    .toString('base64')
+                    .replace(/[^A-Za-z0-9]/g, '')
+                    .slice(0, 20);
+                const reminderCallback = `create_reminder_from_task_${safeTitle}`;
+                this.logger.log(`[LOG] Reminder button safe callback: ${reminderCallback}`);
                 await ctx.replyWithMarkdown(responseMessage, {
                     reply_markup: {
                         inline_keyboard: [

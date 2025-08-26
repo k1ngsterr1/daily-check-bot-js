@@ -44,11 +44,18 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     });
 
     // Inline Keyboard (example)
+    const callback_data = 'back_to_menu';
+    // ...existing code...
+    console.log('[LOG] Creating inline button for reminder:', {
+      callback_data,
+    });
+    this.logger.log(
+      `[LOG] Creating inline button for reminder: ${callback_data}`,
+    );
+    // ...existing code...
     await ctx.reply('Выберите действие:', {
       reply_markup: {
-        inline_keyboard: [
-          [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-        ],
+        inline_keyboard: [[{ text: '🏠 Главное меню', callback_data }]],
       },
     });
   }
@@ -9235,7 +9242,17 @@ _Просто напишите время в удобном формате_
 • Интервальное: "напоминай пить воду каждые 30 минут"`;
 
         // Кнопка для создания напоминания на основе задачи
-        const reminderCallback = `create_reminder_from_task_${encodeURIComponent(task.title)}`;
+        // Логируем исходный заголовок задачи для отладки
+        this.logger.log(`[LOG] Reminder button raw title: ${task.title}`);
+        // Формируем безопасный callback_data: base64 от заголовка, только A-Za-z0-9, ограничено 20 символами
+        const safeTitle = Buffer.from(String(task.title || ''))
+          .toString('base64')
+          .replace(/[^A-Za-z0-9]/g, '')
+          .slice(0, 20);
+        const reminderCallback = `create_reminder_from_task_${safeTitle}`;
+        this.logger.log(
+          `[LOG] Reminder button safe callback: ${reminderCallback}`,
+        );
 
         await ctx.replyWithMarkdown(responseMessage, {
           reply_markup: {
