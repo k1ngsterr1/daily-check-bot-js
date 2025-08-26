@@ -5525,6 +5525,212 @@ XP (опыт) начисляется за выполнение задач. С к
       await ctx.editMessageText('❌ Создание напоминания отменено');
     });
 
+    // Reminder time selection handlers
+    this.bot.action(/^reminder_time_(.+)$/, async (ctx) => {
+      await ctx.answerCbQuery();
+
+      if (!ctx.session.pendingReminder) {
+        await ctx.editMessageText('❌ Не найден текст напоминания.', {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        });
+        return;
+      }
+
+      const time = ctx.match[1];
+      const [hours, minutes] = time.split(':');
+
+      await this.handleReminderRequest(
+        ctx,
+        ctx.session.pendingReminder.text,
+        hours,
+        minutes,
+      );
+
+      // Clear session
+      delete ctx.session.pendingReminder;
+    });
+
+    this.bot.action('reminder_in_30min', async (ctx) => {
+      await ctx.answerCbQuery();
+
+      if (!ctx.session.pendingReminder) {
+        await ctx.editMessageText('❌ Не найден текст напоминания.', {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        });
+        return;
+      }
+
+      const now = new Date();
+      now.setMinutes(now.getMinutes() + 30);
+      const hours = now.getHours().toString().padStart(2, '0');
+      const minutes = now.getMinutes().toString().padStart(2, '0');
+
+      await this.handleReminderRequest(
+        ctx,
+        ctx.session.pendingReminder.text,
+        hours,
+        minutes,
+      );
+
+      // Clear session
+      delete ctx.session.pendingReminder;
+    });
+
+    this.bot.action('reminder_in_1hour', async (ctx) => {
+      await ctx.answerCbQuery();
+
+      if (!ctx.session.pendingReminder) {
+        await ctx.editMessageText('❌ Не найден текст напоминания.', {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        });
+        return;
+      }
+
+      const now = new Date();
+      now.setHours(now.getHours() + 1);
+      const hours = now.getHours().toString().padStart(2, '0');
+      const minutes = now.getMinutes().toString().padStart(2, '0');
+
+      await this.handleReminderRequest(
+        ctx,
+        ctx.session.pendingReminder.text,
+        hours,
+        minutes,
+      );
+
+      // Clear session
+      delete ctx.session.pendingReminder;
+    });
+
+    this.bot.action('reminder_in_2hours', async (ctx) => {
+      await ctx.answerCbQuery();
+
+      if (!ctx.session.pendingReminder) {
+        await ctx.editMessageText('❌ Не найден текст напоминания.', {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        });
+        return;
+      }
+
+      const now = new Date();
+      now.setHours(now.getHours() + 2);
+      const hours = now.getHours().toString().padStart(2, '0');
+      const minutes = now.getMinutes().toString().padStart(2, '0');
+
+      await this.handleReminderRequest(
+        ctx,
+        ctx.session.pendingReminder.text,
+        hours,
+        minutes,
+      );
+
+      // Clear session
+      delete ctx.session.pendingReminder;
+    });
+
+    this.bot.action('reminder_custom_time', async (ctx) => {
+      await ctx.answerCbQuery();
+
+      if (!ctx.session.pendingReminder) {
+        await ctx.editMessageText('❌ Не найден текст напоминания.', {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        });
+        return;
+      }
+
+      ctx.session.waitingForReminderTime = true;
+
+      await ctx.editMessageTextWithMarkdown(
+        `⏰ *Введите время напоминания*\n\nО чем напомнить: "${ctx.session.pendingReminder.text}"\n\nВведите время в формате:\n• 17:30\n• В 18:00\n• Через 30 минут\n• Через 2 часа`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '◀️ Назад к выбору времени',
+                  callback_data: 'back_to_time_selection',
+                },
+              ],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('back_to_time_selection', async (ctx) => {
+      await ctx.answerCbQuery();
+
+      if (!ctx.session.pendingReminder) {
+        await ctx.editMessageText('❌ Не найден текст напоминания.', {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        });
+        return;
+      }
+
+      ctx.session.waitingForReminderTime = false;
+
+      await ctx.editMessageTextWithMarkdown(
+        `⏰ *На какое время поставить напоминание?*\n\nО чем напомнить: "${ctx.session.pendingReminder.text}"`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '⏰ В 9:00', callback_data: 'reminder_time_09:00' },
+                { text: '🕐 В 12:00', callback_data: 'reminder_time_12:00' },
+              ],
+              [
+                { text: '🕕 В 15:00', callback_data: 'reminder_time_15:00' },
+                { text: '🕘 В 18:00', callback_data: 'reminder_time_18:00' },
+              ],
+              [
+                { text: '🕘 В 21:00', callback_data: 'reminder_time_21:00' },
+                { text: '⏱️ Через 30 мин', callback_data: 'reminder_in_30min' },
+              ],
+              [
+                { text: '⏱️ Через 1 час', callback_data: 'reminder_in_1hour' },
+                {
+                  text: '⏱️ Через 2 часа',
+                  callback_data: 'reminder_in_2hours',
+                },
+              ],
+              [
+                {
+                  text: '✏️ Ввести время',
+                  callback_data: 'reminder_custom_time',
+                },
+              ],
+              [{ text: '◀️ Назад в меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    });
+
     // Handle creating task instead of reminder
     this.bot.action('create_as_task_instead', async (ctx) => {
       await ctx.answerCbQuery('📝 Создаю задачу...');
@@ -9472,24 +9678,53 @@ _Попробуйте еще раз_
         .trim();
 
       if (reminderText && reminderText.length > 1) {
-        // Store reminder text in session and ask for time
+        // Store reminder text in session and show time selection buttons
         ctx.session.pendingReminder = {
           text: reminderText,
           originalText: text,
         };
-        ctx.session.waitingForReminderTime = true;
 
-        await ctx.replyWithMarkdown(`
-⏰ *На какое время поставить напоминание?*
-
-О чем напомнить: "${reminderText}"
-
-*Укажите время:*
-• В конкретное время: "17:30", "в 18:00"  
-• Через некоторое время: "через 30 минут", "через 2 часа"
-
-_Просто напишите время в удобном формате_
-        `);
+        await ctx.replyWithMarkdown(
+          `⏰ *На какое время поставить напоминание?*\n\nО чем напомнить: "${reminderText}"`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: '⏰ В 9:00', callback_data: 'reminder_time_09:00' },
+                  { text: '🕐 В 12:00', callback_data: 'reminder_time_12:00' },
+                ],
+                [
+                  { text: '🕕 В 15:00', callback_data: 'reminder_time_15:00' },
+                  { text: '🕘 В 18:00', callback_data: 'reminder_time_18:00' },
+                ],
+                [
+                  { text: '🕘 В 21:00', callback_data: 'reminder_time_21:00' },
+                  {
+                    text: '⏱️ Через 30 мин',
+                    callback_data: 'reminder_in_30min',
+                  },
+                ],
+                [
+                  {
+                    text: '⏱️ Через 1 час',
+                    callback_data: 'reminder_in_1hour',
+                  },
+                  {
+                    text: '⏱️ Через 2 часа',
+                    callback_data: 'reminder_in_2hours',
+                  },
+                ],
+                [
+                  {
+                    text: '✏️ Ввести время',
+                    callback_data: 'reminder_custom_time',
+                  },
+                ],
+                [{ text: '◀️ Назад в меню', callback_data: 'back_to_menu' }],
+              ],
+            },
+          },
+        );
         return;
       }
     }
