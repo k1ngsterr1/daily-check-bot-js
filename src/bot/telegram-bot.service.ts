@@ -7798,7 +7798,14 @@ _Попробуйте еще раз_
         return;
       }
 
-      const prettyMessage = `🎤 *Обработано голосовое сообщение*\n\n🎯 *Распознано:* "${transcribedText}"\n\nЯ автоматически определю, что вы хотели: создать задачу, напоминание или привычку. Подождите, пожалуйста...`;
+      // Normalize transcription for downstream matching (log the original too)
+      const originalTranscribed = transcribedText;
+      const normalizedTranscribed = transcribedText
+        .replace(/["“”'`«»]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const prettyMessage = `🎤 *Обработано голосовое сообщение*\n\n🎯 *Распознано:* "${originalTranscribed}"\n\nЯ автоматически определю, что вы хотели: создать задачу, напоминание или привычку. Подождите, пожалуйста...`;
 
       await ctx.replyWithMarkdown(prettyMessage, {
         reply_markup: {
@@ -7810,21 +7817,25 @@ _Попробуйте еще раз_
 
       // Handle AI Chat mode for audio messages
       if (ctx.session.aiChatMode) {
-        await this.handleAIChatMessage(ctx, transcribedText);
+        await this.handleAIChatMessage(ctx, normalizedTranscribed);
         return;
       }
 
       // Handle audio reminders
-      if (this.isReminderRequest(transcribedText)) {
-        await this.processReminderFromText(ctx, transcribedText);
+      if (this.isReminderRequest(normalizedTranscribed)) {
+        // Log for debugging: show normalized text
+        this.logger.log(
+          `Audio: treating as reminder, normalizedText="${normalizedTranscribed}"`,
+        );
+        await this.processReminderFromText(ctx, normalizedTranscribed);
         return;
       }
 
       // Handle voice commands for tasks
       if (
-        transcribedText.toLowerCase().includes('добавить задачу') ||
-        transcribedText.toLowerCase().includes('новая задача') ||
-        transcribedText.toLowerCase().includes('создать задачу')
+        normalizedTranscribed.toLowerCase().includes('добавить задачу') ||
+        normalizedTranscribed.toLowerCase().includes('новая задача') ||
+        normalizedTranscribed.toLowerCase().includes('создать задачу')
       ) {
         await this.startAddingTask(ctx);
         return;
@@ -7832,9 +7843,9 @@ _Попробуйте еще раз_
 
       // Handle voice commands for menu
       if (
-        transcribedText.toLowerCase().includes('меню') ||
-        transcribedText.toLowerCase().includes('главное меню') ||
-        transcribedText.toLowerCase().includes('показать меню')
+        normalizedTranscribed.toLowerCase().includes('меню') ||
+        normalizedTranscribed.toLowerCase().includes('главное меню') ||
+        normalizedTranscribed.toLowerCase().includes('показать меню')
       ) {
         await this.showMainMenu(ctx);
         return;
@@ -7842,9 +7853,9 @@ _Попробуйте еще раз_
 
       // Handle voice commands for help
       if (
-        transcribedText.toLowerCase().includes('помощь') ||
-        transcribedText.toLowerCase().includes('справка') ||
-        transcribedText.toLowerCase().includes('что ты умеешь')
+        normalizedTranscribed.toLowerCase().includes('помощь') ||
+        normalizedTranscribed.toLowerCase().includes('справка') ||
+        normalizedTranscribed.toLowerCase().includes('что ты умеешь')
       ) {
         await ctx.editMessageTextWithMarkdown(`
 🤖 *Ticky AI - Ваш персональный AI помощник продуктивности*
@@ -7873,9 +7884,9 @@ _Попробуйте еще раз_
 
       // Handle voice commands for feedback
       if (
-        transcribedText.toLowerCase().includes('обратная связь') ||
-        transcribedText.toLowerCase().includes('отзыв') ||
-        transcribedText.toLowerCase().includes('фидбек')
+        normalizedTranscribed.toLowerCase().includes('обратная связь') ||
+        normalizedTranscribed.toLowerCase().includes('отзыв') ||
+        normalizedTranscribed.toLowerCase().includes('фидбек')
       ) {
         await this.showFeedbackSurvey(ctx);
         return;
@@ -7883,16 +7894,16 @@ _Попробуйте еще раз_
 
       // Handle voice commands for habits
       if (
-        transcribedText.toLowerCase().includes('добавить привычку') ||
-        transcribedText.toLowerCase().includes('новая привычка') ||
-        transcribedText.toLowerCase().includes('создать привычку')
+        normalizedTranscribed.toLowerCase().includes('добавить привычку') ||
+        normalizedTranscribed.toLowerCase().includes('новая привычка') ||
+        normalizedTranscribed.toLowerCase().includes('создать привычку')
       ) {
         await this.startAddingHabit(ctx);
         return;
       }
 
       // Try to intelligently parse the transcribed text to create task/reminder/habit
-      await this.analyzeAndCreateFromVoice(ctx, transcribedText);
+      await this.analyzeAndCreateFromVoice(ctx, normalizedTranscribed);
     } catch (error) {
       this.logger.error(`${type} message processing error:`, error);
       await ctx.replyWithMarkdown(
@@ -7949,7 +7960,39 @@ _Попробуйте еще раз_
   }
 
   private async processReminderFromText(ctx: BotContext, text: string) {
-    this.logger.log(`Processing reminder from text: "${text}"`);
+    const normalized = text
+      .replace(/["“”'`«»]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    this.logger.log(
+      `Processing reminder from text: original="${text}" normalized="${normalized}"`,
+    );
+
+    // For debugging: log which patterns match
+    try {
+      const debugInterval =
+        /каждую\s+минуту|каждый\s+час|каждые?\s*\d+\s*(минут|час|часа|часов)/i.test(
+          normalized,
+        );
+      const debugTime =
+        /в\s*(\d{1,2}):(\d{2})|в\s*(\d{1,2})\s*час|на\s*(\d{1,2}):(\d{2})|к\s*(\d{1,2}):(\d{2})|(\d{1,2}):(\d{2})/i.test(
+          normalized,
+        );
+      const debugSimpleRel =
+        /через\s*(минуту|минут|час|день|дня|дней|неделю|недели|месяц|год|лет)/i.test(
+          normalized,
+        );
+      const debugRelNum =
+        /через\s*(\d+)\s*(минут|час|день|дня|дней|неделю|недели|недель|месяц|месяца|месяцев|год|года|лет)/i.test(
+          normalized,
+        );
+      const debugReminderWithoutTime = this.isReminderWithoutTime(normalized);
+      this.logger.log(
+        `Debug matches -> interval:${debugInterval} time:${debugTime} simpleRel:${debugSimpleRel} relNum:${debugRelNum} withoutTime:${debugReminderWithoutTime}`,
+      );
+    } catch (e) {
+      this.logger.warn('Error computing debug matches', e);
+    }
 
     // Check for interval reminders - специальные случаи
     let intervalMinutes = 0;
@@ -7957,17 +8000,17 @@ _Попробуйте еще раз_
     let intervalUnit = '';
 
     // Проверяем "каждую минуту", "каждый час" и т.д.
-    if (text.match(/каждую\s+минуту/i)) {
+    if (normalized.match(/каждую\s+минуту/i)) {
       intervalMinutes = 1;
       intervalAmount = 1;
       intervalUnit = 'минут';
-    } else if (text.match(/каждый\s+час/i)) {
+    } else if (normalized.match(/каждый\s+час/i)) {
       intervalMinutes = 60;
       intervalAmount = 1;
       intervalUnit = 'час';
     } else {
       // Check for interval reminders (каждые X минут/часов)
-      const intervalMatch = text.match(
+      const intervalMatch = normalized.match(
         /каждые?\s*(\d+)\s*(минут|час|часа|часов)/i,
       );
 
@@ -7995,7 +8038,7 @@ _Попробуйте еще раз_
       }
 
       // Extract reminder text
-      const reminderText = text
+      const reminderText = normalized
         .replace(/напомни\s*(мне)?/gi, '')
         .replace(/напомню\s*(тебе|вам)?/gi, '')
         .replace(/напоминание/gi, '')
@@ -8023,11 +8066,13 @@ _Попробуйте еще раз_
 
     // Extract time and reminder text from voice/text input
     const timeMatch =
-      text.match(/в\s*(\d{1,2}):(\d{2})/i) ||
-      text.match(/в\s*(\d{1,2})\s*час(?:а|ов)?(?:\s*(\d{2})\s*минут)?/i) ||
-      text.match(/на\s*(\d{1,2}):(\d{2})/i) ||
-      text.match(/к\s*(\d{1,2}):(\d{2})/i) ||
-      text.match(/(\d{1,2}):(\d{2})/i); // Добавляем простой поиск времени в формате ЧЧ:ММ
+      normalized.match(/в\s*(\d{1,2}):(\d{2})/i) ||
+      normalized.match(
+        /в\s*(\d{1,2})\s*час(?:а|ов)?(?:\s*(\d{2})\s*минут)?/i,
+      ) ||
+      normalized.match(/на\s*(\d{1,2}):(\d{2})/i) ||
+      normalized.match(/к\s*(\d{1,2}):(\d{2})/i) ||
+      normalized.match(/(\d{1,2}):(\d{2})/i); // Добавляем простой поиск времени в формате ЧЧ:ММ
 
     if (timeMatch) {
       const hours = timeMatch[1];
@@ -8035,7 +8080,7 @@ _Попробуйте еще раз_
       this.logger.log(`Time extracted: ${hours}:${minutes}`);
 
       // Extract reminder text by removing time references and trigger words
-      const reminderText = text
+      const reminderText = normalized
         .replace(/напомни\s*(мне)?/gi, '')
         .replace(/напомню\s*(тебе|вам)?/gi, '')
         .replace(/напоминание/gi, '')
@@ -8068,7 +8113,7 @@ _Попробуйте еще раз_
 
     // Handle relative time (через X минут/часов/дней/недель/месяцев/лет)
     // Support both numeric forms (через 5 минут) and natural single-unit forms (через минуту, через час)
-    const simpleRelativeMatch = text.match(
+    const simpleRelativeMatch = normalized.match(
       /через\s*(минуту|минут|час|день|дня|дней|неделю|недели|месяц|год|лет)/i,
     );
 
@@ -8100,7 +8145,7 @@ _Попробуйте еще раз_
       const hours = targetDate.getHours().toString().padStart(2, '0');
       const minutes = targetDate.getMinutes().toString().padStart(2, '0');
 
-      const reminderText = text
+      const reminderText = normalized
         .replace(/напомни\s*(мне)?/gi, '')
         .replace(/напомню\s*(тебе|вам)?/gi, '')
         .replace(
@@ -8132,7 +8177,7 @@ _Попробуйте еще раз_
       return;
     }
 
-    const relativeMatch = text.match(
+    const relativeMatch = normalized.match(
       /через\s*(\d+)\s*(минут|час|день|дня|дней|неделю|недели|недель|месяц|месяца|месяцев|год|года|лет)/i,
     );
 
@@ -8165,7 +8210,7 @@ _Попробуйте еще раз_
       const hours = targetDate.getHours().toString().padStart(2, '0');
       const minutes = targetDate.getMinutes().toString().padStart(2, '0');
 
-      const reminderText = text
+      const reminderText = normalized
         .replace(/напомни\s*(мне)?/gi, '')
         .replace(/напомню\s*(тебе|вам)?/gi, '')
         .replace(
@@ -8198,7 +8243,7 @@ _Попробуйте еще раз_
     }
 
     // Handle specific time expressions (на следующей неделе, завтра, послезавтра, etc.)
-    const specificTimeMatch = this.parseSpecificTimeExpressions(text);
+    const specificTimeMatch = this.parseSpecificTimeExpressions(normalized);
     if (specificTimeMatch) {
       const { targetDate, reminderText } = specificTimeMatch;
 
@@ -8216,7 +8261,7 @@ _Попробуйте еще раз_
     }
 
     // Check if this is a reminder request without time
-    const isReminderWithoutTime = this.isReminderWithoutTime(text);
+    const isReminderWithoutTime = this.isReminderWithoutTime(normalized);
     if (isReminderWithoutTime) {
       // Extract reminder text by removing trigger words
       const reminderText = text
@@ -8279,8 +8324,9 @@ _Просто напишите время в удобном формате_
     );
 
     // Extended time indicators including new patterns
+    // Also detect single-unit relative forms like "через минуту" or "через час"
     const hasTimeIndicator =
-      /в\s*\d{1,2}:?\d{0,2}|на\s*\d{1,2}:?\d{0,2}|к\s*\d{1,2}:?\d{0,2}|через\s*\d+\s*(?:минут|час|день|дня|дней|неделю|недели|недель|месяц|месяца|месяцев|год|года|лет)|завтра|послезавтра|на\s*следующей\s*неделе|в\s*следующем\s*месяце|в\s*следующем\s*году|на\s*этой\s*неделе|в\s*этом\s*месяце/i.test(
+      /в\s*\d{1,2}:?\d{0,2}|на\s*\d{1,2}:?\d{0,2}|к\s*\d{1,2}:?\d{0,2}|через\s*(?:\d+|минуту|минут|час|день|дня|дней|неделю|недели|недель|месяц|месяца|месяцев|год|года|лет)\s*(?:$|\b)|завтра|послезавтра|на\s*следующей\s*неделе|в\s*следующем\s*месяце|в\s*следующем\s*году|на\s*этой\s*неделе|в\s*этом\s*месяце/i.test(
         text,
       );
 
