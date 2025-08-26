@@ -8724,6 +8724,13 @@ _Просто напишите время в удобном формате_
       return true;
     }
 
+    // Also consider simple relative phrases like "через минуту", "через час" as reminders
+    const simpleRelativeReminder =
+      /через\s*(?:минуту|минут|час|день|дня|дней|неделю|недели|недель|месяц|месяца|месяцев|год|года|лет)/i;
+    if (simpleRelativeReminder.test(text)) {
+      return true;
+    }
+
     // Прямые напоминания со словом "напомни" и "напомню"
     const explicitReminderPatterns = [
       /напомни.*в\s*(\d{1,2}):(\d{2})/i,
