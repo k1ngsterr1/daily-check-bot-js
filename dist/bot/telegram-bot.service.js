@@ -4880,9 +4880,9 @@ ${timeAdvice}
                     { text: '🧠 Чат с ИИ', callback_data: 'ai_chat' },
                 ],
                 [
-                    { text: '📊 Лимиты', callback_data: 'show_limits' },
-                    { text: '❓ Помощь', callback_data: 'faq_support' },
                     { text: '📊 Прогресс', callback_data: 'my_progress' },
+                    { text: '❓ Помощь', callback_data: 'faq_support' },
+                    { text: '🔒 Лимиты', callback_data: 'show_limits' },
                 ],
             ],
         };
