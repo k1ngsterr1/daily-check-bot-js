@@ -7954,11 +7954,11 @@ ${reminderText}`,
       // Increment usage counter
       await this.billingService.incrementUsage(ctx.userId, 'dailyReminders');
 
-      const timeStr = `${hours.padStart(2, '0')}:${minutes.padStart(2, '0')}`;
-      const dateStr = reminderDate.toLocaleDateString('ru-RU', {
-        day: 'numeric',
-        month: 'long',
-      });
+      // Format time/date using user's timezone when available
+      const timeStr =
+        this.formatTimeWithTimezone(reminderDate, user?.timezone) ||
+        `${hours.padStart(2, '0')}:${minutes.padStart(2, '0')}`;
+      const dateStr = this.formatDateWithTimezone(reminderDate, user?.timezone);
 
       // Get current usage for display
       const usageInfo = await this.billingService.checkUsageLimit(
@@ -11349,6 +11349,14 @@ ${this.getItemActivationMessage(itemType)}`,
     return date.toLocaleTimeString('ru-RU', {
       hour: '2-digit',
       minute: '2-digit',
+      timeZone: timezone || 'Europe/Moscow',
+    });
+  }
+
+  private formatDateWithTimezone(date: Date, timezone?: string | null): string {
+    return date.toLocaleDateString('ru-RU', {
+      day: 'numeric',
+      month: 'long',
       timeZone: timezone || 'Europe/Moscow',
     });
   }
