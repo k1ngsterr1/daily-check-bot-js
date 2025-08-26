@@ -84,7 +84,7 @@ let OpenAIService = OpenAIService_1 = class OpenAIService {
                 messages: [
                     {
                         role: 'system',
-                        content: 'Ты персональный ассистент по продуктивности. Даешь краткие, практичные советы на русском языке. Отвечай дружелюбно и мотивирующе.',
+                        content: 'Ты персональный ассистент по продуктивности. Даешь краткие, практичные советы на русском языке. Отвечай дружелюбно и мотивирующе. Важно: всегда завершай свой ответ полностью, не обрывай на середине предложения или пункта.',
                     },
                     {
                         role: 'user',
@@ -92,7 +92,7 @@ let OpenAIService = OpenAIService_1 = class OpenAIService {
                     },
                 ],
                 temperature: 0.7,
-                max_tokens: 500,
+                max_tokens: 1500,
             });
             const content = response.choices[0]?.message?.content?.trim();
             if (!content) {

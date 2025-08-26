@@ -1515,52 +1515,57 @@ ${user.todayTasks > 0 || user.todayHabits > 0 ? '🟢 Активный день!
 
     this.bot.action('user_settings', async (ctx) => {
       await ctx.answerCbQuery();
-      const user = await this.userService.findByTelegramId(ctx.userId);
 
       await ctx.editMessageTextWithMarkdown(
-        `
-⚙️ *Настройки пользователя*
+        `⚙️ *Настройки*
 
-👤 **Профиль:**
-🆔 ID: ${user.id}
-👤 Имя: ${user.firstName || 'Не указано'}
-📧 Username: ${user.username ? `@${user.username}` : 'Не указано'}
-
-🔔 **Уведомления:**
-📱 Уведомления: ${user.notifications ? '✅ Включены' : '❌ Отключены'}
-⏰ Время напоминаний: ${user.reminderTime}
-📊 Еженедельная сводка: ${user.weeklySummary ? '✅ Включена' : '❌ Отключена'}
-
-🎨 **Интерфейс:**
-🎭 Тема: ${user.theme}
-✨ Анимации: ${user.showAnimations ? '✅ Включены' : '❌ Отключены'}
-🎙️ Голосовые команды: ${user.voiceCommands ? '✅ Включены' : '❌ Отключены'}
-
-🤖 **AI и режимы:**
-🧠 AI режим: ${user.aiMode ? '✅ Включен' : '❌ Отключен'}
-🔧 Режим разработки: ${user.dryMode ? '✅ Включен' : '❌ Отключен'}
-
-🔒 **Приватность:**
-👁️ Уровень приватности: ${user.privacyLevel}
-🌍 Часовой пояс: ${user.timezone || 'Не установлен'}
-🏙️ Город: ${user.city || 'Не указан'}
-        `,
+Выберите что хотите настроить:`,
         {
           reply_markup: {
             inline_keyboard: [
               [
                 {
-                  text: '🔔 Уведомления',
+                  text: '🎨 Персонализация и темы',
+                  callback_data: 'settings_personalization',
+                },
+                {
+                  text: '🔔 Напоминания',
                   callback_data: 'settings_notifications',
                 },
-                { text: '🎨 Интерфейс', callback_data: 'settings_interface' },
               ],
               [
-                { text: '🤖 AI настройки', callback_data: 'settings_ai' },
-                { text: '🔒 Приватность', callback_data: 'settings_privacy' },
+                {
+                  text: '🎯 Голосовые команды',
+                  callback_data: 'settings_voice',
+                },
+                {
+                  text: '👤 Мультипрофиль',
+                  callback_data: 'settings_multiprofile',
+                },
               ],
-              [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+              [
+                {
+                  text: '� Интеграции',
+                  callback_data: 'settings_integrations',
+                },
+                { text: '📤 Экспорт данных', callback_data: 'settings_export' },
+              ],
+              [
+                {
+                  text: '🔔 Настроить уведомления',
+                  callback_data: 'setup_notifications',
+                },
+              ],
+              [
+                {
+                  text: '🎯 Пройти обучение заново',
+                  callback_data: 'restart_tutorial',
+                },
+              ],
+              [
+                { text: '⬅️ Назад', callback_data: 'more_functions' },
+                { text: '🏠 На главную', callback_data: 'back_to_menu' },
+              ],
             ],
           },
         },
@@ -1865,6 +1870,379 @@ ${user.todayTasks > 0 || user.todayHabits > 0 ? '🟢 Активный день!
                   callback_data: 'settings_ai',
                 },
               ],
+            ],
+          },
+        },
+      );
+    });
+
+    // New settings handlers
+    this.bot.action('settings_personalization', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown(
+        `🎨 *Персонализация и темы*
+
+Настройте внешний вид приложения под себя:
+
+• 🌙 Темная/светлая тема
+• 🎨 Цветовая схема
+• ✨ Анимации интерфейса
+• 🖼️ Фоновые изображения
+• 🎭 Персонализированные иконки
+
+*Функция в разработке*`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '⬅️ Назад к настройкам',
+                  callback_data: 'user_settings',
+                },
+              ],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('settings_voice', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown(
+        `🎯 *Голосовые команды*
+
+Управляйте ботом с помощью голоса:
+
+• 🎤 Распознавание речи
+• 🗣️ Голосовые ответы
+• 🎵 Настройка языков
+• 📢 Управление громкостью
+• ⚡ Быстрые команды
+
+*Функция в разработке*`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '⬅️ Назад к настройкам',
+                  callback_data: 'user_settings',
+                },
+              ],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('settings_multiprofile', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown(
+        `👤 *Мультипрофиль*
+
+Управляйте несколькими профилями:
+
+• 👥 Рабочий/личный профиль
+• 🔄 Переключение между профилями
+• 📊 Отдельная статистика
+• 🎯 Разные цели и задачи
+• 👨‍👩‍👧‍👦 Семейные профили
+
+*Функция в разработке*`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '⬅️ Назад к настройкам',
+                  callback_data: 'user_settings',
+                },
+              ],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('settings_integrations', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown(
+        `🔗 *Интеграции*
+
+Подключите внешние сервисы:
+
+• 📅 Google Calendar
+• 📝 Notion
+• ⏰ Todoist
+• 📊 Toggl
+• 💼 Slack/Teams
+• 🗂️ Trello/Asana
+
+*Функция в разработке*`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '⬅️ Назад к настройкам',
+                  callback_data: 'user_settings',
+                },
+              ],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('settings_export', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown(
+        `📤 *Экспорт данных*
+
+Сохраните ваши данные:
+
+• 📊 Экспорт в Excel/CSV
+• 📝 PDF отчеты
+• 📋 Резервные копии
+• 🔄 Синхронизация
+• ☁️ Облачное хранение
+
+*Функция в разработке*`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '⬅️ Назад к настройкам',
+                  callback_data: 'user_settings',
+                },
+              ],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('setup_notifications', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown(
+        `🔔 *Настроить уведомления*
+
+Пошаговая настройка уведомлений:
+
+1. 📱 Включить уведомления
+2. ⏰ Выбрать время
+3. 🎯 Выбрать типы напоминаний
+4. 📅 Настроить расписание
+5. ✅ Протестировать
+
+Хотите начать настройку?`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '🚀 Начать настройку',
+                  callback_data: 'start_notification_setup',
+                },
+              ],
+              [
+                {
+                  text: '⬅️ Назад к настройкам',
+                  callback_data: 'user_settings',
+                },
+              ],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('restart_tutorial', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown(
+        `🎯 *Пройти обучение заново*
+
+Хотите пройти обучение с самого начала?
+
+• 📖 Основы работы с ботом
+• ✅ Создание задач
+• ⏰ Настройка напоминаний
+• 📊 Отслеживание прогресса
+• 🎯 Полезные советы
+
+Это займет около 5 минут.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🚀 Начать обучение', callback_data: 'start_tutorial' }],
+              [
+                {
+                  text: '⬅️ Назад к настройкам',
+                  callback_data: 'user_settings',
+                },
+              ],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('start_notification_setup', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown(
+        `🔔 *Шаг 1 из 5: Включение уведомлений*
+
+Для получения уведомлений нужно их включить.
+
+📱 *Важно!* Убедитесь что уведомления от Telegram включены в настройках вашего устройства.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '✅ Включить уведомления',
+                  callback_data: 'toggle_notifications',
+                },
+              ],
+              [
+                {
+                  text: '⏭️ Пропустить этот шаг',
+                  callback_data: 'notification_setup_step2',
+                },
+              ],
+              [{ text: '❌ Отмена', callback_data: 'setup_notifications' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('start_tutorial', async (ctx) => {
+      await ctx.answerCbQuery();
+      // Запускаем обучение заново
+      await this.startOnboarding(ctx);
+    });
+
+    this.bot.action('notification_setup_step2', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown(
+        `⏰ *Шаг 2 из 5: Выберите время напоминаний*
+
+Когда вам удобно получать напоминания?`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '🌅 Утром (8:00)',
+                  callback_data: 'set_reminder_time_8',
+                },
+                {
+                  text: '🌞 Днем (14:00)',
+                  callback_data: 'set_reminder_time_14',
+                },
+              ],
+              [
+                {
+                  text: '🌆 Вечером (20:00)',
+                  callback_data: 'set_reminder_time_20',
+                },
+                {
+                  text: '🌙 На ночь (22:00)',
+                  callback_data: 'set_reminder_time_22',
+                },
+              ],
+              [
+                {
+                  text: '⏰ Выбрать свое время',
+                  callback_data: 'custom_reminder_time',
+                },
+              ],
+              [
+                {
+                  text: '⏭️ Пропустить этот шаг',
+                  callback_data: 'notification_setup_step3',
+                },
+              ],
+              [{ text: '❌ Отмена', callback_data: 'setup_notifications' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action(/set_reminder_time_(\d+)/, async (ctx) => {
+      await ctx.answerCbQuery();
+      const hour = ctx.match[1];
+
+      await ctx.editMessageTextWithMarkdown(
+        `✅ *Время установлено: ${hour}:00*
+
+Переходим к следующему шагу...`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '⏭️ Следующий шаг',
+                  callback_data: 'notification_setup_step3',
+                },
+              ],
+            ],
+          },
+        },
+      );
+
+      // Устанавливаем время в сессии (можно будет потом сохранить в БД)
+      ctx.session.notificationTime = parseInt(hour);
+    });
+
+    this.bot.action('notification_setup_step3', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown(
+        `🎯 *Шаг 3 из 5: Типы напоминаний*
+
+О чем вы хотите получать уведомления?`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '✅ Задачи',
+                  callback_data: 'toggle_task_notifications',
+                },
+                {
+                  text: '🔄 Привычки',
+                  callback_data: 'toggle_habit_notifications',
+                },
+              ],
+              [
+                {
+                  text: '📊 Еженедельные отчеты',
+                  callback_data: 'toggle_weekly_reports',
+                },
+              ],
+              [
+                {
+                  text: '🎯 Мотивационные сообщения',
+                  callback_data: 'toggle_motivation',
+                },
+              ],
+              [
+                {
+                  text: '✅ Все выбрано',
+                  callback_data: 'notification_setup_step4',
+                },
+              ],
+              [{ text: '❌ Отмена', callback_data: 'setup_notifications' }],
             ],
           },
         },
@@ -4571,13 +4949,9 @@ XP (опыт) начисляется за выполнение задач. С к
       await this.handleAIChatMessage(ctx, text);
     });
 
-    // AI Chat handlers
+    // AI Chat handlers - moved to AI specialized handlers section
     this.bot.action('ai_analyze_profile', async (ctx) => {
       await this.handleAIAnalyzeProfile(ctx);
-    });
-
-    this.bot.action('ai_task_recommendations', async (ctx) => {
-      await this.handleAITaskRecommendations(ctx);
     });
 
     this.bot.action('ai_time_planning', async (ctx) => {
@@ -5440,41 +5814,131 @@ XP (опыт) начисляется за выполнение задач. С к
 
   // AI specialized handlers
   private async handleAITaskRecommendations(ctx: BotContext) {
-    const user = await this.userService.findByTelegramId(ctx.userId);
-    const tasks = await this.taskService.findTasksByUserId(ctx.userId);
-    const completedTasks = tasks.filter((t) => t.completedAt !== null);
+    try {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown(
+        '🤖 *Анализирую ваши задачи...*\n\nПожалуйста, подождите...',
+      );
 
-    let recommendation = '';
-    if (tasks.length === 0) {
-      recommendation =
-        '📝 Создайте первую задачу! Начните с чего-то простого на сегодня.';
-    } else if (completedTasks.length < tasks.length * 0.3) {
-      recommendation =
-        '🎯 Сфокусируйтесь на завершении текущих задач. Качество важнее количества!';
-    } else {
-      recommendation =
-        '🚀 Отличная работа! Попробуйте технику Помодоро для повышения продуктивности.';
-    }
+      const user = await this.userService.findByTelegramId(ctx.userId);
+      const tasks = await this.taskService.findTasksByUserId(ctx.userId);
+      const completedTasks = tasks.filter((t) => t.completedAt !== null);
+      const pendingTasks = tasks.filter((t) => t.completedAt === null);
 
-    await ctx.editMessageTextWithMarkdown(
-      `
-💡 *Рекомендации по задачам*
+      // Собираем детальную информацию о задачах
+      const taskAnalysis = {
+        total: tasks.length,
+        completed: completedTasks.length,
+        pending: pendingTasks.length,
+        completionRate:
+          tasks.length > 0
+            ? Math.round((completedTasks.length / tasks.length) * 100)
+            : 0,
 
-📊 Статистика: ${completedTasks.length}/${tasks.length} задач выполнено
+        // Анализ по приоритетам
+        highPriorityPending: pendingTasks.filter((t) => t.priority === 'HIGH')
+          .length,
+        mediumPriorityPending: pendingTasks.filter(
+          (t) => t.priority === 'MEDIUM',
+        ).length,
+        lowPriorityPending: pendingTasks.filter((t) => t.priority === 'LOW')
+          .length,
 
-${recommendation}
+        // Анализ по времени
+        overdueTasks: pendingTasks.filter(
+          (t) => t.dueDate && new Date(t.dueDate) < new Date(),
+        ).length,
+        todayTasks: pendingTasks.filter((t) => {
+          if (!t.dueDate) return false;
+          const today = new Date();
+          const dueDate = new Date(t.dueDate);
+          return today.toDateString() === dueDate.toDateString();
+        }).length,
 
-*Совет:* Разбивайте большие задачи на маленькие шаги.
-      `,
-      {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
-            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-          ],
+        // Список конкретных задач для анализа
+        pendingTasksList: pendingTasks.slice(0, 10).map((t) => ({
+          title: t.title,
+          priority: t.priority,
+          dueDate: t.dueDate,
+          description: t.description,
+          createdAt: t.createdAt,
+        })),
+
+        recentCompletedTasks: completedTasks
+          .sort(
+            (a, b) =>
+              new Date(b.completedAt!).getTime() -
+              new Date(a.completedAt!).getTime(),
+          )
+          .slice(0, 5)
+          .map((t) => ({
+            title: t.title,
+            completedAt: t.completedAt,
+            priority: t.priority,
+          })),
+      };
+
+      // Формируем персональный промпт для ИИ
+      const aiPrompt = `
+      Проанализируй задачи пользователя и дай персональные рекомендации:
+
+      СТАТИСТИКА ЗАДАЧ:
+      - Всего задач: ${taskAnalysis.total}
+      - Выполнено: ${taskAnalysis.completed} (${taskAnalysis.completionRate}%)
+      - Осталось: ${taskAnalysis.pending}
+      - Просроченных: ${taskAnalysis.overdueTasks}
+      - На сегодня: ${taskAnalysis.todayTasks}
+
+      ПРИОРИТЕТЫ НЕВЫПОЛНЕННЫХ ЗАДАЧ:
+      - Высокий: ${taskAnalysis.highPriorityPending}
+      - Средний: ${taskAnalysis.mediumPriorityPending}
+      - Низкий: ${taskAnalysis.lowPriorityPending}
+
+      ТЕКУЩИЕ ЗАДАЧИ (до 10):
+      ${JSON.stringify(taskAnalysis.pendingTasksList, null, 2)}
+
+      НЕДАВНО ВЫПОЛНЕННЫЕ:
+      ${JSON.stringify(taskAnalysis.recentCompletedTasks, null, 2)}
+
+      Дай конкретные персональные рекомендации:
+      1. Анализ текущей ситуации с задачами
+      2. Приоритизация - на что обратить внимание в первую очередь
+      3. Конкретные советы по выполнению задач (основываясь на реальных задачах пользователя)
+      4. Рекомендации по планированию времени
+      
+      Ответ должен быть персональным, основанным на реальных данных, мотивирующим. Максимум 1200 символов.
+      `;
+
+      const aiRecommendation = await this.openaiService.getAIResponse(aiPrompt);
+
+      await ctx.editMessageTextWithMarkdown(
+        `💡 *Персональные рекомендации по задачам*
+
+📊 **Статистика:** ${taskAnalysis.completed}/${taskAnalysis.total} задач выполнено (${taskAnalysis.completionRate}%)
+
+${aiRecommendation}`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
         },
-      },
-    );
+      );
+    } catch (error) {
+      console.error('Error in AI task recommendations:', error);
+      await ctx.editMessageTextWithMarkdown(
+        '❌ *Ошибка при анализе задач*\n\nПопробуйте еще раз позже.',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    }
   }
 
   private async handleAIHabitHelp(ctx: BotContext) {
@@ -7875,6 +8339,11 @@ ${ratingEmoji} Ваша оценка: ${rating}/5
       const tasks = await this.taskService.findTasksByUserId(ctx.userId);
       const habits = await this.habitService.findHabitsByUserId(ctx.userId);
 
+      // Получаем данные о зависимостях
+      const dependencies = await this.prisma.dependencySupport.findMany({
+        where: { userId: ctx.userId },
+      });
+
       // Получаем статистику
       const taskStats = await this.taskService.getTaskStats(ctx.userId);
       const habitStats = await this.habitService.getHabitStats(ctx.userId);
@@ -7921,6 +8390,24 @@ ${ratingEmoji} Ваша оценка: ${rating}/5
             streak: habit.currentStreak,
           })),
         },
+        dependencies: {
+          total: dependencies.length,
+          active: dependencies.filter((dep) => dep.status === 'ACTIVE').length,
+          dependencyList: dependencies.map((dep) => ({
+            type: dep.type,
+            customName: dep.customName,
+            status: dep.status,
+            daysClean: dep.daysClean,
+            totalPromises: dep.totalPromises,
+            keptPromises: dep.keptPromises,
+            successRate:
+              dep.totalPromises > 0
+                ? Math.round((dep.keptPromises / dep.totalPromises) * 100)
+                : 0,
+            createdAt: dep.createdAt,
+            lastCheckDate: dep.lastCheckDate,
+          })),
+        },
       };
 
       // Отправляем запрос к ИИ для анализа
@@ -7940,13 +8427,18 @@ ${ratingEmoji} Ваша оценка: ${rating}/5
       - Всего: ${userDataForAI.habits.total}
       - Список привычек: ${JSON.stringify(userDataForAI.habits.habitList, null, 2)}
 
-      Дай детальный анализ:
+      ЗАВИСИМОСТИ И БОРЬБА С НИМИ:
+      - Активных зависимостей: ${userDataForAI.dependencies.active} из ${userDataForAI.dependencies.total}
+      - Список зависимостей: ${JSON.stringify(userDataForAI.dependencies.dependencyList, null, 2)}
+
+      ВАЖНО: Обязательно включи все 5 пунктов в ответ и не обрывай текст:
       1. Оценка текущего прогресса
-      2. Выявление паттернов в поведении
-      3. Персональные рекомендации для улучшения продуктивности
-      4. Конкретные шаги для развития
+      2. Выявление паттернов в поведении  
+      3. Анализ борьбы с зависимостями (если есть активные зависимости - дай детальные советы по каждой, если нет - отметь это как положительный момент)
+      4. Персональные рекомендации для улучшения продуктивности
+      5. Конкретные шаги для развития и преодоления зависимостей (завершай этот пункт полностью)
       
-      Ответ должен быть на русском языке, мотивирующим и полезным. Максимум 1000 символов.
+      Ответ должен быть на русском языке, мотивирующим и полным. Максимум 2500 символов. НЕ ОБРЫВАЙ ответ на середине - завершай все пункты полностью.
     `;
 
       const aiAnalysis = await this.openaiService.getAIResponse(aiPrompt);
