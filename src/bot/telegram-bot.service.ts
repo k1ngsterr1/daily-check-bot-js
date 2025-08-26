@@ -8685,15 +8685,147 @@ ${ratingEmoji} Ваша оценка: ${rating}/5
         }
       }
 
-      await ctx.replyWithMarkdown('🤔 *Анализирую ваш вопрос...*');
+      await ctx.replyWithMarkdown(
+        '🤔 *Анализирую ваш вопрос с учетом ваших данных...*',
+      );
 
-      // Получаем персонализированный ответ через AI Context Service
+      // Собираем данные пользователя для персонализированного ответа
+      const user = await this.userService.findByTelegramId(ctx.userId);
+      const tasks = await this.taskService.findTasksByUserId(ctx.userId);
+      const habits = await this.habitService.findHabitsByUserId(ctx.userId);
+
+      // Получаем данные о зависимостях
+      const dependencies = await this.prisma.dependencySupport.findMany({
+        where: { userId: ctx.userId },
+      });
+
+      const completedTasks = tasks.filter(
+        (task) => task.status === 'COMPLETED',
+      );
+      const pendingTasks = tasks.filter((task) => task.status !== 'COMPLETED');
+      const activeHabits = habits.filter((habit) => habit.isActive);
+      const activeDependencies = dependencies.filter(
+        (dep) => dep.status === 'ACTIVE',
+      );
+
+      // Формируем контекст пользователя для ИИ
+      const userContext = {
+        profile: {
+          level: user.level,
+          totalXp: user.totalXp,
+          accountDays: Math.floor(
+            (Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24),
+          ),
+        },
+        tasks: {
+          total: tasks.length,
+          completed: completedTasks.length,
+          pending: pendingTasks.length,
+          completionRate:
+            tasks.length > 0
+              ? Math.round((completedTasks.length / tasks.length) * 100)
+              : 0,
+          // Детальная информация о задачах
+          pendingTasksDetailed: pendingTasks.slice(0, 10).map((t) => ({
+            title: t.title,
+            description: t.description,
+            priority: t.priority,
+            dueDate: t.dueDate,
+            createdAt: t.createdAt,
+            category: t.category,
+          })),
+          recentCompletedTasks: completedTasks.slice(-3).map((t) => ({
+            title: t.title,
+            completedAt: t.completedAt,
+            priority: t.priority,
+          })),
+          overdueTasks: pendingTasks.filter(
+            (t) => t.dueDate && new Date(t.dueDate) < new Date(),
+          ).length,
+          highPriorityTasks: pendingTasks.filter((t) => t.priority === 'HIGH')
+            .length,
+        },
+        habits: {
+          total: habits.length,
+          active: activeHabits.length,
+          avgStreak:
+            habits.length > 0
+              ? Math.round(
+                  habits.reduce((sum, h) => sum + h.currentStreak, 0) /
+                    habits.length,
+                )
+              : 0,
+          categories: [
+            ...new Set(habits.map((h) => h.category).filter(Boolean)),
+          ],
+          strugglingHabits: habits
+            .filter((h) => h.isActive && h.currentStreak === 0)
+            .map((h) => h.title),
+          bestHabits: habits
+            .filter((h) => h.currentStreak > 7)
+            .map((h) => ({ title: h.title, streak: h.currentStreak })),
+        },
+        dependencies: {
+          active: activeDependencies.length,
+          types: activeDependencies.map((d) => d.type || d.customName),
+        },
+      };
+
+      // Формируем детальный персонализированный промпт
+      const personalizedPrompt = `
+      ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ:
+      - Уровень: ${userContext.profile.level} (${userContext.profile.totalXp} XP)
+      - Опыт работы с приложением: ${userContext.profile.accountDays} дней
+      - Эффективность выполнения задач: ${userContext.tasks.completionRate}%
+
+      ТЕКУЩАЯ СИТУАЦИЯ С ЗАДАЧАМИ:
+      - Всего задач: ${userContext.tasks.total}
+      - Выполнено: ${userContext.tasks.completed}
+      - Осталось выполнить: ${userContext.tasks.pending}
+      - Просроченных задач: ${userContext.tasks.overdueTasks}
+      - Высокоприоритетных задач: ${userContext.tasks.highPriorityTasks}
+
+      КОНКРЕТНЫЕ НЕЗАВЕРШЕННЫЕ ЗАДАЧИ ПОЛЬЗОВАТЕЛЯ:
+      ${userContext.tasks.pendingTasksDetailed
+        .map(
+          (task, index) =>
+            `${index + 1}. "${task.title}"${task.description ? ` - ${task.description}` : ''}
+           - Приоритет: ${task.priority}
+           - Создана: ${new Date(task.createdAt).toLocaleDateString('ru-RU')}
+           ${task.dueDate ? `- Срок: ${new Date(task.dueDate).toLocaleDateString('ru-RU')}` : ''}
+           ${task.category ? `- Категория: ${task.category}` : ''}`,
+        )
+        .join('\n')}
+
+      НЕДАВНО ВЫПОЛНЕННЫЕ ЗАДАЧИ:
+      ${userContext.tasks.recentCompletedTasks
+        .map(
+          (task) =>
+            `• "${task.title}" (${new Date(task.completedAt!).toLocaleDateString('ru-RU')})`,
+        )
+        .join('\n')}
+
+      ПРИВЫЧКИ И ЗАВИСИМОСТИ:
+      - Всего привычек: ${userContext.habits.total} (активных: ${userContext.habits.active})
+      - Средняя серия: ${userContext.habits.avgStreak} дней
+      ${userContext.habits.strugglingHabits.length > 0 ? `- Проблемные привычки: ${userContext.habits.strugglingHabits.join(', ')}` : ''}
+      ${userContext.habits.bestHabits.length > 0 ? `- Лучшие привычки: ${userContext.habits.bestHabits.map((h) => `${h.title} (${h.streak} дней)`).join(', ')}` : ''}
+      ${userContext.dependencies.active > 0 ? `- Активные зависимости: ${userContext.dependencies.types.join(', ')}` : ''}
+
+      ВОПРОС ПОЛЬЗОВАТЕЛЯ: "${message}"
+
+      ВАЖНО: Ответь конкретно на вопрос пользователя, учитывая его РЕАЛЬНЫЕ задачи и ситуацию. 
+      - Если он спрашивает о планировании времени - анализируй его конкретные задачи и предлагай план
+      - Если о продуктивности - основывайся на его проценте выполнения и проблемных областях
+      - Упоминай его конкретные задачи по названиям, если это уместно
+      - Давай практические советы именно для его ситуации
+
+      Ответ должен быть персональным, конкретным и действенным. Максимум 200 слов.
+      `;
+
+      // Получаем персонализированный ответ через OpenAI
       const personalizedResponse =
-        await this.aiContextService.generatePersonalizedMessage(
-          ctx.userId,
-          'motivation',
-          `${message}. Ответь кратко, до 100 слов, конкретно и по делу.`,
-        );
+        await this.openaiService.getAIResponse(personalizedPrompt);
 
       // Increment AI usage counter
       await this.billingService.incrementUsage(ctx.userId, 'dailyAiQueries');
