@@ -5308,7 +5308,12 @@ ${tasksProgressBar}${userStats}
         `, {
                     reply_markup: {
                         inline_keyboard: [
-                            [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
+                            [
+                                {
+                                    text: '🔙 Назад к задачам',
+                                    callback_data: 'back_to_tasks',
+                                },
+                            ],
                         ],
                     },
                 });
@@ -5364,7 +5369,12 @@ ${tasksProgressBar}${userStats}
         `, {
                     reply_markup: {
                         inline_keyboard: [
-                            [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
+                            [
+                                {
+                                    text: '🔙 Назад к задачам',
+                                    callback_data: 'back_to_tasks',
+                                },
+                            ],
                         ],
                     },
                 });
@@ -5380,7 +5390,12 @@ ${tasksProgressBar}${userStats}
                             callback_data: `task_restore_${task.id}`,
                         },
                     ]),
-                    [{ text: '🔙 К выполненным задачам', callback_data: 'tasks_completed' }],
+                    [
+                        {
+                            text: '🔙 К выполненным задачам',
+                            callback_data: 'tasks_completed',
+                        },
+                    ],
                     [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
                 ],
             };
