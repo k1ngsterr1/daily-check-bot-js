@@ -3186,7 +3186,7 @@ ${trialText}**Premium подписка включает:**
             }
             const focusTimer = setTimeout(async () => {
                 try {
-                    await ctx.editMessageTextWithMarkdown(`
+                    await this.sendMessageToUser(parseInt(ctx.userId), `
 🔔 *Время фокуса закончилось!*
 
 🎉 Поздравляем! Вы сосредоточенно работали 25 минут.
@@ -3198,7 +3198,26 @@ ${trialText}**Premium подписка включает:**
 • Не проверяйте соцсети!
 
 ⏰ Перерыв заканчивается через 5 минут.
-          `);
+            `, {
+                        parse_mode: 'Markdown',
+                        reply_markup: {
+                            inline_keyboard: [
+                                [
+                                    {
+                                        text: '⏸️ Приостановить',
+                                        callback_data: 'pause_break',
+                                    },
+                                    { text: '⏭️ Пропустить', callback_data: 'skip_break' },
+                                ],
+                                [
+                                    {
+                                        text: '🍅 К фокусированию',
+                                        callback_data: 'pomodoro_focus',
+                                    },
+                                ],
+                            ],
+                        },
+                    });
                     const breakTimer = setTimeout(async () => {
                         try {
                             await ctx.editMessageTextWithMarkdown(`
@@ -3245,6 +3264,7 @@ ${trialText}**Premium подписка включает:**
                     const session = this.activePomodoroSessions.get(ctx.userId);
                     if (session) {
                         session.breakTimer = breakTimer;
+                        session.breakStartTime = new Date();
                     }
                 }
                 catch (error) {
@@ -3481,6 +3501,251 @@ ${trialText}**Premium подписка включает:**
                             [{ text: '🏠 Главное меню', callback_data: 'start' }],
                         ],
                     },
+                });
+            }
+        });
+        this.bot.action('pause_break', async (ctx) => {
+            await ctx.answerCbQuery('⏸️ Перерыв приостановлен');
+            const session = this.activePomodoroSessions.get(ctx.userId);
+            if (session && session.breakTimer) {
+                clearTimeout(session.breakTimer);
+                session.breakTimer = undefined;
+                session.breakPausedAt = new Date();
+                await this.sendMessageToUser(parseInt(ctx.userId), `
+⏸️ *Перерыв приостановлен*
+
+Вы можете возобновить перерыв в любое время или перейти к новой фокус-сессии.
+        `, {
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '▶️ Возобновить перерыв',
+                                    callback_data: 'resume_break',
+                                },
+                                {
+                                    text: '🚀 Новая фокус-сессия',
+                                    callback_data: 'start_pomodoro_session',
+                                },
+                            ],
+                            [
+                                {
+                                    text: '🍅 К фокусированию',
+                                    callback_data: 'pomodoro_focus',
+                                },
+                            ],
+                        ],
+                    },
+                });
+            }
+        });
+        this.bot.action('skip_break', async (ctx) => {
+            await ctx.answerCbQuery('⏭️ Перерыв пропущен');
+            const session = this.activePomodoroSessions.get(ctx.userId);
+            if (session && session.breakTimer) {
+                clearTimeout(session.breakTimer);
+                this.activePomodoroSessions.delete(ctx.userId);
+                await this.sendMessageToUser(parseInt(ctx.userId), `
+⏭️ *Перерыв пропущен*
+
+🎯 Готовы к следующей фокус-сессии?
+
+💪 Следующий цикл:
+• 25 минут фокуса
+• 5 минут отдыха  
+• После 4 циклов - длинный перерыв 15-30 минут
+        `, {
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '🚀 Начать новую сессию',
+                                    callback_data: 'start_pomodoro_session',
+                                },
+                            ],
+                            [
+                                {
+                                    text: '📊 Посмотреть статистику',
+                                    callback_data: 'pomodoro_history',
+                                },
+                            ],
+                            [
+                                {
+                                    text: '🍅 К фокусированию',
+                                    callback_data: 'pomodoro_focus',
+                                },
+                            ],
+                        ],
+                    },
+                });
+            }
+        });
+        this.bot.action('resume_break', async (ctx) => {
+            await ctx.answerCbQuery('▶️ Перерыв возобновлен');
+            const session = this.activePomodoroSessions.get(ctx.userId);
+            if (session && session.breakPausedAt) {
+                const remainingTime = 5 * 60 * 1000 -
+                    (session.breakPausedAt.getTime() - session.breakStartTime.getTime());
+                if (remainingTime > 0) {
+                    session.breakTimer = setTimeout(async () => {
+                        await this.sendMessageToUser(parseInt(ctx.userId), `
+🔔 *Перерыв завершен!*
+
+✅ Отдых закончен - время для новой фокус-сессии!
+
+💪 Готовы к следующим 25 минутам продуктивности?
+            `, {
+                            parse_mode: 'Markdown',
+                            reply_markup: {
+                                inline_keyboard: [
+                                    [
+                                        {
+                                            text: '🚀 Начать новую сессию',
+                                            callback_data: 'start_pomodoro_session',
+                                        },
+                                    ],
+                                    [
+                                        {
+                                            text: '📊 Статистика',
+                                            callback_data: 'pomodoro_history',
+                                        },
+                                    ],
+                                    [
+                                        {
+                                            text: '🍅 К фокусированию',
+                                            callback_data: 'pomodoro_focus',
+                                        },
+                                    ],
+                                ],
+                            },
+                        });
+                        this.activePomodoroSessions.delete(ctx.userId);
+                    }, remainingTime);
+                    session.breakPausedAt = undefined;
+                    await this.sendMessageToUser(parseInt(ctx.userId), `
+▶️ *Перерыв возобновлен*
+
+⏰ Осталось отдыха: ${Math.ceil(remainingTime / 60000)} мин
+
+Продолжайте отдыхать - уведомление придет автоматически.
+          `, {
+                        parse_mode: 'Markdown',
+                        reply_markup: {
+                            inline_keyboard: [
+                                [
+                                    { text: '⏸️ Приостановить', callback_data: 'pause_break' },
+                                    { text: '⏭️ Пропустить', callback_data: 'skip_break' },
+                                ],
+                                [
+                                    {
+                                        text: '🍅 К фокусированию',
+                                        callback_data: 'pomodoro_focus',
+                                    },
+                                ],
+                            ],
+                        },
+                    });
+                }
+                else {
+                    this.activePomodoroSessions.delete(ctx.userId);
+                    await this.sendMessageToUser(parseInt(ctx.userId), `
+🔔 *Перерыв завершен!*
+
+✅ Время отдыха истекло - готовы к новой фокус-сессии?
+          `, {
+                        parse_mode: 'Markdown',
+                        reply_markup: {
+                            inline_keyboard: [
+                                [
+                                    {
+                                        text: '🚀 Начать новую сессию',
+                                        callback_data: 'start_pomodoro_session',
+                                    },
+                                ],
+                                [
+                                    {
+                                        text: '🍅 К фокусированию',
+                                        callback_data: 'pomodoro_focus',
+                                    },
+                                ],
+                            ],
+                        },
+                    });
+                }
+            }
+        });
+        this.bot.action('start_pomodoro_break', async (ctx) => {
+            await ctx.answerCbQuery('☕ Начинаем перерыв');
+            await this.sendMessageToUser(parseInt(ctx.userId), `
+☕ *Перерыв начался!*
+
+🎉 Отлично поработали! Теперь время отдохнуть.
+
+⏰ 5-минутный перерыв:
+• Встаньте и разомнитесь
+• Посмотрите в окно  
+• Выпейте воды
+• Не проверяйте соцсети!
+
+⏳ Уведомление придет через 5 минут.
+      `, {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            { text: '⏸️ Приостановить', callback_data: 'pause_break' },
+                            { text: '⏭️ Пропустить', callback_data: 'skip_break' },
+                        ],
+                        [{ text: '🍅 К фокусированию', callback_data: 'pomodoro_focus' }],
+                    ],
+                },
+            });
+            const breakTimer = setTimeout(async () => {
+                await this.sendMessageToUser(parseInt(ctx.userId), `
+🔔 *Перерыв завершен!*
+
+✅ 5-минутный отдых закончен - время для новой фокус-сессии!
+
+💪 Готовы к следующим 25 минутам продуктивности?
+        `, {
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '🚀 Начать новую сессию',
+                                    callback_data: 'start_pomodoro_session',
+                                },
+                            ],
+                            [
+                                {
+                                    text: '📊 Статистика',
+                                    callback_data: 'pomodoro_history',
+                                },
+                            ],
+                            [
+                                {
+                                    text: '🍅 К фокусированию',
+                                    callback_data: 'pomodoro_focus',
+                                },
+                            ],
+                        ],
+                    },
+                });
+                this.activePomodoroSessions.delete(ctx.userId);
+            }, 5 * 60 * 1000);
+            const existingSession = this.activePomodoroSessions.get(ctx.userId);
+            if (existingSession) {
+                existingSession.breakTimer = breakTimer;
+                existingSession.breakStartTime = new Date();
+            }
+            else {
+                this.activePomodoroSessions.set(ctx.userId, {
+                    startTime: new Date(),
+                    breakTimer,
+                    breakStartTime: new Date(),
                 });
             }
         });

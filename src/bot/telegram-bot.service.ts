@@ -195,9 +195,6 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
           `User ${user.id} started bot. Onboarding passed: ${user.onboardingPassed}`,
         );
 
-        // Устанавливаем персонализированное квадратное меню
-        await this.setupPersonalizedMenu(ctx);
-
         // Проверяем, прошел ли пользователь онбординг
         if (!user.onboardingPassed) {
           this.logger.log(`Starting onboarding for user ${user.id}`);
@@ -217,6 +214,75 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
               ],
             },
           },
+        );
+      }
+    });
+
+    // Voice message handler - creates tasks from voice messages
+    this.bot.on('voice', async (ctx) => {
+      try {
+        await ctx.replyWithMarkdown('🎤 Обрабатываю голосовое сообщение...');
+
+        const userId = ctx.from.id.toString();
+        const voiceMessage = ctx.message.voice;
+
+        // Create a task with default title from voice message
+        const taskTitle = `📝 Задача из голосового сообщения (${new Date().toLocaleTimeString('ru-RU')})`;
+        const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000); // Tomorrow
+
+        const task = await this.taskService.createTask({
+          userId,
+          title: taskTitle,
+          description: 'Создано из голосового сообщения. Добавьте описание.',
+          priority: 'MEDIUM',
+          dueDate,
+        });
+
+        const keyboard = {
+          inline_keyboard: [
+            [
+              {
+                text: '✅ Выполнено',
+                callback_data: `task_complete_${task.id}`,
+              },
+              {
+                text: '✏️ Редактировать',
+                callback_data: `task_edit_${task.id}`,
+              },
+            ],
+            [
+              { text: '📋 Все задачи', callback_data: 'tasks_list' },
+              { text: '🔄 Главное меню', callback_data: 'main_menu' },
+            ],
+          ],
+        };
+
+        // Check if title contains time interval
+        const intervalInfo = this.extractTimeIntervalFromText(taskTitle);
+        let responseMessage =
+          `✅ *Задача создана!*\n\n` +
+          `📝 *Название:* ${task.title}\n` +
+          `📅 *Срок:* ${task.dueDate ? task.dueDate.toLocaleDateString('ru-RU') : 'Не указан'}\n` +
+          `🎯 *Приоритет:* ${this.getPriorityEmoji(task.priority)} ${task.priority}`;
+
+        // Add next reminder time if interval detected
+        if (intervalInfo) {
+          responseMessage += `\n\n⏰ **Следующее уведомление о задаче будет отправлено в ${intervalInfo.nextTime}**`;
+        }
+
+        responseMessage += `\n\n💡 *Совет:* Нажмите "Редактировать", чтобы добавить подробное описание задачи.`;
+
+        await ctx.replyWithMarkdown(responseMessage, {
+          reply_markup: keyboard,
+        });
+
+        this.logger.log(
+          `Task created from voice message for user ${userId}: ${task.id}`,
+        );
+      } catch (error) {
+        this.logger.error('Error handling voice message:', error);
+        await ctx.replyWithMarkdown(
+          '❌ Не удалось создать задачу из голосового сообщения. Попробуйте еще раз.',
         );
       }
     });
@@ -245,16 +311,12 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 😊 Отметить настроение
 ⏰ Сессия фокуса
 
-💡 *Подсказка:* Используйте квадратное меню справа от поля ввода для быстрого доступа к командам!
-
 Для получения подробной информации используйте /menu
       `);
     });
 
     // Main menu command
     this.bot.command('menu', async (ctx) => {
-      // Обновляем персонализированное меню при каждом вызове
-      await this.setupPersonalizedMenu(ctx);
       await this.showMainMenu(ctx);
     });
 
@@ -283,9 +345,6 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       const helpMessage = `
 🤖 *Ticky AI - Справка*
 
-**🔵 КВАДРАТНОЕ МЕНЮ:**
-Найдите кнопку ⬛ справа от поля ввода — это ваше быстрое меню со всеми командами!
-
 **Доступные команды:**
 /start - Начать работу с ботом
 /help - Показать эту справку
@@ -305,10 +364,6 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 📊 Статистика и аналитика
 ⏰ Умные напоминания о привычках
 💎 Система биллинга с пробным периодом
-
-💡 **Удобное управление:**
-🟩 Квадратное меню справа от поля ввода содержит все основные команды
-📱 Нажмите на квадратную кнопку рядом с полем ввода для быстрого доступа
 
 Для получения подробной информации используйте /menu
       `;
@@ -517,16 +572,6 @@ ${statusMessage}
       }
     });
 
-    // Info command - show notification schedules
-    this.bot.command('info', async (ctx) => {
-      try {
-        await this.showNotificationSchedules(ctx);
-      } catch (error) {
-        this.logger.error('Error showing info:', error);
-        await ctx.replyWithMarkdown('❌ Ошибка при получении информации.');
-      }
-    });
-
     // Onboarding callback handlers
     this.bot.action('onboarding_start', async (ctx) => {
       await ctx.answerCbQuery();
@@ -634,12 +679,15 @@ ${statusMessage}
         return;
       }
 
-      this.logger.log(`Checking text message: "${ctx.message.text}"`);
+      // Handle natural language reminders (e.g., "напомни мне купить хлеб")
+      if (this.isReminderRequest(ctx.message.text)) {
+        await this.handleNaturalReminderRequest(ctx, ctx.message.text);
+        return;
+      }
 
-      // Check if this looks like a task creation request (natural language)
-      if (!ctx.session.step && this.isTaskCreationRequest(ctx.message.text)) {
-        this.logger.log(`Processing as task creation: "${ctx.message.text}"`);
-        await this.handleNaturalTaskCreation(ctx, ctx.message.text);
+      // Handle simple reminder requests without time (e.g., "напомни мне купить хлеб")
+      if (this.isSimpleReminderRequest(ctx.message.text)) {
+        await this.handleSimpleReminderRequest(ctx, ctx.message.text);
         return;
       }
 
@@ -662,76 +710,6 @@ ${statusMessage}
       // Handle task creation
       if (ctx.session.step === 'waiting_for_task_title') {
         await this.handleTaskCreation(ctx, ctx.message.text);
-        return;
-      }
-
-      // Handle habit creation
-      if (ctx.session.step === 'waiting_for_habit_title') {
-        const habitTitle = ctx.message.text.trim();
-
-        if (!habitTitle || habitTitle.length < 2) {
-          await ctx.replyWithMarkdown(
-            '⚠️ Название привычки должно содержать минимум 2 символа. Попробуйте еще раз:',
-          );
-          return;
-        }
-
-        try {
-          await this.habitService.createHabit({
-            userId: ctx.userId,
-            title: habitTitle,
-            description: undefined,
-            frequency: 'DAILY' as const,
-            targetCount: 1,
-          });
-
-          ctx.session.step = undefined;
-
-          await ctx.replyWithMarkdown(
-            `
-✅ *Привычка "${habitTitle}" успешно добавлена!*
-
-🎯 Теперь вы можете отслеживать её выполнение в разделе "Мои привычки".
-
-*Напоминание:* Регулярность - ключ к формированию привычек!
-          `,
-            {
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: '🔄 Мои привычки', callback_data: 'menu_habits' }],
-                  [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-                ],
-              },
-            },
-          );
-        } catch (error) {
-          this.logger.error(`Error creating habit: ${error}`);
-          await ctx.replyWithMarkdown(
-            '❌ Произошла ошибка при создании привычки. Попробуйте позже.',
-            {
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-                ],
-              },
-            },
-          );
-        }
-        return;
-      }
-
-      // Handle natural language reminders (e.g., "напомни мне купить хлеб")
-      // But NOT when user is actively creating a task
-      if (!ctx.session.step && this.isReminderRequest(ctx.message.text)) {
-        await this.handleNaturalReminderRequest(ctx, ctx.message.text);
-        return;
-      }
-
-      // Handle simple reminder requests without time (e.g., "напомни мне купить хлеб")
-      // But NOT when user is actively creating a task
-      if (!ctx.session.step && this.isSimpleReminderRequest(ctx.message.text)) {
-        this.logger.log(`Processing as simple reminder: "${ctx.message.text}"`);
-        await this.handleSimpleReminderRequest(ctx, ctx.message.text);
         return;
       }
 
@@ -1456,57 +1434,52 @@ ${user.todayTasks > 0 || user.todayHabits > 0 ? '🟢 Активный день!
 
     this.bot.action('user_settings', async (ctx) => {
       await ctx.answerCbQuery();
+      const user = await this.userService.findByTelegramId(ctx.userId);
 
       await ctx.editMessageTextWithMarkdown(
-        `⚙️ *Настройки*
+        `
+⚙️ *Настройки пользователя*
 
-Выберите что хотите настроить:`,
+👤 **Профиль:**
+🆔 ID: ${user.id}
+👤 Имя: ${user.firstName || 'Не указано'}
+📧 Username: ${user.username ? `@${user.username}` : 'Не указано'}
+
+🔔 **Уведомления:**
+📱 Уведомления: ${user.notifications ? '✅ Включены' : '❌ Отключены'}
+⏰ Время напоминаний: ${user.reminderTime}
+📊 Еженедельная сводка: ${user.weeklySummary ? '✅ Включена' : '❌ Отключена'}
+
+🎨 **Интерфейс:**
+🎭 Тема: ${user.theme}
+✨ Анимации: ${user.showAnimations ? '✅ Включены' : '❌ Отключены'}
+🎙️ Голосовые команды: ${user.voiceCommands ? '✅ Включены' : '❌ Отключены'}
+
+🤖 **AI и режимы:**
+🧠 AI режим: ${user.aiMode ? '✅ Включен' : '❌ Отключен'}
+🔧 Режим разработки: ${user.dryMode ? '✅ Включен' : '❌ Отключен'}
+
+🔒 **Приватность:**
+👁️ Уровень приватности: ${user.privacyLevel}
+🌍 Часовой пояс: ${user.timezone || 'Не установлен'}
+🏙️ Город: ${user.city || 'Не указан'}
+        `,
         {
           reply_markup: {
             inline_keyboard: [
               [
                 {
-                  text: '🎨 Персонализация и темы',
-                  callback_data: 'settings_personalization',
-                },
-                {
-                  text: '🔔 Напоминания',
+                  text: '🔔 Уведомления',
                   callback_data: 'settings_notifications',
                 },
+                { text: '🎨 Интерфейс', callback_data: 'settings_interface' },
               ],
               [
-                {
-                  text: '🎯 Голосовые команды',
-                  callback_data: 'settings_voice',
-                },
-                {
-                  text: '👤 Мультипрофиль',
-                  callback_data: 'settings_multiprofile',
-                },
+                { text: '🤖 AI настройки', callback_data: 'settings_ai' },
+                { text: '🔒 Приватность', callback_data: 'settings_privacy' },
               ],
-              [
-                {
-                  text: '� Интеграции',
-                  callback_data: 'settings_integrations',
-                },
-                { text: '📤 Экспорт данных', callback_data: 'settings_export' },
-              ],
-              [
-                {
-                  text: '🔔 Настроить уведомления',
-                  callback_data: 'setup_notifications',
-                },
-              ],
-              [
-                {
-                  text: '🎯 Пройти обучение заново',
-                  callback_data: 'restart_tutorial',
-                },
-              ],
-              [
-                { text: '⬅️ Назад', callback_data: 'more_functions' },
-                { text: '🏠 На главную', callback_data: 'back_to_menu' },
-              ],
+              [{ text: '⬅️ Назад', callback_data: 'more_functions' }],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
             ],
           },
         },
@@ -1811,486 +1784,6 @@ ${user.todayTasks > 0 || user.todayHabits > 0 ? '🟢 Активный день!
                   callback_data: 'settings_ai',
                 },
               ],
-            ],
-          },
-        },
-      );
-    });
-
-    // New settings handlers
-    this.bot.action('settings_personalization', async (ctx) => {
-      await ctx.answerCbQuery();
-      await ctx.editMessageTextWithMarkdown(
-        `🎨 *Персонализация и темы*
-
-Настройте внешний вид приложения под себя:
-
-• 🌙 Темная/светлая тема
-• 🎨 Цветовая схема
-• ✨ Анимации интерфейса
-• 🖼️ Фоновые изображения
-• 🎭 Персонализированные иконки
-
-*Функция в разработке*`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '⬅️ Назад к настройкам',
-                  callback_data: 'user_settings',
-                },
-              ],
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
-      );
-    });
-
-    this.bot.action('settings_voice', async (ctx) => {
-      await ctx.answerCbQuery();
-      await ctx.editMessageTextWithMarkdown(
-        `🎯 *Голосовые команды*
-
-Управляйте ботом с помощью голоса:
-
-• 🎤 Распознавание речи
-• 🗣️ Голосовые ответы
-• 🎵 Настройка языков
-• 📢 Управление громкостью
-• ⚡ Быстрые команды
-
-*Функция в разработке*`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '⬅️ Назад к настройкам',
-                  callback_data: 'user_settings',
-                },
-              ],
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
-      );
-    });
-
-    this.bot.action('settings_multiprofile', async (ctx) => {
-      await ctx.answerCbQuery();
-      await ctx.editMessageTextWithMarkdown(
-        `👤 *Мультипрофиль*
-
-Управляйте несколькими профилями:
-
-• 👥 Рабочий/личный профиль
-• 🔄 Переключение между профилями
-• 📊 Отдельная статистика
-• 🎯 Разные цели и задачи
-• 👨‍👩‍👧‍👦 Семейные профили
-
-*Функция в разработке*`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '⬅️ Назад к настройкам',
-                  callback_data: 'user_settings',
-                },
-              ],
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
-      );
-    });
-
-    this.bot.action('settings_integrations', async (ctx) => {
-      await ctx.answerCbQuery();
-      await ctx.editMessageTextWithMarkdown(
-        `🔗 *Интеграции*
-
-Подключите внешние сервисы:
-
-• 📅 Google Calendar
-• 📝 Notion
-• ⏰ Todoist
-• 📊 Toggl
-• 💼 Slack/Teams
-• 🗂️ Trello/Asana
-
-*Функция в разработке*`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '⬅️ Назад к настройкам',
-                  callback_data: 'user_settings',
-                },
-              ],
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
-      );
-    });
-
-    this.bot.action('settings_export', async (ctx) => {
-      await ctx.answerCbQuery();
-      await ctx.editMessageTextWithMarkdown(
-        `📤 *Экспорт данных*
-
-Сохраните ваши данные:
-
-• 📊 Экспорт в Excel/CSV
-• 📝 PDF отчеты
-• 📋 Резервные копии
-• 🔄 Синхронизация
-• ☁️ Облачное хранение
-
-*Функция в разработке*`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '⬅️ Назад к настройкам',
-                  callback_data: 'user_settings',
-                },
-              ],
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
-      );
-    });
-
-    this.bot.action('settings_timezone', async (ctx) => {
-      await ctx.answerCbQuery();
-      await ctx.editMessageTextWithMarkdown(
-        `🌍 *Настройка часового пояса*
-
-Выберите ваш часовой пояс для точной отправки мотивационных сообщений:
-
-🕘 9:00, 15:00 и 22:00 по вашему местному времени`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '🇷🇺 Москва (UTC+3)',
-                  callback_data: 'tz_Europe/Moscow',
-                },
-                { text: '🇺🇦 Киев (UTC+2)', callback_data: 'tz_Europe/Kiev' },
-              ],
-              [
-                { text: '🇰🇿 Алматы (UTC+6)', callback_data: 'tz_Asia/Almaty' },
-                {
-                  text: '🇺🇿 Ташкент (UTC+5)',
-                  callback_data: 'tz_Asia/Tashkent',
-                },
-              ],
-              [
-                { text: '🇦🇿 Баку (UTC+4)', callback_data: 'tz_Asia/Baku' },
-                { text: '🇧🇾 Минск (UTC+3)', callback_data: 'tz_Europe/Minsk' },
-              ],
-              [
-                {
-                  text: '🇺🇸 Нью-Йорк (UTC-5)',
-                  callback_data: 'tz_America/New_York',
-                },
-                {
-                  text: '🇬🇧 Лондон (UTC+0)',
-                  callback_data: 'tz_Europe/London',
-                },
-              ],
-              [
-                { text: '⬅️ Назад к информации', callback_data: 'info_back' },
-                { text: '🏠 Главное меню', callback_data: 'back_to_menu' },
-              ],
-            ],
-          },
-        },
-      );
-    });
-
-    // Timezone selection handlers
-    this.bot.action(/^tz_(.+)$/, async (ctx) => {
-      const timezone = ctx.match[1];
-      await ctx.answerCbQuery();
-
-      try {
-        await this.userService.updateUser(ctx.userId, { timezone });
-
-        const timezoneNames = {
-          'Europe/Moscow': '🇷🇺 Москва (UTC+3)',
-          'Europe/Kiev': '🇺🇦 Киев (UTC+2)',
-          'Asia/Almaty': '🇰🇿 Алматы (UTC+6)',
-          'Asia/Tashkent': '🇺🇿 Ташкент (UTC+5)',
-          'Asia/Baku': '🇦🇿 Баку (UTC+4)',
-          'Europe/Minsk': '🇧🇾 Минск (UTC+3)',
-          'America/New_York': '🇺🇸 Нью-Йорк (UTC-5)',
-          'Europe/London': '🇬🇧 Лондон (UTC+0)',
-        };
-
-        await ctx.editMessageTextWithMarkdown(
-          `✅ *Часовой пояс обновлен*
-
-Установлен: ${timezoneNames[timezone] || timezone}
-
-🌟 Мотивационные сообщения будут приходить:
-• 🌅 9:00 - Утренняя мотивация  
-• 🌞 15:00 - Дневная поддержка
-• 🌙 22:00 - Вечернее подведение итогов
-
-Все уведомления теперь настроены по вашему местному времени!`,
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  {
-                    text: '📋 Показать расписание',
-                    callback_data: 'info_back',
-                  },
-                ],
-                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-              ],
-            },
-          },
-        );
-      } catch (error) {
-        this.logger.error('Error updating timezone:', error);
-        await ctx.editMessageTextWithMarkdown(
-          '❌ Ошибка при обновлении часового пояса. Попробуйте позже.',
-        );
-      }
-    });
-
-    // Info back handler
-    this.bot.action('info_back', async (ctx) => {
-      await ctx.answerCbQuery();
-      await this.showNotificationSchedules(ctx);
-    });
-
-    this.bot.action('setup_notifications', async (ctx) => {
-      await ctx.answerCbQuery();
-      await ctx.editMessageTextWithMarkdown(
-        `🔔 *Настроить уведомления*
-
-Пошаговая настройка уведомлений:
-
-1. 📱 Включить уведомления
-2. ⏰ Выбрать время
-3. 🎯 Выбрать типы напоминаний
-4. 📅 Настроить расписание
-5. ✅ Протестировать
-
-Хотите начать настройку?`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '🚀 Начать настройку',
-                  callback_data: 'start_notification_setup',
-                },
-              ],
-              [
-                {
-                  text: '⬅️ Назад к настройкам',
-                  callback_data: 'user_settings',
-                },
-              ],
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
-      );
-    });
-
-    this.bot.action('restart_tutorial', async (ctx) => {
-      await ctx.answerCbQuery();
-      await ctx.editMessageTextWithMarkdown(
-        `🎯 *Пройти обучение заново*
-
-Хотите пройти обучение с самого начала?
-
-• 📖 Основы работы с ботом
-• ✅ Создание задач
-• ⏰ Настройка напоминаний
-• 📊 Отслеживание прогресса
-• 🎯 Полезные советы
-
-Это займет около 5 минут.`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🚀 Начать обучение', callback_data: 'start_tutorial' }],
-              [
-                {
-                  text: '⬅️ Назад к настройкам',
-                  callback_data: 'user_settings',
-                },
-              ],
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
-      );
-    });
-
-    this.bot.action('start_notification_setup', async (ctx) => {
-      await ctx.answerCbQuery();
-      await ctx.editMessageTextWithMarkdown(
-        `🔔 *Шаг 1 из 5: Включение уведомлений*
-
-Для получения уведомлений нужно их включить.
-
-📱 *Важно!* Убедитесь что уведомления от Telegram включены в настройках вашего устройства.`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '✅ Включить уведомления',
-                  callback_data: 'toggle_notifications',
-                },
-              ],
-              [
-                {
-                  text: '⏭️ Пропустить этот шаг',
-                  callback_data: 'notification_setup_step2',
-                },
-              ],
-              [{ text: '❌ Отмена', callback_data: 'setup_notifications' }],
-            ],
-          },
-        },
-      );
-    });
-
-    this.bot.action('start_tutorial', async (ctx) => {
-      await ctx.answerCbQuery();
-      // Запускаем обучение заново
-      await this.startOnboarding(ctx);
-    });
-
-    this.bot.action('notification_setup_step2', async (ctx) => {
-      await ctx.answerCbQuery();
-      await ctx.editMessageTextWithMarkdown(
-        `⏰ *Шаг 2 из 5: Выберите время напоминаний*
-
-Когда вам удобно получать напоминания?`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '🌅 Утром (8:00)',
-                  callback_data: 'set_reminder_time_8',
-                },
-                {
-                  text: '🌞 Днем (14:00)',
-                  callback_data: 'set_reminder_time_14',
-                },
-              ],
-              [
-                {
-                  text: '🌆 Вечером (20:00)',
-                  callback_data: 'set_reminder_time_20',
-                },
-                {
-                  text: '🌙 На ночь (22:00)',
-                  callback_data: 'set_reminder_time_22',
-                },
-              ],
-              [
-                {
-                  text: '⏰ Выбрать свое время',
-                  callback_data: 'custom_reminder_time',
-                },
-              ],
-              [
-                {
-                  text: '⏭️ Пропустить этот шаг',
-                  callback_data: 'notification_setup_step3',
-                },
-              ],
-              [{ text: '❌ Отмена', callback_data: 'setup_notifications' }],
-            ],
-          },
-        },
-      );
-    });
-
-    this.bot.action(/set_reminder_time_(\d+)/, async (ctx) => {
-      await ctx.answerCbQuery();
-      const hour = ctx.match[1];
-
-      await ctx.editMessageTextWithMarkdown(
-        `✅ *Время установлено: ${hour}:00*
-
-Переходим к следующему шагу...`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '⏭️ Следующий шаг',
-                  callback_data: 'notification_setup_step3',
-                },
-              ],
-            ],
-          },
-        },
-      );
-
-      // Устанавливаем время в сессии (можно будет потом сохранить в БД)
-      ctx.session.notificationTime = parseInt(hour);
-    });
-
-    this.bot.action('notification_setup_step3', async (ctx) => {
-      await ctx.answerCbQuery();
-      await ctx.editMessageTextWithMarkdown(
-        `🎯 *Шаг 3 из 5: Типы напоминаний*
-
-О чем вы хотите получать уведомления?`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '✅ Задачи',
-                  callback_data: 'toggle_task_notifications',
-                },
-                {
-                  text: '🔄 Привычки',
-                  callback_data: 'toggle_habit_notifications',
-                },
-              ],
-              [
-                {
-                  text: '📊 Еженедельные отчеты',
-                  callback_data: 'toggle_weekly_reports',
-                },
-              ],
-              [
-                {
-                  text: '🎯 Мотивационные сообщения',
-                  callback_data: 'toggle_motivation',
-                },
-              ],
-              [
-                {
-                  text: '✅ Все выбрано',
-                  callback_data: 'notification_setup_step4',
-                },
-              ],
-              [{ text: '❌ Отмена', callback_data: 'setup_notifications' }],
             ],
           },
         },
@@ -4803,132 +4296,6 @@ XP (опыт) начисляется за выполнение задач. С к
       await this.showMainMenu(ctx, true);
     });
 
-    // Handle task confirmation from natural language
-    this.bot.action(/^confirm_task:(.+)$/, async (ctx) => {
-      await ctx.answerCbQuery();
-      const taskTitle = ctx.match[1];
-
-      try {
-        const task = await this.taskService.createTask({
-          userId: ctx.userId,
-          title: taskTitle.trim(),
-          description: '',
-          priority: 'MEDIUM' as any,
-        });
-
-        await this.billingService.incrementUsage(ctx.userId, 'dailyTasks');
-
-        const user = await this.userService.findByTelegramId(ctx.userId);
-        await this.userService.updateUser(ctx.userId, {
-          totalTasks: user.totalTasks + 1,
-        });
-
-        await ctx.editMessageTextWithMarkdown(
-          `✅ *Задача успешно создана!*\n\n📝 *${task.title}*\n⚡ XP за выполнение: ${task.xpReward}`,
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '📋 Мои задачи', callback_data: 'menu_tasks' }],
-                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-              ],
-            },
-          },
-        );
-      } catch (error) {
-        this.logger.error('Error confirming task creation:', error);
-        await ctx.editMessageTextWithMarkdown(
-          '❌ *Ошибка при создании задачи*\n\nПопробуйте еще раз.',
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-              ],
-            },
-          },
-        );
-      }
-    });
-
-    // Handle task confirmation from session (natural language)
-    this.bot.action('confirm_task_creation', async (ctx) => {
-      await ctx.answerCbQuery();
-
-      if (!ctx.session.pendingTaskTitle) {
-        await ctx.editMessageTextWithMarkdown(
-          '❌ *Ошибка:* Не найден текст задачи.',
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-              ],
-            },
-          },
-        );
-        return;
-      }
-
-      try {
-        const taskTitle = ctx.session.pendingTaskTitle;
-        const task = await this.taskService.createTask({
-          userId: ctx.userId,
-          title: taskTitle.trim(),
-          description: '',
-          priority: 'MEDIUM' as any,
-        });
-
-        await this.billingService.incrementUsage(ctx.userId, 'dailyTasks');
-
-        const user = await this.userService.findByTelegramId(ctx.userId);
-        await this.userService.updateUser(ctx.userId, {
-          totalTasks: user.totalTasks + 1,
-        });
-
-        // Очищаем сессию
-        ctx.session.pendingTaskTitle = undefined;
-
-        await ctx.editMessageTextWithMarkdown(
-          `✅ *Задача успешно создана!*\n\n📝 *${task.title}*\n⚡ XP за выполнение: ${task.xpReward}`,
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '📋 Мои задачи', callback_data: 'menu_tasks' }],
-                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-              ],
-            },
-          },
-        );
-      } catch (error) {
-        this.logger.error('Error confirming task creation:', error);
-        ctx.session.pendingTaskTitle = undefined;
-        await ctx.editMessageTextWithMarkdown(
-          '❌ *Ошибка при создании задачи*\n\nПопробуйте еще раз.',
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-              ],
-            },
-          },
-        );
-      }
-    });
-
-    // Handle task cancellation
-    this.bot.action('cancel_task', async (ctx) => {
-      await ctx.answerCbQuery();
-
-      // Очищаем сессию
-      ctx.session.pendingTaskTitle = undefined;
-
-      await ctx.editMessageTextWithMarkdown('❌ *Создание задачи отменено*', {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-          ],
-        },
-      });
-    });
-
     // Handle "Главное меню" button clicks
     this.bot.action('start', async (ctx) => {
       await ctx.answerCbQuery();
@@ -4997,9 +4364,13 @@ XP (опыт) начисляется за выполнение задач. С к
       await this.handleAIChatMessage(ctx, text);
     });
 
-    // AI Chat handlers - moved to AI specialized handlers section
+    // AI Chat handlers
     this.bot.action('ai_analyze_profile', async (ctx) => {
       await this.handleAIAnalyzeProfile(ctx);
+    });
+
+    this.bot.action('ai_task_recommendations', async (ctx) => {
+      await this.handleAITaskRecommendations(ctx);
     });
 
     this.bot.action('ai_time_planning', async (ctx) => {
@@ -5027,38 +4398,6 @@ XP (опыт) начисляется за выполнение задач. С к
     this.bot.action('ai_back_menu', async (ctx) => {
       await ctx.answerCbQuery();
       await this.startAIChat(ctx);
-    });
-
-    // Exit AI Chat
-    this.bot.action('exit_ai_chat', async (ctx) => {
-      await ctx.answerCbQuery();
-      ctx.session.aiChatMode = false;
-      await ctx.editMessageTextWithMarkdown(
-        '✅ *Вы вышли из режима ИИ-чата*\n\nТеперь вы можете создавать задачи, привычки и пользоваться всеми функциями бота.',
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
-      );
-    });
-
-    // Continue AI Chat
-    this.bot.action('continue_ai_chat', async (ctx) => {
-      await ctx.answerCbQuery();
-      await ctx.editMessageTextWithMarkdown(
-        '🤖 *Продолжаем чат с ИИ*\n\nЗадайте свой вопрос или попросите помощь.',
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🚪 Выйти из ИИ-чата', callback_data: 'exit_ai_chat' }],
-              [{ text: '⬅️ К меню ИИ', callback_data: 'ai_back_menu' }],
-            ],
-          },
-        },
-      );
     });
 
     // AI specialized handlers
@@ -5114,16 +4453,6 @@ XP (опыт) начисляется за выполнение задач. С к
       await this.showTodayTasks(ctx);
     });
 
-    this.bot.action('tasks_completed', async (ctx) => {
-      await ctx.answerCbQuery();
-      await this.showCompletedTasks(ctx);
-    });
-
-    this.bot.action('tasks_completed_more', async (ctx) => {
-      await ctx.answerCbQuery();
-      await this.showAllCompletedTasks(ctx);
-    });
-
     // Handle AI advice for tasks
     this.bot.action('tasks_ai_advice', async (ctx) => {
       await ctx.answerCbQuery();
@@ -5135,18 +4464,6 @@ XP (опыт) начисляется за выполнение задач. С к
       await ctx.answerCbQuery();
       const taskId = ctx.match[1];
       await this.completeTask(ctx, taskId);
-    });
-
-    // Handle completed task click (no-op)
-    this.bot.action('task_info_noop', async (ctx) => {
-      await ctx.answerCbQuery('✅ Эта задача уже выполнена!');
-    });
-
-    // Handle task restoration (make incomplete)
-    this.bot.action(/^task_restore_(.+)$/, async (ctx) => {
-      await ctx.answerCbQuery();
-      const taskId = ctx.match[1];
-      await this.restoreTask(ctx, taskId);
     });
 
     // Handle back to tasks menu
@@ -5642,414 +4959,6 @@ XP (опыт) начисляется за выполнение задач. С к
       await ctx.editMessageText('❌ Создание напоминания отменено');
     });
 
-    // Reminder time selection handlers
-    this.bot.action(/^reminder_time_(.+)$/, async (ctx) => {
-      await ctx.answerCbQuery();
-
-      if (!ctx.session.pendingReminder) {
-        await ctx.editMessageText('❌ Не найден текст напоминания.', {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        });
-        return;
-      }
-
-      const time = ctx.match[1];
-      const [hours, minutes] = time.split(':');
-
-      await this.handleReminderRequest(
-        ctx,
-        ctx.session.pendingReminder.text,
-        hours,
-        minutes,
-      );
-
-      // Clear session
-      delete ctx.session.pendingReminder;
-    });
-
-    this.bot.action('reminder_in_30min', async (ctx) => {
-      await ctx.answerCbQuery();
-
-      if (!ctx.session.pendingReminder) {
-        await ctx.editMessageText('❌ Не найден текст напоминания.', {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        });
-        return;
-      }
-
-      const now = new Date();
-      now.setMinutes(now.getMinutes() + 30);
-      const hours = now.getHours().toString().padStart(2, '0');
-      const minutes = now.getMinutes().toString().padStart(2, '0');
-
-      await this.handleReminderRequest(
-        ctx,
-        ctx.session.pendingReminder.text,
-        hours,
-        minutes,
-      );
-
-      // Clear session
-      delete ctx.session.pendingReminder;
-    });
-
-    this.bot.action('reminder_in_1hour', async (ctx) => {
-      await ctx.answerCbQuery();
-
-      if (!ctx.session.pendingReminder) {
-        await ctx.editMessageText('❌ Не найден текст напоминания.', {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        });
-        return;
-      }
-
-      const now = new Date();
-      now.setHours(now.getHours() + 1);
-      const hours = now.getHours().toString().padStart(2, '0');
-      const minutes = now.getMinutes().toString().padStart(2, '0');
-
-      await this.handleReminderRequest(
-        ctx,
-        ctx.session.pendingReminder.text,
-        hours,
-        minutes,
-      );
-
-      // Clear session
-      delete ctx.session.pendingReminder;
-    });
-
-    this.bot.action('reminder_in_2hours', async (ctx) => {
-      await ctx.answerCbQuery();
-
-      if (!ctx.session.pendingReminder) {
-        await ctx.editMessageText('❌ Не найден текст напоминания.', {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        });
-        return;
-      }
-
-      const now = new Date();
-      now.setHours(now.getHours() + 2);
-      const hours = now.getHours().toString().padStart(2, '0');
-      const minutes = now.getMinutes().toString().padStart(2, '0');
-
-      await this.handleReminderRequest(
-        ctx,
-        ctx.session.pendingReminder.text,
-        hours,
-        minutes,
-      );
-
-      // Clear session
-      delete ctx.session.pendingReminder;
-    });
-
-    this.bot.action('reminder_custom_time', async (ctx) => {
-      await ctx.answerCbQuery();
-
-      if (!ctx.session.pendingReminder) {
-        await ctx.editMessageText('❌ Не найден текст напоминания.', {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        });
-        return;
-      }
-
-      ctx.session.waitingForReminderTime = true;
-
-      await ctx.editMessageTextWithMarkdown(
-        `⏰ *Введите время напоминания*\n\nО чем напомнить: "${ctx.session.pendingReminder.text}"\n\nВведите время в формате:\n• 17:30\n• В 18:00\n• Через 30 минут\n• Через 2 часа`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '◀️ Назад к выбору времени',
-                  callback_data: 'back_to_time_selection',
-                },
-              ],
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
-      );
-    });
-
-    this.bot.action('back_to_time_selection', async (ctx) => {
-      await ctx.answerCbQuery();
-
-      if (!ctx.session.pendingReminder) {
-        await ctx.editMessageText('❌ Не найден текст напоминания.', {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        });
-        return;
-      }
-
-      ctx.session.waitingForReminderTime = false;
-
-      await ctx.editMessageTextWithMarkdown(
-        `⏰ *На какое время поставить напоминание?*\n\nО чем напомнить: "${ctx.session.pendingReminder.text}"`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: '⏰ В 9:00', callback_data: 'reminder_time_09:00' },
-                { text: '🕐 В 12:00', callback_data: 'reminder_time_12:00' },
-              ],
-              [
-                { text: '🕕 В 15:00', callback_data: 'reminder_time_15:00' },
-                { text: '🕘 В 18:00', callback_data: 'reminder_time_18:00' },
-              ],
-              [
-                { text: '🕘 В 21:00', callback_data: 'reminder_time_21:00' },
-                { text: '⏱️ Через 30 мин', callback_data: 'reminder_in_30min' },
-              ],
-              [
-                { text: '⏱️ Через 1 час', callback_data: 'reminder_in_1hour' },
-                {
-                  text: '⏱️ Через 2 часа',
-                  callback_data: 'reminder_in_2hours',
-                },
-              ],
-              [
-                {
-                  text: '✏️ Ввести время',
-                  callback_data: 'reminder_custom_time',
-                },
-              ],
-              [{ text: '◀️ Назад в меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
-      );
-    });
-
-    // Handle creating task instead of reminder
-    this.bot.action('create_as_task_instead', async (ctx) => {
-      await ctx.answerCbQuery('📝 Создаю задачу...');
-
-      if (!ctx.session.pendingReminder?.text) {
-        await ctx.editMessageText(
-          '❌ Ошибка: не найден текст для создания задачи.',
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-              ],
-            },
-          },
-        );
-        return;
-      }
-
-      try {
-        const taskText = ctx.session.pendingReminder.text;
-
-        // Создаем задачу
-        const task = await this.taskService.createTask({
-          userId: ctx.userId,
-          title: taskText,
-          description: '',
-          priority: 'MEDIUM',
-          dueDate: new Date(), // Задача на сегодня
-        });
-
-        // Очищаем сессию
-        ctx.session.pendingReminder = undefined;
-        ctx.session.waitingForReminderTime = false;
-
-        await ctx.editMessageText(
-          `✅ *Задача создана!*
-
-📝 **${task.title}**
-
-Задача добавлена в список на сегодня.`,
-          {
-            parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  { text: '📋 Мои задачи', callback_data: 'tasks_list' },
-                  { text: '➕ Ещё задача', callback_data: 'tasks_add' },
-                ],
-                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-              ],
-            },
-          },
-        );
-      } catch (error) {
-        this.logger.error('Error creating task from reminder:', error);
-
-        await ctx.editMessageText(
-          '❌ Ошибка при создании задачи. Попробуйте позже.',
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  { text: '📝 Попробовать снова', callback_data: 'tasks_add' },
-                  { text: '🏠 Главное меню', callback_data: 'back_to_menu' },
-                ],
-              ],
-            },
-          },
-        );
-      }
-    });
-
-    // Handle creating reminder instead of task
-    this.bot.action('create_as_reminder_instead', async (ctx) => {
-      await ctx.answerCbQuery('⏰ Создаю напоминание...');
-
-      if (!ctx.session.pendingTaskTitle) {
-        await ctx.editMessageText(
-          '❌ Ошибка: не найден текст для создания напоминания.',
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-              ],
-            },
-          },
-        );
-        return;
-      }
-
-      try {
-        const reminderText = ctx.session.pendingTaskTitle;
-
-        // Очищаем pendingTaskTitle
-        ctx.session.pendingTaskTitle = undefined;
-
-        // Проверяем, есть ли время в тексте
-        const timeMatch = this.extractTimeFromText(reminderText);
-
-        if (timeMatch) {
-          // Если время указано, сразу создаем напоминание
-          await this.handleReminderRequest(
-            ctx,
-            this.extractReminderText(reminderText),
-            timeMatch.hours,
-            timeMatch.minutes,
-          );
-        } else {
-          // Если времени нет, переходим к выбору времени
-          // Сохраняем текст напоминания в сессии и переходим к выбору времени
-          ctx.session.pendingReminder = {
-            text: this.extractReminderText(reminderText),
-            originalText: reminderText,
-          };
-          ctx.session.waitingForReminderTime = true;
-
-          await ctx.editMessageText(
-            `⏰ *Создание напоминания*
-
-📝 **Текст:** "${this.extractReminderText(reminderText)}"
-
-💡 **Выберите время или напишите своё:**
-
-*Примеры:*
-• "в 15:30"
-• "через 2 часа" 
-• "завтра в 10:00"
-• "в понедельник в 14:00"`,
-            {
-              parse_mode: 'Markdown',
-              reply_markup: {
-                inline_keyboard: [
-                  [
-                    {
-                      text: '⏰ Через 15 мин',
-                      callback_data: 'remind_in_15min',
-                    },
-                    {
-                      text: '⏰ Через 30 мин',
-                      callback_data: 'remind_in_30min',
-                    },
-                  ],
-                  [
-                    {
-                      text: '⏰ Через 1 час',
-                      callback_data: 'remind_in_1hour',
-                    },
-                    {
-                      text: '⏰ Через 2 часа',
-                      callback_data: 'remind_in_2hours',
-                    },
-                  ],
-                  [
-                    {
-                      text: '⏰ Завтра утром (9:00)',
-                      callback_data: 'remind_tomorrow_morning',
-                    },
-                    {
-                      text: '⏰ Завтра вечером (18:00)',
-                      callback_data: 'remind_tomorrow_evening',
-                    },
-                  ],
-                  [
-                    {
-                      text: '🕐 Указать точное время',
-                      callback_data: 'remind_custom_time',
-                    },
-                  ],
-                  [
-                    {
-                      text: '📝 Создать как задачу',
-                      callback_data: 'create_as_task_instead',
-                    },
-                  ],
-                  [{ text: '❌ Отмена', callback_data: 'cancel_reminder' }],
-                ],
-              },
-            },
-          );
-        }
-      } catch (error) {
-        this.logger.error('Error creating reminder from task:', error);
-
-        await ctx.editMessageText(
-          '❌ Ошибка при создании напоминания. Попробуйте позже.',
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  {
-                    text: '⏰ Попробовать снова',
-                    callback_data: 'create_as_reminder_instead',
-                  },
-                  { text: '🏠 Главное меню', callback_data: 'back_to_menu' },
-                ],
-              ],
-            },
-          },
-        );
-      }
-    });
-
     // Error handling
     this.bot.catch((err, ctx) => {
       this.logger.error(`Bot error for ${ctx.updateType}:`, err);
@@ -6068,268 +4977,116 @@ XP (опыт) начисляется за выполнение задач. С к
 
   // AI specialized handlers
   private async handleAITaskRecommendations(ctx: BotContext) {
-    try {
-      await ctx.answerCbQuery();
-      await ctx.editMessageTextWithMarkdown(
-        '🤖 *Анализирую ваши задачи...*\n\nПожалуйста, подождите...',
-      );
+    const user = await this.userService.findByTelegramId(ctx.userId);
+    const tasks = await this.taskService.findTasksByUserId(ctx.userId);
+    const completedTasks = tasks.filter((t) => t.completedAt !== null);
 
-      const user = await this.userService.findByTelegramId(ctx.userId);
-      const tasks = await this.taskService.findTasksByUserId(ctx.userId);
-      const completedTasks = tasks.filter((t) => t.completedAt !== null);
-      const pendingTasks = tasks.filter((t) => t.completedAt === null);
-
-      // Собираем детальную информацию о задачах
-      const taskAnalysis = {
-        total: tasks.length,
-        completed: completedTasks.length,
-        pending: pendingTasks.length,
-        completionRate:
-          tasks.length > 0
-            ? Math.round((completedTasks.length / tasks.length) * 100)
-            : 0,
-
-        // Анализ по приоритетам
-        highPriorityPending: pendingTasks.filter((t) => t.priority === 'HIGH')
-          .length,
-        mediumPriorityPending: pendingTasks.filter(
-          (t) => t.priority === 'MEDIUM',
-        ).length,
-        lowPriorityPending: pendingTasks.filter((t) => t.priority === 'LOW')
-          .length,
-
-        // Анализ по времени
-        overdueTasks: pendingTasks.filter(
-          (t) => t.dueDate && new Date(t.dueDate) < new Date(),
-        ).length,
-        todayTasks: pendingTasks.filter((t) => {
-          if (!t.dueDate) return false;
-          const today = new Date();
-          const dueDate = new Date(t.dueDate);
-          return today.toDateString() === dueDate.toDateString();
-        }).length,
-
-        // Список конкретных задач для анализа
-        pendingTasksList: pendingTasks.slice(0, 10).map((t) => ({
-          title: t.title,
-          priority: t.priority,
-          dueDate: t.dueDate,
-          description: t.description,
-          createdAt: t.createdAt,
-        })),
-
-        recentCompletedTasks: completedTasks
-          .sort(
-            (a, b) =>
-              new Date(b.completedAt!).getTime() -
-              new Date(a.completedAt!).getTime(),
-          )
-          .slice(0, 5)
-          .map((t) => ({
-            title: t.title,
-            completedAt: t.completedAt,
-            priority: t.priority,
-          })),
-      };
-
-      // Формируем персональный промпт для ИИ
-      const aiPrompt = `
-      Проанализируй задачи пользователя и дай персональные рекомендации:
-
-      СТАТИСТИКА ЗАДАЧ:
-      - Всего задач: ${taskAnalysis.total}
-      - Выполнено: ${taskAnalysis.completed} (${taskAnalysis.completionRate}%)
-      - Осталось: ${taskAnalysis.pending}
-      - Просроченных: ${taskAnalysis.overdueTasks}
-      - На сегодня: ${taskAnalysis.todayTasks}
-
-      ПРИОРИТЕТЫ НЕВЫПОЛНЕННЫХ ЗАДАЧ:
-      - Высокий: ${taskAnalysis.highPriorityPending}
-      - Средний: ${taskAnalysis.mediumPriorityPending}
-      - Низкий: ${taskAnalysis.lowPriorityPending}
-
-      ТЕКУЩИЕ ЗАДАЧИ (до 10):
-      ${JSON.stringify(taskAnalysis.pendingTasksList, null, 2)}
-
-      НЕДАВНО ВЫПОЛНЕННЫЕ:
-      ${JSON.stringify(taskAnalysis.recentCompletedTasks, null, 2)}
-
-      Дай конкретные персональные рекомендации:
-      1. Анализ текущей ситуации с задачами
-      2. Приоритизация - на что обратить внимание в первую очередь
-      3. Конкретные советы по выполнению задач (основываясь на реальных задачах пользователя)
-      4. Рекомендации по планированию времени
-      
-      Ответ должен быть персональным, основанным на реальных данных, мотивирующим. Максимум 1200 символов.
-      `;
-
-      const aiRecommendation = await this.openaiService.getAIResponse(aiPrompt);
-
-      await ctx.editMessageTextWithMarkdown(
-        `💡 *Персональные рекомендации по задачам*
-
-📊 **Статистика:** ${taskAnalysis.completed}/${taskAnalysis.total} задач выполнено (${taskAnalysis.completionRate}%)
-
-${aiRecommendation}`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
-      );
-    } catch (error) {
-      console.error('Error in AI task recommendations:', error);
-      await ctx.editMessageTextWithMarkdown(
-        '❌ *Ошибка при анализе задач*\n\nПопробуйте еще раз позже.',
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
-      );
+    let recommendation = '';
+    if (tasks.length === 0) {
+      recommendation =
+        '📝 Создайте первую задачу! Начните с чего-то простого на сегодня.';
+    } else if (completedTasks.length < tasks.length * 0.3) {
+      recommendation =
+        '🎯 Сфокусируйтесь на завершении текущих задач. Качество важнее количества!';
+    } else {
+      recommendation =
+        '🚀 Отличная работа! Попробуйте технику Помодоро для повышения продуктивности.';
     }
+
+    await ctx.editMessageTextWithMarkdown(
+      `
+💡 *Рекомендации по задачам*
+
+📊 Статистика: ${completedTasks.length}/${tasks.length} задач выполнено
+
+${recommendation}
+
+*Совет:* Разбивайте большие задачи на маленькие шаги.
+      `,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
+            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+          ],
+        },
+      },
+    );
   }
 
   private async handleAIHabitHelp(ctx: BotContext) {
     try {
-      await ctx.answerCbQuery();
-      await ctx.editMessageTextWithMarkdown(
-        '🤖 *Анализирую ваши привычки...*\n\nПожалуйста, подождите...',
-      );
-
       const user = await this.userService.findByTelegramId(ctx.userId);
       const habits = await this.habitService.findHabitsByUserId(ctx.userId);
       const completedHabits = habits.filter((h) => h.totalCompletions > 0);
 
-      // Собираем детальную информацию о привычках
-      const habitAnalysis = {
-        total: habits.length,
-        active: habits.filter((h) => h.isActive).length,
-        completed: completedHabits.length,
+      // Анализируем профиль пользователя для персональных рекомендаций
+      const userProfile = {
+        totalHabits: habits.length,
+        activeHabits: habits.filter((h) => h.isActive).length,
+        completedHabits: completedHabits.length,
         avgStreak:
           habits.length > 0
             ? habits.reduce((sum, h) => sum + h.currentStreak, 0) /
               habits.length
             : 0,
-        maxStreak:
-          habits.length > 0
-            ? Math.max(...habits.map((h) => h.currentStreak))
-            : 0,
-        totalCompletions: habits.reduce(
-          (sum, h) => sum + h.totalCompletions,
-          0,
-        ),
-
-        // Анализ по категориям
-        categoriesStats: habits.reduce(
-          (acc, habit) => {
-            const category = habit.category || 'Без категории';
-            acc[category] = (acc[category] || 0) + 1;
-            return acc;
-          },
-          {} as Record<string, number>,
-        ),
-
-        // Анализ по частоте
-        frequencyStats: habits.reduce(
-          (acc, habit) => {
-            acc[habit.frequency] = (acc[habit.frequency] || 0) + 1;
-            return acc;
-          },
-          {} as Record<string, number>,
-        ),
-
-        // Детальный список привычек
-        habitDetails: habits.map((h) => ({
-          title: h.title,
-          category: h.category || 'Без категории',
-          frequency: h.frequency,
-          currentStreak: h.currentStreak,
-          totalCompletions: h.totalCompletions,
-          isActive: h.isActive,
-          createdAt: h.createdAt,
-          updatedAt: h.updatedAt,
-        })),
-
-        // Привычки с лучшими результатами
-        topHabits: habits
-          .filter((h) => h.currentStreak > 0)
-          .sort((a, b) => b.currentStreak - a.currentStreak)
-          .slice(0, 3)
-          .map((h) => ({
-            title: h.title,
-            streak: h.currentStreak,
-            category: h.category || 'Без категории',
-          })),
-
-        // Проблемные привычки
-        strugglingHabits: habits
-          .filter(
-            (h) =>
-              h.isActive && h.currentStreak === 0 && h.totalCompletions > 0,
-          )
-          .map((h) => ({
-            title: h.title,
-            category: h.category || 'Без категории',
-            totalCompletions: h.totalCompletions,
-            updatedAt: h.updatedAt,
-          })),
       };
 
-      // Формируем персональный промпт для ИИ
-      const aiPrompt = `
-      Проанализируй привычки пользователя и дай персональные рекомендации:
+      let personalizedRecommendations: string[] = [];
+      let motivationalMessage = '';
 
-      ОБЩАЯ СТАТИСТИКА:
-      - Всего привычек: ${habitAnalysis.total}
-      - Активных: ${habitAnalysis.active}
-      - С выполнениями: ${habitAnalysis.completed}
-      - Средняя серия: ${Math.round(habitAnalysis.avgStreak)} дней
-      - Максимальная серия: ${habitAnalysis.maxStreak} дней
-      - Всего выполнений: ${habitAnalysis.totalCompletions}
+      // Генерируем персональные рекомендации
+      if (habits.length === 0) {
+        personalizedRecommendations = [
+          '💧 Начните с простого: пить 1 стакан воды утром',
+          '🚶‍♂️ 5-минутная прогулка после еды',
+          '📚 Читать 1 страницу книги перед сном',
+          '🧘‍♀️ 2-минутная медитация утром',
+        ];
+        motivationalMessage =
+          'Отличное время для начала! Выберите одну простую привычку.';
+      } else if (userProfile.avgStreak < 3) {
+        personalizedRecommendations = [
+          '🎯 Сосредоточьтесь на одной привычке до автоматизма',
+          '⏰ Привяжите привычку к существующему действию',
+          '🏆 Отмечайте каждый день в календаре',
+          '📱 Используйте напоминания в одно и то же время',
+        ];
+        motivationalMessage =
+          'Главное - постоянство! Лучше делать мало, но каждый день.';
+      } else {
+        personalizedRecommendations = [
+          '📈 Усложните существующие привычки постепенно',
+          '🔗 Свяжите привычки в цепочки (habit stacking)',
+          '🎉 Добавьте систему наград за достижения',
+          '📊 Отслеживайте прогресс еженедельно',
+        ];
+        motivationalMessage =
+          'У вас отличная дисциплина! Время масштабировать успех.';
+      }
 
-      СТАТИСТИКА ПО КАТЕГОРИЯМ:
-      ${JSON.stringify(habitAnalysis.categoriesStats, null, 2)}
-
-      СТАТИСТИКА ПО ЧАСТОТЕ:
-      ${JSON.stringify(habitAnalysis.frequencyStats, null, 2)}
-
-      ВСЕ ПРИВЫЧКИ (детали):
-      ${JSON.stringify(habitAnalysis.habitDetails, null, 2)}
-
-      ЛУЧШИЕ ПРИВЫЧКИ:
-      ${JSON.stringify(habitAnalysis.topHabits, null, 2)}
-
-      ПРОБЛЕМНЫЕ ПРИВЫЧКИ:
-      ${JSON.stringify(habitAnalysis.strugglingHabits, null, 2)}
-
-      Дай персональные рекомендации:
-      1. Анализ текущего состояния привычек пользователя
-      2. Что работает хорошо - отметь успехи
-      3. Проблемные зоны и что нужно улучшить
-      4. Конкретные рекомендации по каждой категории привычек
-      5. Научно обоснованные советы для формирования новых привычек
-      
-      Ответ должен быть персональным, основанным на реальных данных, мотивирующим. Максимум 1200 символов.
-      `;
-
-      const aiRecommendation = await this.openaiService.getAIResponse(aiPrompt);
-
+      // Формируем ответ
       let message = `🎯 *Персональные рекомендации по привычкам*\n\n`;
 
       if (habits.length > 0) {
         message += `📊 *Ваш профиль:*\n`;
-        message += `• Привычек: ${habitAnalysis.total} (активных: ${habitAnalysis.active})\n`;
-        message += `• Средняя серия: ${Math.round(habitAnalysis.avgStreak)} дней\n`;
-        message += `• Выполняемых: ${habitAnalysis.completed}\n\n`;
+        message += `• Привычек: ${userProfile.totalHabits} (активных: ${userProfile.activeHabits})\n`;
+        message += `• Средняя серия: ${Math.round(userProfile.avgStreak)} дней\n`;
+        message += `• Выполняемых: ${completedHabits.length}\n\n`;
       }
 
-      message += `${aiRecommendation}`;
+      message += `💡 *${motivationalMessage}*\n\n`;
+      message += `🎯 *Рекомендации для вас:*\n`;
+
+      personalizedRecommendations.forEach((rec, index) => {
+        message += `${index + 1}. ${rec}\n`;
+      });
+
+      message += `\n🧠 *Научно доказанные советы:*\n`;
+      message += `• 21 день для простых привычек, 66 дней для сложных\n`;
+      message += `• Начинайте с 2-минутного правила\n`;
+      message += `• Используйте правило "никогда не пропускайте дважды"\n`;
+      message += `• Фокус на процессе, а не на результате`;
 
       const keyboard = {
         inline_keyboard: [
@@ -6341,6 +5098,12 @@ ${aiRecommendation}`,
             {
               text: '🎯 Мои привычки',
               callback_data: 'habits_list',
+            },
+          ],
+          [
+            {
+              text: '🤖 Создать ИИ-привычку',
+              callback_data: 'ai_create_habit',
             },
           ],
           [
@@ -6358,12 +5121,11 @@ ${aiRecommendation}`,
     } catch (error) {
       this.logger.error('Error in handleAIHabitHelp:', error);
       await ctx.editMessageTextWithMarkdown(
-        '❌ *Ошибка при анализе привычек*\n\nПопробуйте еще раз позже.',
+        '❌ Ошибка при анализе привычек. Попробуйте позже.',
         {
           reply_markup: {
             inline_keyboard: [
               [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
             ],
           },
         },
@@ -6660,17 +5422,13 @@ ${aiRecommendation}`,
 
   private extractReminderText(text: string): string {
     // Удаляем ключевые слова напоминания и получаем основной текст
-    let cleanText = text
+    const cleanText = text
+      .toLowerCase()
       .replace(
         /^(напомни мне|напомни|поставь напоминание|создай напоминание|remind me|remind)\s*/i,
         '',
       )
-      .replace(
-        /\s*(через|в течение|after|in)\s+\d+\s*(минут|час|часа|часов)/i,
-        '',
-      ) // Удаляем относительное время
-      .replace(/\s+в\s+\d{1,2}:\d{2}/i, '') // Удаляем абсолютное время типа "в 18:00"
-      .replace(/\s+\d{1,2}:\d{2}/i, '') // Удаляем время без предлога
+      .replace(/\s*(через|в|в течение|after|in)\s*\d+.*$/i, '') // Удаляем временные указатели
       .trim();
 
     return cleanText || 'Напоминание';
@@ -6753,12 +5511,6 @@ ${aiRecommendation}`,
               {
                 text: '🕐 Указать точное время',
                 callback_data: 'remind_custom_time',
-              },
-            ],
-            [
-              {
-                text: '📝 Создать как задачу',
-                callback_data: 'create_as_task_instead',
               },
             ],
             [{ text: '❌ Отмена', callback_data: 'cancel_reminder' }],
@@ -6860,12 +5612,6 @@ ${aiRecommendation}`,
               {
                 text: '🕐 Указать точное время',
                 callback_data: 'remind_custom_time',
-              },
-            ],
-            [
-              {
-                text: '📝 Создать как задачу',
-                callback_data: 'create_as_task_instead',
               },
             ],
             [{ text: '❌ Отмена', callback_data: 'cancel_reminder' }],
@@ -7255,179 +6001,44 @@ ${timeAdvice}
       this.logger.error('Failed to launch bot:', error);
     });
 
-    // Инициализация системы уведомлений о привычках
-    this.notificationService.loadActiveHabitReminders().catch((error) => {
-      this.logger.error('Failed to load habit reminders:', error);
-    });
-
     // Инициализация системы мотивационных сообщений для зависимостей
     this.startMotivationalMessagesService();
-
-    // Очистка кеша пропущенных привычек каждую полночь
-    this.startDailyCacheCleanup();
   }
 
   private startMotivationalMessagesService() {
-    // Запускаем проверку каждые 10 минут для отправки мотивационных сообщений
+    // Отправка мотивационных сообщений каждый час с 8:00 до 22:00
     setInterval(
       async () => {
-        await this.checkAndSendMotivationalMessages();
-      },
-      10 * 60 * 1000, // каждые 10 минут
-    );
+        const currentHour = new Date().getHours();
 
-    this.logger.log(
-      'Motivational messages service started - checking every 10 minutes',
-    );
-  }
-
-  private startDailyCacheCleanup() {
-    // Проверяем каждые 30 минут, наступил ли новый день
-    setInterval(
-      () => {
-        const now = new Date();
-        const hours = now.getHours();
-        const minutes = now.getMinutes();
-
-        // В 00:00 очищаем кеш пропущенных привычек
-        if (hours === 0 && minutes <= 30) {
-          this.clearSkippedHabitsCache();
+        // Работаем только с 8:00 до 22:00
+        if (currentHour >= 8 && currentHour <= 22) {
+          await this.sendMotivationalMessages();
         }
       },
-      30 * 60 * 1000,
-    ); // каждые 30 минут
+      60 * 60 * 1000,
+    ); // каждый час
 
-    this.logger.log('Daily cache cleanup service started');
+    this.logger.log('Motivational messages service started');
   }
 
-  private async checkAndSendMotivationalMessages() {
+  private async sendMotivationalMessages() {
     try {
-      // Получаем всех пользователей с активными привычками
-      const usersWithHabits = await this.prisma.user.findMany({
-        where: {
-          habits: {
-            some: {
-              isActive: true,
-            },
-          },
-        },
-        include: {
-          habits: {
-            where: {
-              isActive: true,
-            },
-          },
-        },
-      });
+      // Здесь вы бы получили список пользователей с активными зависимостями
+      // Пока что это заглушка для демонстрации структуры
 
-      this.logger.log(
-        `Found ${usersWithHabits.length} users with active habits`,
-      );
+      // const usersWithDependencies = await this.getUsersWithActiveDependencies();
+      //
+      // for (const user of usersWithDependencies) {
+      //   const motivationalMessage = await this.generateMotivationalMessage(user.dependency);
+      //   await this.bot.telegram.sendMessage(user.telegramId, motivationalMessage, {
+      //     parse_mode: 'Markdown'
+      //   });
+      // }
 
-      for (const user of usersWithHabits) {
-        await this.checkUserMotivationalTime(user);
-      }
+      this.logger.log('Motivational messages sent');
     } catch (error) {
-      this.logger.error('Error checking motivational messages:', error);
-    }
-  }
-
-  private async checkUserMotivationalTime(user: any) {
-    try {
-      const userTimezone = user.timezone || 'Europe/Moscow';
-      const now = new Date();
-
-      // Получаем текущее время в часовом поясе пользователя
-      const userTime = new Date(
-        now.toLocaleString('en-US', { timeZone: userTimezone }),
-      );
-      const currentHour = userTime.getHours();
-      const currentMinute = userTime.getMinutes();
-
-      // Проверяем, нужно ли отправить сообщение в одно из трех времен:
-      // 9:00, 15:00, 22:00 (с допуском ±5 минут)
-      const targetHours = [9, 15, 22];
-      const shouldSend = targetHours.some((hour) => {
-        return (
-          currentHour === hour && currentMinute >= 0 && currentMinute <= 10
-        );
-      });
-
-      if (shouldSend) {
-        // Проверяем, отправляли ли уже сегодня в это время
-        const today = new Date().toDateString();
-        const lastSentKey = `motivational_${user.id}_${currentHour}_${today}`;
-
-        // Простая проверка - используем кеш в памяти (для production нужна БД)
-        if (!this.sentMessagesCache) {
-          this.sentMessagesCache = new Set();
-        }
-
-        if (!this.sentMessagesCache.has(lastSentKey)) {
-          await this.sendUserMotivationalMessage(user, currentHour);
-          this.sentMessagesCache.add(lastSentKey);
-        }
-      }
-    } catch (error) {
-      this.logger.error(
-        `Error checking motivational time for user ${user.id}:`,
-        error,
-      );
-    }
-  }
-
-  private sentMessagesCache = new Set<string>();
-  private skippedHabitsToday = new Set<string>(); // Track habits skipped today
-
-  private async sendUserMotivationalMessage(user: any, hour: number) {
-    try {
-      let timeContext = '';
-      if (hour === 9) {
-        timeContext = 'утренняя мотивация для продуктивного дня';
-      } else if (hour === 15) {
-        timeContext = 'дневная поддержка и напоминание о целях';
-      } else if (hour === 22) {
-        timeContext =
-          'вечернее подведение итогов и подготовка к завтрашнему дню';
-      }
-
-      // Выбираем случайную привычку пользователя для персонализации
-      const randomHabit =
-        user.habits[Math.floor(Math.random() * user.habits.length)];
-
-      const prompt = `Создай короткое мотивационное сообщение на русском языке (максимум 80 слов) с учетом времени дня: "${timeContext}".
-      У пользователя есть привычка: "${randomHabit.title}".
-      Сделай сообщение личным, вдохновляющим и подходящим для времени дня.
-      Используй эмодзи для эмоциональности. Обращайся на "ты".
-      Не упоминай конкретное время.`;
-
-      const motivationalMessage =
-        await this.openaiService.getAIResponse(prompt);
-
-      // Очищаем сообщение от лишних символов
-      const cleanMessage = motivationalMessage.replace(/['"«»]/g, '').trim();
-
-      await this.sendMessageToUser(parseInt(user.id), cleanMessage, {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: '📊 Мои привычки', callback_data: 'habits_menu' },
-              { text: '✅ Задачи', callback_data: 'tasks_menu' },
-            ],
-            [{ text: '🎯 Главное меню', callback_data: 'back_to_menu' }],
-          ],
-        },
-      });
-
-      this.logger.log(
-        `Sent motivational message to user ${user.id} at ${hour}:00`,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Error sending motivational message to user ${user.id}:`,
-        error,
-      );
+      this.logger.error('Error sending motivational messages:', error);
     }
   }
 
@@ -7454,9 +6065,7 @@ ${timeAdvice}
     };
 
     await ctx.replyWithMarkdown(
-      `🤖 *Привет! Я Ticky AI — твой AI-ассистент по привычкам и задачам с геймификацией.*
-
-🔵 *Важно!* Обратите внимание на квадратную кнопку меню справа от поля ввода — это ваш быстрый доступ ко всем командам!`,
+      `🤖 *Привет! Я Ticky AI — твой AI-ассистент по привычкам и задачам с геймификацией.*`,
       { reply_markup: keyboard },
     );
 
@@ -7518,9 +6127,6 @@ ${timeAdvice}
   }
 
   private async showMainMenu(ctx: BotContext, shouldEdit: boolean = false) {
-    // Обновляем квадратное меню при каждом показе главного меню
-    await this.setupPersonalizedMenu(ctx);
-
     const keyboard = {
       inline_keyboard: [
         [{ text: '➕ Добавить задачу/привычку', callback_data: 'add_item' }],
@@ -7530,9 +6136,9 @@ ${timeAdvice}
           { text: '🧠 Чат с ИИ', callback_data: 'ai_chat' },
         ],
         [
-          { text: '📊 Прогресс', callback_data: 'my_progress' },
+          { text: '📊 Лимиты', callback_data: 'show_limits' },
           { text: '❓ Помощь', callback_data: 'faq_support' },
-          { text: '🔒 Лимиты', callback_data: 'show_limits' },
+          { text: '📊 Прогресс', callback_data: 'my_progress' },
         ],
       ],
     };
@@ -7594,7 +6200,7 @@ ${tasksProgressBar}${userStats}
 
   async launch() {
     try {
-      // Устанавливаем команды в меню бота (квадратное меню справа)
+      // Устанавливаем команды в меню бота
       await this.bot.telegram.setMyCommands([
         { command: 'start', description: '🎬 Начать работу с ботом' },
         { command: 'menu', description: '🏠 Главное меню' },
@@ -7602,32 +6208,26 @@ ${tasksProgressBar}${userStats}
         { command: 'habits', description: '🔄 Мои привычки' },
         { command: 'reminders', description: '⏰ Активные напоминания' },
         { command: 'mood', description: '😊 Дневник настроения' },
-        { command: 'focus', description: '🍅 Режим фокуса (Pomodoro)' },
+        { command: 'focus', description: '🍅 Режим фокуса' },
         { command: 'billing', description: '💎 Мои лимиты и подписка' },
         { command: 'feedback', description: '💬 Обратная связь' },
-        { command: 'help', description: '🆘 Справка и поддержка' },
+        { command: 'help', description: '🆘 Справка' },
       ]);
 
-      this.logger.log('Bot commands установлены успешно');
-
-      // Устанавливаем Menu Button глобально - квадратное меню справа от поля ввода
+      // Устанавливаем Menu Button - кнопку меню рядом с полем ввода
       await this.bot.telegram.setChatMenuButton({
         menuButton: {
           type: 'commands',
         },
       });
 
-      this.logger.log('Global Menu button установлено успешно');
-
-      // Также устанавливаем описание бота
-      await this.bot.telegram.setMyDescription(
-        '🤖 Ticky AI - ваш персональный помощник продуктивности. Управляйте задачами, привычками и достигайте целей с ИИ!',
-      );
-
-      // Устанавливаем короткое описание для профиля
-      await this.bot.telegram.setMyShortDescription(
-        '🎯 Персональный ИИ помощник для продуктивности',
-      );
+      // Альтернативно можно установить Web App кнопку для более расширенного меню
+      // await this.bot.telegram.setChatMenuButton({
+      //   menuButton: {
+      //     type: 'web_app',
+      //     text: 'Меню',
+      //     web_app: { url: 'https://your-domain.com/menu' }
+      //   }
       // });
 
       // Запускаем бота без ожидания
@@ -7667,51 +6267,6 @@ ${tasksProgressBar}${userStats}
     this.logger.log('🛑 Telegram bot stopped');
   }
 
-  // Метод для настройки персонализированного квадратного меню
-  private async setupPersonalizedMenu(ctx: BotContext) {
-    try {
-      const chatId = ctx.chat?.id;
-
-      if (!chatId) {
-        this.logger.warn('Chat ID не найден, пропускаем установку меню');
-        return;
-      }
-
-      // Устанавливаем персональное меню для пользователя
-      await this.bot.telegram.setChatMenuButton({
-        chatId: chatId,
-        menuButton: {
-          type: 'commands',
-        },
-      });
-
-      this.logger.log(
-        `✅ Квадратное меню установлено для пользователя ${ctx.userId} в чате ${chatId}`,
-      );
-
-      // Дополнительно проверим, что команды установлены корректно
-      const commands = await this.bot.telegram.getMyCommands();
-      this.logger.log(`📝 Доступно команд в меню: ${commands.length}`);
-    } catch (error) {
-      this.logger.error('❌ Ошибка установки квадратного меню:', error);
-
-      // Попробуем альтернативный способ
-      try {
-        await this.bot.telegram.setChatMenuButton({
-          menuButton: {
-            type: 'default',
-          },
-        });
-        this.logger.log('✅ Установлено дефолтное меню как резервный вариант');
-      } catch (fallbackError) {
-        this.logger.error(
-          '❌ Не удалось установить даже дефолтное меню:',
-          fallbackError,
-        );
-      }
-    }
-  }
-
   getBotInstance(): Telegraf<BotContext> {
     return this.bot;
   }
@@ -7724,10 +6279,7 @@ ${tasksProgressBar}${userStats}
           { text: '➕ Добавить задачу', callback_data: 'tasks_add' },
           { text: '📋 Все задачи', callback_data: 'tasks_list' },
         ],
-        [
-          { text: '📅 Задачи на сегодня', callback_data: 'tasks_today' },
-          { text: '✅ Выполненные', callback_data: 'tasks_completed' },
-        ],
+        [{ text: '📅 Задачи на сегодня', callback_data: 'tasks_today' }],
         [{ text: '🤖 AI-совет по задачам', callback_data: 'tasks_ai_advice' }],
         [{ text: '🔙 Назад в меню', callback_data: 'back_to_main' }],
       ],
@@ -7843,49 +6395,6 @@ ${tasksProgressBar}${userStats}
     }
   }
 
-  private async handleNaturalTaskCreation(ctx: BotContext, message: string) {
-    try {
-      // Сохраняем задачу в сессии для подтверждения
-      ctx.session.pendingTaskTitle = message;
-
-      // Подтверждаем создание задачи
-      await ctx.replyWithMarkdown(
-        `✅ *Создаю задачу:*\n"${message}"\n\n🤖 Подтвердите создание задачи.`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '✅ Подтвердить',
-                  callback_data: 'confirm_task_creation',
-                },
-                { text: '❌ Отмена', callback_data: 'cancel_task' },
-              ],
-              [
-                {
-                  text: '⏰ Создать напоминание',
-                  callback_data: 'create_as_reminder_instead',
-                },
-              ],
-            ],
-          },
-        },
-      );
-    } catch (error) {
-      this.logger.error('Error in natural task creation:', error);
-      await ctx.replyWithMarkdown(
-        '❌ *Ошибка при создании задачи*\n\nПопробуйте еще раз или обратитесь к администратору.',
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
-      );
-    }
-  }
-
   private async showTasksList(ctx: BotContext) {
     try {
       const tasks = await this.taskService.findTasksByUserId(ctx.userId);
@@ -7909,39 +6418,22 @@ ${tasksProgressBar}${userStats}
       let message = `📋 *Ваши задачи:*\n\n`;
       message += `🔄 **Активных:** ${pendingTasks.length}\n`;
       message += `✅ **Выполненных:** ${completedTasks.length}\n\n`;
+      message += `*Выберите задачу для завершения:*`;
 
-      // Показываем все задачи вместе
-      const allTasks = [...pendingTasks, ...completedTasks];
-
-      if (pendingTasks.length > 0) {
-        message += `*Выберите задачу для завершения:*`;
-      }
-
-      // Create keyboard with task buttons
+      // Create keyboard with task completion buttons
       const keyboard = {
         inline_keyboard: [
-          ...allTasks.slice(0, 12).map((task) => {
-            const isCompleted = task.status === 'COMPLETED';
-            const emoji = isCompleted
-              ? '🟢'
-              : this.getPriorityEmoji(task.priority);
-            const text = `${emoji} ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''} ${isCompleted ? '✅' : `(${task.xpReward} XP)`}`;
-
-            return [
-              {
-                text: text,
-                // Только активные задачи можно завершать
-                callback_data: isCompleted
-                  ? 'task_info_noop'
-                  : `task_complete_${task.id}`,
-              },
-            ];
-          }),
-          ...(allTasks.length > 12
+          ...pendingTasks.slice(0, 8).map((task) => [
+            {
+              text: `${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''} (${task.xpReward} XP)`,
+              callback_data: `task_complete_${task.id}`,
+            },
+          ]),
+          ...(pendingTasks.length > 8
             ? [
                 [
                   {
-                    text: `... и еще ${allTasks.length - 12} задач`,
+                    text: `... и еще ${pendingTasks.length - 8} задач`,
                     callback_data: 'tasks_list_more',
                   },
                 ],
@@ -7969,50 +6461,28 @@ ${tasksProgressBar}${userStats}
       const pendingTasks = tasks.filter(
         (task) => task.status === 'PENDING' || task.status === 'IN_PROGRESS',
       );
-      const completedTasks = tasks.filter(
-        (task) => task.status === 'COMPLETED',
-      );
 
-      if (tasks.length === 0) {
+      if (pendingTasks.length === 0) {
         await ctx.editMessageTextWithMarkdown(`
-📋 *Все задачи*
+📋 *Все активные задачи*
 
-У вас пока нет задач. Добавьте первую задачу!
+У вас нет активных задач. Все выполнено! 🎉
         `);
         return;
       }
 
-      let message = `📋 *Все ваши задачи (${tasks.length}):*\n\n`;
-      message += `🔄 **Активных:** ${pendingTasks.length}\n`;
-      message += `✅ **Выполненных:** ${completedTasks.length}\n\n`;
+      let message = `📋 *Все активные задачи (${pendingTasks.length}):*\n\n`;
+      message += `*Выберите задачу для завершения:*`;
 
-      // Показываем все задачи
-      const allTasks = [...pendingTasks, ...completedTasks];
-
-      if (pendingTasks.length > 0) {
-        message += `*Выберите активную задачу для завершения:*`;
-      }
-
-      // Create keyboard with all tasks
+      // Create keyboard with all pending tasks
       const keyboard = {
         inline_keyboard: [
-          ...allTasks.map((task) => {
-            const isCompleted = task.status === 'COMPLETED';
-            const emoji = isCompleted
-              ? '🟢'
-              : this.getPriorityEmoji(task.priority);
-            const text = `${emoji} ${task.title.substring(0, 35)}${task.title.length > 35 ? '...' : ''} ${isCompleted ? '✅' : `(${task.xpReward} XP)`}`;
-
-            return [
-              {
-                text: text,
-                // Только активные задачи можно завершать
-                callback_data: isCompleted
-                  ? 'task_info_noop'
-                  : `task_complete_${task.id}`,
-              },
-            ];
-          }),
+          ...pendingTasks.map((task) => [
+            {
+              text: `${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 35)}${task.title.length > 35 ? '...' : ''} (${task.xpReward} XP)`,
+              callback_data: `task_complete_${task.id}`,
+            },
+          ]),
           [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
         ],
       };
@@ -8049,33 +6519,16 @@ ${tasksProgressBar}${userStats}
       let message = `📅 *Задачи на сегодня:*\n\n`;
       message += `🔄 **К выполнению:** ${pendingTasks.length}\n`;
       message += `✅ **Выполнено:** ${completedTasks.length}\n\n`;
-
-      // Показываем все задачи на сегодня вместе
-      const allTasks = [...pendingTasks, ...completedTasks];
-
-      if (pendingTasks.length > 0) {
-        message += `*Выберите задачу для завершения:*`;
-      }
+      message += `*Выберите задачу для завершения:*`;
 
       const keyboard = {
         inline_keyboard: [
-          ...allTasks.map((task) => {
-            const isCompleted = task.status === 'COMPLETED';
-            const emoji = isCompleted
-              ? '🟢'
-              : this.getPriorityEmoji(task.priority);
-            const text = `${emoji} ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''} ${isCompleted ? '✅' : `(${task.xpReward} XP)`}`;
-
-            return [
-              {
-                text: text,
-                // Только активные задачи можно завершать
-                callback_data: isCompleted
-                  ? 'task_info_noop'
-                  : `task_complete_${task.id}`,
-              },
-            ];
-          }),
+          ...pendingTasks.map((task) => [
+            {
+              text: `${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''} (${task.xpReward} XP)`,
+              callback_data: `task_complete_${task.id}`,
+            },
+          ]),
           [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
         ],
       };
@@ -8087,148 +6540,6 @@ ${tasksProgressBar}${userStats}
       this.logger.error('Error showing today tasks:', error);
       await ctx.editMessageTextWithMarkdown(
         '❌ Ошибка при получении задач на сегодня',
-      );
-    }
-  }
-
-  private async showCompletedTasks(ctx: BotContext) {
-    try {
-      const tasks = await this.taskService.findTasksByUserId(ctx.userId);
-      const completedTasks = tasks.filter(
-        (task) => task.status === 'COMPLETED',
-      );
-
-      if (completedTasks.length === 0) {
-        await ctx.editMessageTextWithMarkdown(
-          `
-✅ *Выполненные задачи*
-
-У вас пока нет выполненных задач. Завершите первую задачу!
-        `,
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  {
-                    text: '🔙 Назад к задачам',
-                    callback_data: 'back_to_tasks',
-                  },
-                ],
-              ],
-            },
-          },
-        );
-        return;
-      }
-
-      let message = `✅ *Выполненные задачи (${completedTasks.length}):*\n\n`;
-      message += `*Нажмите на задачу, чтобы сделать её снова активной:*`;
-
-      const keyboard = {
-        inline_keyboard: [
-          ...completedTasks.slice(0, 15).map((task) => [
-            {
-              text: `🟢 ${task.title.substring(0, 35)}${task.title.length > 35 ? '...' : ''} ✅`,
-              callback_data: `task_restore_${task.id}`,
-            },
-          ]),
-          ...(completedTasks.length > 15
-            ? [
-                [
-                  {
-                    text: `... и еще ${completedTasks.length - 15} выполненных задач`,
-                    callback_data: 'tasks_completed_more',
-                  },
-                ],
-              ]
-            : []),
-          [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
-        ],
-      };
-
-      await ctx.editMessageTextWithMarkdown(message, {
-        reply_markup: keyboard,
-      });
-    } catch (error) {
-      this.logger.error('Error showing completed tasks:', error);
-      await ctx.editMessageTextWithMarkdown(
-        '❌ Ошибка при получении выполненных задач',
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
-      );
-    }
-  }
-
-  private async showAllCompletedTasks(ctx: BotContext) {
-    try {
-      const tasks = await this.taskService.findTasksByUserId(ctx.userId);
-      const completedTasks = tasks.filter(
-        (task) => task.status === 'COMPLETED',
-      );
-
-      if (completedTasks.length === 0) {
-        await ctx.editMessageTextWithMarkdown(
-          `
-✅ *Все выполненные задачи*
-
-У вас пока нет выполненных задач. Завершите первую задачу!
-        `,
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  {
-                    text: '🔙 Назад к задачам',
-                    callback_data: 'back_to_tasks',
-                  },
-                ],
-              ],
-            },
-          },
-        );
-        return;
-      }
-
-      let message = `✅ *Все выполненные задачи (${completedTasks.length}):*\n\n`;
-      message += `*Нажмите на задачу, чтобы сделать её снова активной:*`;
-
-      const keyboard = {
-        inline_keyboard: [
-          ...completedTasks.map((task) => [
-            {
-              text: `🟢 ${task.title.substring(0, 40)}${task.title.length > 40 ? '...' : ''} ✅`,
-              callback_data: `task_restore_${task.id}`,
-            },
-          ]),
-          [
-            {
-              text: '🔙 К выполненным задачам',
-              callback_data: 'tasks_completed',
-            },
-          ],
-          [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
-        ],
-      };
-
-      await ctx.editMessageTextWithMarkdown(message, {
-        reply_markup: keyboard,
-      });
-    } catch (error) {
-      this.logger.error('Error showing all completed tasks:', error);
-      await ctx.editMessageTextWithMarkdown(
-        '❌ Ошибка при получении всех выполненных задач',
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
       );
     }
   }
@@ -8278,9 +6589,8 @@ ${progressBar} ${Math.round(progress * 100)}%
 
       await ctx.editMessageTextWithMarkdown(message);
 
-      // Показываем обновленный список задач вместо меню задач
       setTimeout(
-        () => this.showTasksList(ctx),
+        () => this.showTasksMenu(ctx),
         statsUpdate.leveledUp ? 3000 : 2000,
       );
     } catch (error) {
@@ -8292,47 +6602,6 @@ ${progressBar} ${Math.round(progress * 100)}%
           '❌ Ошибка при выполнении задачи',
         );
       }
-    }
-  }
-
-  private async restoreTask(ctx: BotContext, taskId: string) {
-    try {
-      // Восстанавливаем задачу напрямую через Prisma
-      await this.prisma.task.update({
-        where: { id: taskId, userId: ctx.userId },
-        data: {
-          status: 'PENDING',
-          completedAt: null,
-        },
-      });
-
-      const task = await this.taskService.findTaskById(taskId, ctx.userId);
-
-      let message = `
-🔄 *Задача восстановлена!*
-
-📝 ${task.title}
-🎯 Задача снова активна и ждет выполнения!
-
-Теперь вы можете завершить её снова и получить XP.
-`;
-
-      await ctx.editMessageTextWithMarkdown(message);
-
-      // Показываем обновленный список выполненных задач
-      setTimeout(() => this.showCompletedTasks(ctx), 2000);
-    } catch (error) {
-      this.logger.error('Error restoring task:', error);
-      await ctx.editMessageTextWithMarkdown(
-        '❌ Ошибка при восстановлении задачи',
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
-      );
     }
   }
 
@@ -8774,210 +7043,61 @@ ${ratingEmoji} Ваша оценка: ${rating}/5
   }
 
   private async handleAIAnalyzeProfile(ctx: BotContext) {
-    try {
-      await ctx.answerCbQuery();
-      await ctx.editMessageTextWithMarkdown(
-        '🤖 *Анализирую ваш профиль с помощью ИИ...*\n\nПожалуйста, подождите...',
-      );
+    const user = await this.userService.findByTelegramId(ctx.userId);
+    const tasks = await this.taskService.findTasksByUserId(ctx.userId);
+    const completedTasks = tasks.filter((task) => task.completedAt !== null);
 
-      // Собираем все данные пользователя
-      const user = await this.userService.findByTelegramId(ctx.userId);
-      const tasks = await this.taskService.findTasksByUserId(ctx.userId);
-      const habits = await this.habitService.findHabitsByUserId(ctx.userId);
+    const accountDays = Math.floor(
+      (Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24),
+    );
+    const completionRate =
+      tasks.length > 0
+        ? Math.round((completedTasks.length / tasks.length) * 100)
+        : 0;
 
-      // Получаем данные о зависимостях
-      const dependencies = await this.prisma.dependencySupport.findMany({
-        where: { userId: ctx.userId },
-      });
-
-      // Получаем статистику
-      const taskStats = await this.taskService.getTaskStats(ctx.userId);
-      const habitStats = await this.habitService.getHabitStats(ctx.userId);
-
-      const completedTasks = tasks.filter(
-        (task) => task.status === 'COMPLETED',
-      );
-      const accountDays = Math.floor(
-        (Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24),
-      );
-      const completionRate =
-        tasks.length > 0
-          ? Math.round((completedTasks.length / tasks.length) * 100)
-          : 0;
-
-      // Формируем детальную информацию для ИИ
-      const userDataForAI = {
-        profile: {
-          totalXp: user.totalXp,
-          level: user.level,
-          accountDays: accountDays,
-          createdAt: user.createdAt,
-        },
-        tasks: {
-          total: tasks.length,
-          completed: completedTasks.length,
-          completionRate: completionRate,
-          taskList: tasks.map((task) => ({
-            title: task.title,
-            status: task.status,
-            priority: task.priority,
-            createdAt: task.createdAt,
-            completedAt: task.completedAt,
-            description: task.description,
-          })),
-        },
-        habits: {
-          total: habits.length,
-          habitList: habits.map((habit) => ({
-            title: habit.title,
-            frequency: habit.frequency,
-            category: habit.category,
-            createdAt: habit.createdAt,
-            streak: habit.currentStreak,
-          })),
-        },
-        dependencies: {
-          total: dependencies.length,
-          active: dependencies.filter((dep) => dep.status === 'ACTIVE').length,
-          dependencyList: dependencies.map((dep) => ({
-            type: dep.type,
-            customName: dep.customName,
-            status: dep.status,
-            daysClean: dep.daysClean,
-            totalPromises: dep.totalPromises,
-            keptPromises: dep.keptPromises,
-            successRate:
-              dep.totalPromises > 0
-                ? Math.round((dep.keptPromises / dep.totalPromises) * 100)
-                : 0,
-            createdAt: dep.createdAt,
-            lastCheckDate: dep.lastCheckDate,
-          })),
-        },
-      };
-
-      // Отправляем запрос к ИИ для анализа
-      const aiPrompt = `
-      Проанализируй профиль пользователя и дай персональные рекомендации:
-
-      ПРОФИЛЬ:
-      - Опыт: ${userDataForAI.profile.totalXp} XP (уровень ${userDataForAI.profile.level})
-      - Дней с ботом: ${userDataForAI.profile.accountDays}
-      
-      ЗАДАЧИ:
-      - Всего создано: ${userDataForAI.tasks.total}
-      - Выполнено: ${userDataForAI.tasks.completed} (${userDataForAI.tasks.completionRate}%)
-      - Список задач: ${JSON.stringify(userDataForAI.tasks.taskList, null, 2)}
-      
-      ПРИВЫЧКИ:
-      - Всего: ${userDataForAI.habits.total}
-      - Список привычек: ${JSON.stringify(userDataForAI.habits.habitList, null, 2)}
-
-      ЗАВИСИМОСТИ И БОРЬБА С НИМИ:
-      - Активных зависимостей: ${userDataForAI.dependencies.active} из ${userDataForAI.dependencies.total}
-      - Список зависимостей: ${JSON.stringify(userDataForAI.dependencies.dependencyList, null, 2)}
-
-      ВАЖНО: Обязательно включи все 5 пунктов в ответ и не обрывай текст:
-      1. Оценка текущего прогресса
-      2. Выявление паттернов в поведении  
-      3. Анализ борьбы с зависимостями (если есть активные зависимости - дай детальные советы по каждой, если нет - отметь это как положительный момент)
-      4. Персональные рекомендации для улучшения продуктивности
-      5. Конкретные шаги для развития и преодоления зависимостей (завершай этот пункт полностью)
-      
-      Ответ должен быть на русском языке, мотивирующим и полным. Максимум 2500 символов. НЕ ОБРЫВАЙ ответ на середине - завершай все пункты полностью.
-    `;
-
-      const aiAnalysis = await this.openaiService.getAIResponse(aiPrompt);
-
-      await ctx.editMessageTextWithMarkdown(
-        `🤖 *ИИ Анализ профиля*\n\n${aiAnalysis}`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
-      );
-    } catch (error) {
-      console.error('Error in AI profile analysis:', error);
-      await ctx.editMessageTextWithMarkdown(
-        '❌ *Ошибка при анализе профиля*\n\nПопробуйте еще раз позже.',
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
-      );
+    let status = '';
+    if (user.totalXp < 500) {
+      status = '🌱 Новичок - только начинаете путь к продуктивности!';
+    } else if (user.totalXp < 2000) {
+      status = '📈 Развиваетесь - уже видны первые результаты!';
+    } else {
+      status = '🚀 Опытный пользователь - отличные результаты!';
     }
+
+    await ctx.editMessageTextWithMarkdown(
+      `
+📊 *Анализ профиля*
+
+${status}
+
+**Статистика:**
+⭐ Опыт: ${user.totalXp} XP (уровень ${user.level})
+📅 С ботом: ${accountDays} дней
+📝 Задач создано: ${tasks.length}
+✅ Выполнено: ${completedTasks.length} (${completionRate}%)
+
+**Рекомендация:**
+${
+  completionRate > 70
+    ? '🎯 Отлично! Попробуйте более сложные цели.'
+    : completionRate > 40
+      ? '💪 Хорошо! Сфокусируйтесь на завершении задач.'
+      : '� Начните с малого - одна задача в день!'
+}
+      `,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
+            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+          ],
+        },
+      },
+    );
   }
 
   private async handleAIChatMessage(ctx: BotContext, message: string) {
     try {
-      // Check if user is trying to perform system actions while in AI chat mode
-      const systemActionPatterns = [
-        // Task creation patterns
-        /^создать\s+задачу/i,
-        /^добавить\s+задачу/i,
-        /^новая\s+задача/i,
-        // Task content patterns (when user writes something that looks like a task)
-        /завтра\s+.*(сделать|выполнить|купить|встретить|позвонить|написать|отправить|подготовить)/i,
-        /сегодня\s+.*(сделать|выполнить|купить|встретить|позвонить|написать|отправить|подготовить|провести)/i,
-        /послезавтра\s+.*(сделать|выполнить|купить|встретить|позвонить|написать|отправить|подготовить)/i,
-        // Habit creation patterns
-        /^создать\s+привычку/i,
-        /^добавить\s+привычку/i,
-        /^новая\s+привычка/i,
-        // Menu navigation patterns
-        /^меню/i,
-        /^главное\s+меню/i,
-        /^назад/i,
-        // Other system commands
-        /^задачи/i,
-        /^мои\s+задачи/i,
-        /^привычки/i,
-        /^мои\s+привычки/i,
-        /^статистика/i,
-        /^профиль/i,
-      ];
-
-      const isSystemAction = systemActionPatterns.some((pattern) =>
-        pattern.test(message.trim()),
-      );
-
-      // Debug logging
-      this.logger.log(
-        `AI Chat Message: "${message}", isSystemAction: ${isSystemAction}`,
-      );
-
-      if (isSystemAction) {
-        await ctx.replyWithMarkdown(
-          `⚠️ *Вы находитесь в режиме чата с ИИ*\n\nЧтобы создать задачу, привычку или перейти в меню, сначала выйдите из ИИ-чата.\n\n💡 *Ваше сообщение:* "${message}"`,
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  {
-                    text: '🚪 Выйти из ИИ-чата',
-                    callback_data: 'exit_ai_chat',
-                  },
-                ],
-                [
-                  {
-                    text: '🤖 Продолжить с ИИ',
-                    callback_data: 'continue_ai_chat',
-                  },
-                ],
-              ],
-            },
-          },
-        );
-        return;
-      }
-
       // Check billing limits for AI queries
       const limitCheck = await this.billingService.checkUsageLimit(
         ctx.userId,
@@ -9074,147 +7194,15 @@ ${ratingEmoji} Ваша оценка: ${rating}/5
         }
       }
 
-      await ctx.replyWithMarkdown(
-        '🤔 *Анализирую ваш вопрос с учетом ваших данных...*',
-      );
+      await ctx.replyWithMarkdown('🤔 *Анализирую ваш вопрос...*');
 
-      // Собираем данные пользователя для персонализированного ответа
-      const user = await this.userService.findByTelegramId(ctx.userId);
-      const tasks = await this.taskService.findTasksByUserId(ctx.userId);
-      const habits = await this.habitService.findHabitsByUserId(ctx.userId);
-
-      // Получаем данные о зависимостях
-      const dependencies = await this.prisma.dependencySupport.findMany({
-        where: { userId: ctx.userId },
-      });
-
-      const completedTasks = tasks.filter(
-        (task) => task.status === 'COMPLETED',
-      );
-      const pendingTasks = tasks.filter((task) => task.status !== 'COMPLETED');
-      const activeHabits = habits.filter((habit) => habit.isActive);
-      const activeDependencies = dependencies.filter(
-        (dep) => dep.status === 'ACTIVE',
-      );
-
-      // Формируем контекст пользователя для ИИ
-      const userContext = {
-        profile: {
-          level: user.level,
-          totalXp: user.totalXp,
-          accountDays: Math.floor(
-            (Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24),
-          ),
-        },
-        tasks: {
-          total: tasks.length,
-          completed: completedTasks.length,
-          pending: pendingTasks.length,
-          completionRate:
-            tasks.length > 0
-              ? Math.round((completedTasks.length / tasks.length) * 100)
-              : 0,
-          // Детальная информация о задачах
-          pendingTasksDetailed: pendingTasks.slice(0, 10).map((t) => ({
-            title: t.title,
-            description: t.description,
-            priority: t.priority,
-            dueDate: t.dueDate,
-            createdAt: t.createdAt,
-            category: t.category,
-          })),
-          recentCompletedTasks: completedTasks.slice(-3).map((t) => ({
-            title: t.title,
-            completedAt: t.completedAt,
-            priority: t.priority,
-          })),
-          overdueTasks: pendingTasks.filter(
-            (t) => t.dueDate && new Date(t.dueDate) < new Date(),
-          ).length,
-          highPriorityTasks: pendingTasks.filter((t) => t.priority === 'HIGH')
-            .length,
-        },
-        habits: {
-          total: habits.length,
-          active: activeHabits.length,
-          avgStreak:
-            habits.length > 0
-              ? Math.round(
-                  habits.reduce((sum, h) => sum + h.currentStreak, 0) /
-                    habits.length,
-                )
-              : 0,
-          categories: [
-            ...new Set(habits.map((h) => h.category).filter(Boolean)),
-          ],
-          strugglingHabits: habits
-            .filter((h) => h.isActive && h.currentStreak === 0)
-            .map((h) => h.title),
-          bestHabits: habits
-            .filter((h) => h.currentStreak > 7)
-            .map((h) => ({ title: h.title, streak: h.currentStreak })),
-        },
-        dependencies: {
-          active: activeDependencies.length,
-          types: activeDependencies.map((d) => d.type || d.customName),
-        },
-      };
-
-      // Формируем детальный персонализированный промпт
-      const personalizedPrompt = `
-      ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ:
-      - Уровень: ${userContext.profile.level} (${userContext.profile.totalXp} XP)
-      - Опыт работы с приложением: ${userContext.profile.accountDays} дней
-      - Эффективность выполнения задач: ${userContext.tasks.completionRate}%
-
-      ТЕКУЩАЯ СИТУАЦИЯ С ЗАДАЧАМИ:
-      - Всего задач: ${userContext.tasks.total}
-      - Выполнено: ${userContext.tasks.completed}
-      - Осталось выполнить: ${userContext.tasks.pending}
-      - Просроченных задач: ${userContext.tasks.overdueTasks}
-      - Высокоприоритетных задач: ${userContext.tasks.highPriorityTasks}
-
-      КОНКРЕТНЫЕ НЕЗАВЕРШЕННЫЕ ЗАДАЧИ ПОЛЬЗОВАТЕЛЯ:
-      ${userContext.tasks.pendingTasksDetailed
-        .map(
-          (task, index) =>
-            `${index + 1}. "${task.title}"${task.description ? ` - ${task.description}` : ''}
-           - Приоритет: ${task.priority}
-           - Создана: ${new Date(task.createdAt).toLocaleDateString('ru-RU')}
-           ${task.dueDate ? `- Срок: ${new Date(task.dueDate).toLocaleDateString('ru-RU')}` : ''}
-           ${task.category ? `- Категория: ${task.category}` : ''}`,
-        )
-        .join('\n')}
-
-      НЕДАВНО ВЫПОЛНЕННЫЕ ЗАДАЧИ:
-      ${userContext.tasks.recentCompletedTasks
-        .map(
-          (task) =>
-            `• "${task.title}" (${new Date(task.completedAt!).toLocaleDateString('ru-RU')})`,
-        )
-        .join('\n')}
-
-      ПРИВЫЧКИ И ЗАВИСИМОСТИ:
-      - Всего привычек: ${userContext.habits.total} (активных: ${userContext.habits.active})
-      - Средняя серия: ${userContext.habits.avgStreak} дней
-      ${userContext.habits.strugglingHabits.length > 0 ? `- Проблемные привычки: ${userContext.habits.strugglingHabits.join(', ')}` : ''}
-      ${userContext.habits.bestHabits.length > 0 ? `- Лучшие привычки: ${userContext.habits.bestHabits.map((h) => `${h.title} (${h.streak} дней)`).join(', ')}` : ''}
-      ${userContext.dependencies.active > 0 ? `- Активные зависимости: ${userContext.dependencies.types.join(', ')}` : ''}
-
-      ВОПРОС ПОЛЬЗОВАТЕЛЯ: "${message}"
-
-      ВАЖНО: Ответь конкретно на вопрос пользователя, учитывая его РЕАЛЬНЫЕ задачи и ситуацию. 
-      - Если он спрашивает о планировании времени - анализируй его конкретные задачи и предлагай план
-      - Если о продуктивности - основывайся на его проценте выполнения и проблемных областях
-      - Упоминай его конкретные задачи по названиям, если это уместно
-      - Давай практические советы именно для его ситуации
-
-      Ответ должен быть персональным, конкретным и действенным. Максимум 200 слов.
-      `;
-
-      // Получаем персонализированный ответ через OpenAI
+      // Получаем персонализированный ответ через AI Context Service
       const personalizedResponse =
-        await this.openaiService.getAIResponse(personalizedPrompt);
+        await this.aiContextService.generatePersonalizedMessage(
+          ctx.userId,
+          'motivation',
+          `${message}. Ответь кратко, до 100 слов, конкретно и по делу.`,
+        );
 
       // Increment AI usage counter
       await this.billingService.incrementUsage(ctx.userId, 'dailyAiQueries');
@@ -9655,9 +7643,85 @@ _Попробуйте еще раз_
         return;
       }
 
-      // Use AI to analyze voice message intent
-      await this.analyzeVoiceMessageWithAI(ctx, transcribedText);
-      return;
+      // Handle audio reminders
+      if (this.isReminderRequest(transcribedText)) {
+        await this.processReminderFromText(ctx, transcribedText);
+        return;
+      }
+
+      // Handle voice commands for tasks
+      if (
+        transcribedText.toLowerCase().includes('добавить задачу') ||
+        transcribedText.toLowerCase().includes('новая задача') ||
+        transcribedText.toLowerCase().includes('создать задачу')
+      ) {
+        await this.startAddingTask(ctx);
+        return;
+      }
+
+      // Handle voice commands for menu
+      if (
+        transcribedText.toLowerCase().includes('меню') ||
+        transcribedText.toLowerCase().includes('главное меню') ||
+        transcribedText.toLowerCase().includes('показать меню')
+      ) {
+        await this.showMainMenu(ctx);
+        return;
+      }
+
+      // Handle voice commands for help
+      if (
+        transcribedText.toLowerCase().includes('помощь') ||
+        transcribedText.toLowerCase().includes('справка') ||
+        transcribedText.toLowerCase().includes('что ты умеешь')
+      ) {
+        await ctx.editMessageTextWithMarkdown(`
+🤖 *Ticky AI - Ваш персональный AI помощник продуктивности*
+
+*Основные команды:*
+/start - Начать работу с ботом
+/help - Показать эту справку  
+/menu - Главное меню
+/feedback - Оставить отзыв о боте
+
+*Голосовые команды:*
+🎤 "Напомни мне..." - создать напоминание
+🎤 "Добавить задачу" - создать новую задачу
+🎤 "Показать меню" - открыть главное меню
+🎤 "Что ты умеешь?" - показать справку
+
+*Быстрые действия:*
+📝 Добавить задачу или напоминание
+🧠 Пообщаться с ИИ-консультантом
+📊 Посмотреть прогресс
+
+Для получения подробной информации используйте /menu
+        `);
+        return;
+      }
+
+      // Handle voice commands for feedback
+      if (
+        transcribedText.toLowerCase().includes('обратная связь') ||
+        transcribedText.toLowerCase().includes('отзыв') ||
+        transcribedText.toLowerCase().includes('фидбек')
+      ) {
+        await this.showFeedbackSurvey(ctx);
+        return;
+      }
+
+      // Handle voice commands for habits
+      if (
+        transcribedText.toLowerCase().includes('добавить привычку') ||
+        transcribedText.toLowerCase().includes('новая привычка') ||
+        transcribedText.toLowerCase().includes('создать привычку')
+      ) {
+        await this.startAddingHabit(ctx);
+        return;
+      }
+
+      // Try to intelligently parse the transcribed text to create task/reminder/habit
+      await this.analyzeAndCreateFromVoice(ctx, transcribedText);
     } catch (error) {
       this.logger.error(`${type} message processing error:`, error);
       await ctx.replyWithMarkdown(
@@ -9930,53 +7994,24 @@ _Попробуйте еще раз_
         .trim();
 
       if (reminderText && reminderText.length > 1) {
-        // Store reminder text in session and show time selection buttons
+        // Store reminder text in session and ask for time
         ctx.session.pendingReminder = {
           text: reminderText,
           originalText: text,
         };
+        ctx.session.waitingForReminderTime = true;
 
-        await ctx.replyWithMarkdown(
-          `⏰ *На какое время поставить напоминание?*\n\nО чем напомнить: "${reminderText}"`,
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  { text: '⏰ В 9:00', callback_data: 'reminder_time_09:00' },
-                  { text: '🕐 В 12:00', callback_data: 'reminder_time_12:00' },
-                ],
-                [
-                  { text: '🕕 В 15:00', callback_data: 'reminder_time_15:00' },
-                  { text: '🕘 В 18:00', callback_data: 'reminder_time_18:00' },
-                ],
-                [
-                  { text: '🕘 В 21:00', callback_data: 'reminder_time_21:00' },
-                  {
-                    text: '⏱️ Через 30 мин',
-                    callback_data: 'reminder_in_30min',
-                  },
-                ],
-                [
-                  {
-                    text: '⏱️ Через 1 час',
-                    callback_data: 'reminder_in_1hour',
-                  },
-                  {
-                    text: '⏱️ Через 2 часа',
-                    callback_data: 'reminder_in_2hours',
-                  },
-                ],
-                [
-                  {
-                    text: '✏️ Ввести время',
-                    callback_data: 'reminder_custom_time',
-                  },
-                ],
-                [{ text: '◀️ Назад в меню', callback_data: 'back_to_menu' }],
-              ],
-            },
-          },
-        );
+        await ctx.replyWithMarkdown(`
+⏰ *На какое время поставить напоминание?*
+
+О чем напомнить: "${reminderText}"
+
+*Укажите время:*
+• В конкретное время: "17:30", "в 18:00"  
+• Через некоторое время: "через 30 минут", "через 2 часа"
+
+_Просто напишите время в удобном формате_
+        `);
         return;
       }
     }
@@ -10045,155 +8080,6 @@ _Попробуйте еще раз_
   ❌ Любые сообщения с временем
   ❌ Команды бота
   */
-
-  private async analyzeVoiceMessageWithAI(
-    ctx: any,
-    text: string,
-  ): Promise<void> {
-    try {
-      console.log('🤖 Анализируем голосовое сообщение с ИИ:', text);
-
-      const prompt = `Проанализируй голосовое сообщение пользователя и определи его намерение. 
-
-Текст сообщения: "${text}"
-
-Возможные типы намерений:
-- REMINDER: Пользователь хочет создать напоминание (ключевые слова: "напомни", "напомню", "напоминание", "не забыть")
-- TASK: Пользователь хочет создать задачу (ключевые слова: "добавь задачу", "нужно сделать", "поставь задачу")
-- HABIT: Пользователь хочет создать привычку (ключевые слова: "привычка", "каждый день", "регулярно")
-- QUESTION: Пользователь задает вопрос или нужна помощь
-- MENU: Пользователь хочет перейти в меню или навигацию
-- HELP: Пользователь просит помощь
-
-Ответь ТОЛЬКО одним словом из списка выше: REMINDER, TASK, HABIT, QUESTION, MENU или HELP`;
-
-      const aiResponse = await this.openaiService.getAIResponse(prompt);
-      const intent = aiResponse.trim().toUpperCase();
-
-      console.log('🎯 ИИ определил намерение:', intent);
-
-      switch (intent) {
-        case 'REMINDER':
-          await this.processReminderFromText(ctx, text);
-          break;
-        case 'TASK':
-          await this.addTaskFromText(ctx, text);
-          break;
-        case 'HABIT':
-          await this.addHabitFromText(ctx, text);
-          break;
-        case 'QUESTION':
-        case 'HELP':
-          await this.handleAIChatMessage(ctx, text);
-          break;
-        case 'MENU':
-          await this.showMainMenu(ctx);
-          break;
-        default:
-          // Fallback to question handling
-          await this.handleAIChatMessage(ctx, text);
-          break;
-      }
-    } catch (error) {
-      console.error('❌ Ошибка анализа голосового сообщения:', error);
-      // Fallback to question handling
-      await this.handleAIChatMessage(ctx, text);
-    }
-  }
-
-  private async addTaskFromText(ctx: any, text: string): Promise<void> {
-    try {
-      console.log('📝 Создаем задачу из текста:', text);
-
-      // Extract task text by removing common task-related words
-      const taskText = text
-        .replace(/добавь.*задач[уе]/gi, '')
-        .replace(/создай.*задач[уе]/gi, '')
-        .replace(/поставь.*задач[уе]/gi, '')
-        .replace(/нужно.*сделать/gi, '')
-        .replace(/задача/gi, '')
-        .trim();
-
-      if (!taskText || taskText.length < 2) {
-        await ctx.replyWithMarkdown(
-          '🤔 *Что именно добавить в задачи?*\n\nПожалуйста, уточните текст задачи.',
-        );
-        return;
-      }
-
-      const task = await this.taskService.createTask({
-        userId: ctx.userId,
-        title: taskText,
-        description: '',
-        priority: 'MEDIUM',
-      });
-
-      await ctx.replyWithMarkdown(
-        `✅ *Задача создана*\n\n📝 ${taskText}\n\n🎯 Задача добавлена в ваш список дел.`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '📋 Мои задачи', callback_data: 'tasks_list' }],
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
-      );
-    } catch (error) {
-      console.error('❌ Ошибка создания задачи:', error);
-      await ctx.replyWithMarkdown(
-        '❌ Ошибка при создании задачи. Попробуйте еще раз.',
-      );
-    }
-  }
-
-  private async addHabitFromText(ctx: any, text: string): Promise<void> {
-    try {
-      console.log('🔄 Создаем привычку из текста:', text);
-
-      // Extract habit text by removing common habit-related words
-      const habitText = text
-        .replace(/добавь.*привычк[уе]/gi, '')
-        .replace(/создай.*привычк[уе]/gi, '')
-        .replace(/поставь.*привычк[уе]/gi, '')
-        .replace(/каждый.*день/gi, '')
-        .replace(/регулярно/gi, '')
-        .replace(/привычка/gi, '')
-        .trim();
-
-      if (!habitText || habitText.length < 2) {
-        await ctx.replyWithMarkdown(
-          '🤔 *Какую привычку хотите добавить?*\n\nПожалуйста, уточните название привычки.',
-        );
-        return;
-      }
-
-      const habit = await this.habitService.createHabit({
-        userId: ctx.userId,
-        title: habitText,
-        description: '',
-        frequency: 'DAILY',
-        targetCount: 1,
-      });
-
-      await ctx.replyWithMarkdown(
-        `✅ *Привычка создана*\n\n🔄 ${habitText}\n\n💪 Привычка добавлена в ваш список для ежедневного выполнения.`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🔄 Мои привычки', callback_data: 'habits_list' }],
-              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
-      );
-    } catch (error) {
-      console.error('❌ Ошибка создания привычки:', error);
-      await ctx.replyWithMarkdown(
-        '❌ Ошибка при создании привычки. Попробуйте еще раз.',
-      );
-    }
-  }
 
   private isReminderRequest(text: string): boolean {
     // Интервальные напоминания - добавляем в начало для приоритета!
@@ -10601,70 +8487,7 @@ _Попробуйте еще раз_
     return detectedVerbs;
   }
 
-  private isTaskCreationRequest(text: string): boolean {
-    // Проверяем, что это НЕ напоминание (нет явных маркеров напоминаний)
-    const reminderMarkers = [
-      'напомни',
-      'напомню',
-      'напоминание',
-      'поставь напоминание',
-      'установи напоминание',
-      'создай напоминание',
-    ];
-
-    const hasReminderMarker = reminderMarkers.some((marker) =>
-      text.toLowerCase().includes(marker),
-    );
-
-    if (hasReminderMarker) {
-      this.logger.log(`Text "${text}" has reminder marker - returning false`);
-      return false; // Это напоминание, не задача
-    }
-
-    // Проверяем паттерны задач: временное слово + действие
-    const timeWords = ['сегодня', 'завтра', 'послезавтра'];
-    const actionWords = [
-      'провести',
-      'сделать',
-      'выполнить',
-      'купить',
-      'встретить',
-      'позвонить',
-      'написать',
-      'отправить',
-      'подготовить',
-      'организовать',
-      'запланировать',
-      'закончить',
-      'завершить',
-    ];
-
-    const hasTimeWord = timeWords.some((timeWord) =>
-      text.toLowerCase().includes(timeWord),
-    );
-
-    const hasActionWord = actionWords.some((actionWord) =>
-      text.toLowerCase().includes(actionWord),
-    );
-
-    const result = hasTimeWord && hasActionWord;
-    this.logger.log(
-      `isTaskCreationRequest for "${text}": hasTimeWord=${hasTimeWord}, hasActionWord=${hasActionWord}, result=${result}`,
-    );
-
-    return result;
-  }
-
   private isSimpleReminderRequest(text: string): boolean {
-    // СНАЧАЛА проверяем, не является ли это задачей
-    // Если это задача, то НЕ обрабатываем как напоминание
-    if (this.isTaskCreationRequest(text)) {
-      this.logger.log(
-        `Text "${text}" is a task creation request - not a reminder`,
-      );
-      return false;
-    }
-
     // Простые напоминания без указания времени
     const simpleReminderPatterns = [
       /^напомни\s+мне\s+.+/i, // "напомни мне купить хлеб"
@@ -10680,9 +8503,221 @@ _Попробуйте еще раз_
       return true;
     }
 
-    // Больше никаких автоматических интерпретаций!
-    // Только явные запросы на напоминания
-    return false;
+    // Проверяем сообщения с временными словами и глаголами действия (это тоже напоминания)
+    const timeWords = [
+      'завтра',
+      'послезавтра',
+      'сегодня',
+      'вечером',
+      'утром',
+      'днем',
+      'ночью',
+      'в понедельник',
+      'во вторник',
+      'в среду',
+      'в четверг',
+      'в пятницу',
+      'в субботу',
+      'в воскресенье',
+      'на следующей неделе',
+      'в следующем месяце',
+      'в следующем году',
+    ];
+
+    const actionVerbs = [
+      'сделать',
+      'выполнить',
+      'купить',
+      'скушать',
+      'съесть',
+      'позвонить',
+      'написать',
+      'отправить',
+      'подготовить',
+      'организовать',
+      'запланировать',
+      'встретить',
+      'пойти',
+      'поехать',
+      'забрать',
+      'отнести',
+      'принести',
+      'вернуть',
+      'показать',
+      'рассказать',
+      'заплатить',
+      'оплатить',
+      'заказать',
+      'записаться',
+      'посмотреть',
+      'проверить',
+      'изучить',
+      'прочитать',
+      'приготовить',
+      'почистить',
+      'убрать',
+      'помыть',
+      'постирать',
+      'погладить',
+      'сходить',
+      'съездить',
+      'дойти',
+      'добраться',
+      'доехать',
+      'приехать',
+      'прийти',
+      'заехать',
+      'зайти',
+      'завернуть',
+      'заскочить',
+      'навестить',
+      'посетить',
+      'встретиться',
+      'увидеться',
+      'поговорить',
+      'обсудить',
+      'решить',
+      'закончить',
+      'завершить',
+      'начать',
+      'приступить',
+      'продолжить',
+      'остановить',
+      'прекратить',
+      'открыть',
+      'закрыть',
+      'включить',
+      'выключить',
+      'настроить',
+      'установить',
+      'скачать',
+      'загрузить',
+      'отправиться',
+      'выйти',
+      'уйти',
+      'вернуться',
+      'отдохнуть',
+      'поспать',
+      'проснуться',
+      'встать',
+      'лечь',
+      'собраться',
+      'одеться',
+      'переодеться',
+      'умыться',
+      'почистить',
+      'покушать',
+      'поесть',
+      'попить',
+      'выпить',
+      'попробовать',
+      'попытаться',
+      'поработать',
+      'поучиться',
+      'потренироваться',
+      'позаниматься',
+      'поиграть',
+      'погулять',
+      'побегать',
+      'потанцевать',
+      'петь',
+      'рисовать',
+      'писать',
+      'читать',
+      'слушать',
+      'смотреть',
+      'учить',
+      'изучать',
+      'повторить',
+      'запомнить',
+      'забыть',
+      'вспомнить',
+      'найти',
+      'искать',
+      'потерять',
+      'сломать',
+      'починить',
+      'исправить',
+      'подарить',
+      'получить',
+      'взять',
+      'дать',
+      'отдать',
+      'одолжить',
+      'занять',
+      'продать',
+      'покупать',
+      'продавать',
+      'менять',
+      'обменять',
+      'считать',
+      'подсчитать',
+      'рассчитать',
+      'измерить',
+      'взвесить',
+      'сравнить',
+      'выбрать',
+      'решить',
+      'определить',
+      'узнать',
+      'разузнать',
+      'спросить',
+      'ответить',
+      'объяснить',
+      'понять',
+      'разобраться',
+      'помочь',
+      'поддержать',
+      'защитить',
+      'спасти',
+      'вылечить',
+      'полечить',
+      'болеть',
+      'выздороветь',
+      'отремонтировать',
+    ];
+
+    // Если есть временное слово И глагол действия - это напоминание
+    const hasTimeWord = timeWords.some((timeWord) =>
+      text.toLowerCase().includes(timeWord.toLowerCase()),
+    );
+
+    // Используем расширенный список глаголов + детектор по окончаниям
+    const knownActionVerbs = actionVerbs.some((verb) =>
+      text.toLowerCase().includes(verb.toLowerCase()),
+    );
+
+    // Находим глаголы по окончаниям
+    const detectedVerbs = this.findVerbsInText(text);
+    const hasDetectedVerb = detectedVerbs.length > 0;
+
+    // Логирование для отладки
+    if (hasDetectedVerb) {
+      this.logger.log(
+        `Detected verbs in "${text}": ${detectedVerbs.join(', ')}`,
+      );
+    }
+
+    const hasActionVerb = knownActionVerbs || hasDetectedVerb;
+
+    // Дополнительные паттерны для определения напоминаний
+    const reminderIndicators = [
+      /нужно\s+/i, // "нужно сделать"
+      /надо\s+/i, // "надо купить"
+      /должен\s+/i, // "должен позвонить"
+      /должна\s+/i, // "должна встретиться"
+      /стоит\s+/i, // "стоит проверить"
+      /хочу\s+/i, // "хочу сходить завтра"
+      /планирую\s+/i, // "планирую поехать"
+      /собираюсь\s+/i, // "собираюсь делать"
+      /буду\s+/i, // "буду читать завтра"
+    ];
+
+    const hasReminderIndicator = reminderIndicators.some((pattern) =>
+      pattern.test(text),
+    );
+
+    return hasTimeWord && (hasActionVerb || hasReminderIndicator);
   }
 
   private isTaskRequest(text: string): boolean {
@@ -13496,16 +11531,6 @@ ${this.getItemActivationMessage(itemType)}`,
       const userId = ctx.from?.id.toString();
       if (!userId) return;
 
-      // Remove habit from skipped list if it was skipped
-      const today = new Date().toDateString();
-      const skipKey = `${habitId}_${today}`;
-      if (this.skippedHabitsToday.has(skipKey)) {
-        this.skippedHabitsToday.delete(skipKey);
-        this.logger.log(
-          `Removed habit ${habitId} from skipped list after completion`,
-        );
-      }
-
       // Mark habit as completed
       const result = await this.habitService.completeHabit(habitId, userId);
 
@@ -13659,17 +11684,11 @@ ${this.getItemActivationMessage(itemType)}`,
         return;
       }
 
-      // Add habit to skipped list for today
-      const today = new Date().toDateString();
-      const skipKey = `${habitId}_${today}`;
-      this.skippedHabitsToday.add(skipKey);
-
-      // Cancel any active interval reminders for this habit today
-      await this.notificationService.cancelHabitReminder(habitId);
+      // You might want to track skipped habits in your database
+      // For now, just update the message
 
       const message = `⏭️ Привычка "${habit.title}" пропущена на сегодня.
 
-Интервальные напоминания остановлены до завтра.
 Не расстраивайтесь! Завтра новый день - новые возможности! 🌅`;
 
       await ctx.editMessageText(message, {
@@ -13680,10 +11699,6 @@ ${this.getItemActivationMessage(itemType)}`,
           ],
         },
       });
-
-      this.logger.log(
-        `Habit ${habitId} skipped for today by user ${ctx.userId}`,
-      );
     } catch (error) {
       this.logger.error('Error skipping habit from notification:', error);
       await ctx.editMessageText('❌ Ошибка при пропуске привычки.');
@@ -14541,270 +12556,6 @@ ${this.getItemActivationMessage(itemType)}`,
           },
         },
       );
-    }
-  }
-
-  /**
-   * Show notification schedules for user's habits
-   */
-  private async showNotificationSchedules(ctx: BotContext) {
-    try {
-      const user = await this.prisma.user.findUnique({
-        where: { id: ctx.userId },
-        include: {
-          habits: {
-            where: { isActive: true },
-          },
-        },
-      });
-
-      if (!user) {
-        await ctx.replyWithMarkdown('❌ Пользователь не найден.');
-        return;
-      }
-
-      const userTimezone = user.timezone || 'Europe/Moscow';
-      let message = '📋 *Расписание уведомлений*\n\n';
-
-      // Мотивационные сообщения
-      message += '🌟 *Мотивационные сообщения*\n';
-      message += `📍 Ваш часовой пояс: ${userTimezone}\n\n`;
-      message += '⏰ *Расписание отправки:*\n';
-      message += '• 🌅 9:00 - Утренняя мотивация\n';
-      message += '• 🌞 15:00 - Дневная поддержка\n';
-      message += '• 🌙 22:00 - Вечернее подведение итогов\n\n';
-
-      // Рассчитываем время до следующих мотивационных сообщений
-      const timeUntilNext =
-        this.calculateTimeUntilNextMotivational(userTimezone);
-
-      if (timeUntilNext.nextTime) {
-        message += `⏳ *Следующее сообщение:*\n`;
-        message += `${timeUntilNext.emoji} ${timeUntilNext.nextTime} (через ${timeUntilNext.timeLeft})\n\n`;
-      }
-
-      if (user.habits.length > 0) {
-        message += `💡 Персонализированные сообщения на основе ваших ${user.habits.length} привычек\n\n`;
-      } else {
-        message += '� Создайте привычки для персонализированных сообщений\n\n';
-      }
-
-      // Уведомления о привычках
-      const habitsWithReminders = user.habits.filter(
-        (habit) => habit.reminderTime,
-      );
-
-      message += '🔔 *Напоминания о привычках*\n';
-      if (habitsWithReminders.length === 0) {
-        message += '❌ Напоминания не настроены\n';
-        message +=
-          '_Настройте в разделе "Привычки" → "Настроить напоминание"_\n\n';
-      } else {
-        message += `✅ Активно: ${habitsWithReminders.length} напоминаний\n\n`;
-
-        for (const habit of habitsWithReminders) {
-          message += `🎯 *${habit.title}*\n`;
-          message += `⏰ Время: ${habit.reminderTime}\n`;
-
-          const timeUntilHabit = this.calculateTimeUntilNextHabitReminder(
-            habit,
-            userTimezone,
-          );
-          message += `📅 Частота: ${habit.frequency === 'DAILY' ? 'Ежедневно' : 'По расписанию'}\n`;
-
-          if (timeUntilHabit) {
-            message += `⏳ Следующее: через ${timeUntilHabit}\n`;
-          }
-
-          message += '\n';
-          message += `� Частота: ${habit.frequency === 'DAILY' ? 'Ежедневно' : 'По расписанию'}\n\n`;
-        }
-      }
-
-      message += '� *Все уведомления отправляются по вашему местному времени*';
-
-      await ctx.replyWithMarkdown(message, {
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: '🔧 Настроить привычки', callback_data: 'habits_menu' },
-              {
-                text: '⚙️ Настроить часовой пояс',
-                callback_data: 'settings_timezone',
-              },
-            ],
-            [{ text: '🔙 Главное меню', callback_data: 'back_to_menu' }],
-          ],
-        },
-      });
-    } catch (error) {
-      this.logger.error('Error showing notification schedules:', error);
-      await ctx.replyWithMarkdown(
-        '❌ Произошла ошибка при получении расписания уведомлений.',
-      );
-    }
-  }
-
-  /**
-   * Generate AI-powered motivational message for a habit
-   */
-  private async generateHabitMotivationalMessage(habit: any): Promise<string> {
-    try {
-      const prompt = `Create a short, motivational reminder message (max 50 words) in Russian for the habit: "${habit.title}". 
-      Make it personal, encouraging, and action-oriented. Focus on the benefits and positive emotions.
-      Don't use phrases like "Давайте" or "мы". Use "вы" or direct address.`;
-
-      const aiResponse = await this.openaiService.getAIResponse(prompt);
-
-      // Extract clean message from AI response
-      const cleanMessage = aiResponse
-        .replace(/['"«»]/g, '')
-        .replace(/^\w+:\s*/, '')
-        .trim();
-
-      return cleanMessage || `Время выполнить: ${habit.title}! 💪`;
-    } catch (error) {
-      this.logger.error('Error generating motivational message:', error);
-      return `Время выполнить: ${habit.title}! 💪`;
-    }
-  }
-
-  /**
-   * Check if habit is skipped for today
-   */
-  public isHabitSkippedToday(habitId: string): boolean {
-    const today = new Date().toDateString();
-    const skipKey = `${habitId}_${today}`;
-    return this.skippedHabitsToday.has(skipKey);
-  }
-
-  /**
-   * Clear skipped habits cache daily (called at midnight)
-   */
-  private clearSkippedHabitsCache() {
-    this.skippedHabitsToday.clear();
-    this.logger.log('Cleared skipped habits cache for new day');
-  }
-
-  /**
-   * Calculate time until next motivational message
-   */
-  private calculateTimeUntilNextMotivational(timezone: string) {
-    const now = new Date();
-    const userTime = new Date(
-      now.toLocaleString('en-US', { timeZone: timezone }),
-    );
-    const currentHour = userTime.getHours();
-    const currentMinute = userTime.getMinutes();
-
-    const schedules = [
-      { hour: 9, emoji: '🌅', label: 'Утреннее сообщение' },
-      { hour: 15, emoji: '🌞', label: 'Дневное сообщение' },
-      { hour: 22, emoji: '🌙', label: 'Вечернее сообщение' },
-    ];
-
-    // Найдем следующее время отправки
-    for (const schedule of schedules) {
-      if (
-        currentHour < schedule.hour ||
-        (currentHour === schedule.hour && currentMinute < 10)
-      ) {
-        const targetTime = new Date(userTime);
-        targetTime.setHours(schedule.hour, 0, 0, 0);
-
-        const diffMs = targetTime.getTime() - userTime.getTime();
-        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-        const diffMinutes = Math.floor(
-          (diffMs % (1000 * 60 * 60)) / (1000 * 60),
-        );
-
-        let timeLeft = '';
-        if (diffHours > 0) {
-          timeLeft = `${diffHours}ч ${diffMinutes}м`;
-        } else {
-          timeLeft = `${diffMinutes}м`;
-        }
-
-        return {
-          nextTime: `${schedule.hour}:00`,
-          timeLeft,
-          emoji: schedule.emoji,
-        };
-      }
-    }
-
-    // Если уже прошли все сегодняшние времена, показываем завтрашнее утреннее
-    const tomorrowMorning = new Date(userTime);
-    tomorrowMorning.setDate(tomorrowMorning.getDate() + 1);
-    tomorrowMorning.setHours(9, 0, 0, 0);
-
-    const diffMs = tomorrowMorning.getTime() - userTime.getTime();
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-
-    return {
-      nextTime: '9:00 (завтра)',
-      timeLeft: `${diffHours}ч ${diffMinutes}м`,
-      emoji: '🌅',
-    };
-  }
-
-  /**
-   * Calculate time until next habit reminder
-   */
-  private calculateTimeUntilNextHabitReminder(
-    habit: any,
-    timezone: string,
-  ): string | null {
-    if (!habit.reminderTime) return null;
-
-    try {
-      const now = new Date();
-      const userTime = new Date(
-        now.toLocaleString('en-US', { timeZone: timezone }),
-      );
-
-      // Парсим время напоминания (например, "каждую минуту", "каждый час", "09:00")
-      const reminderTime = habit.reminderTime.toLowerCase();
-
-      if (reminderTime.includes('минуту')) {
-        return 'до 1 минуты';
-      } else if (reminderTime.includes('час')) {
-        const currentMinute = userTime.getMinutes();
-        const minutesLeft = 60 - currentMinute;
-        return `${minutesLeft}м`;
-      } else if (reminderTime.match(/\d{1,2}:\d{2}/)) {
-        // Конкретное время (например, "09:00")
-        const [hours, minutes] = reminderTime
-          .match(/(\d{1,2}):(\d{2})/)
-          .slice(1)
-          .map(Number);
-
-        const targetTime = new Date(userTime);
-        targetTime.setHours(hours, minutes, 0, 0);
-
-        // Если время уже прошло сегодня, берем завтра
-        if (targetTime <= userTime) {
-          targetTime.setDate(targetTime.getDate() + 1);
-        }
-
-        const diffMs = targetTime.getTime() - userTime.getTime();
-        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-        const diffMinutes = Math.floor(
-          (diffMs % (1000 * 60 * 60)) / (1000 * 60),
-        );
-
-        if (diffHours > 0) {
-          return `${diffHours}ч ${diffMinutes}м`;
-        } else {
-          return `${diffMinutes}м`;
-        }
-      }
-
-      return null;
-    } catch (error) {
-      this.logger.error('Error calculating habit reminder time:', error);
-      return null;
     }
   }
 }
