@@ -6724,7 +6724,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
             callback_data: `task_complete_${task.id}`,
           },
           {
-            text: '🗑️ Удалить',
+            text: '🗑️',
             callback_data: `task_delete_${task.id}`,
           },
         ]),
@@ -6740,9 +6740,6 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
           : []),
       ];
 
-      rows.push([
-        { text: '👀 Посмотреть активные', callback_data: 'tasks_today' },
-      ]);
       if (completedTasks.length > 0) {
         rows.push([
           {
@@ -6811,7 +6808,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
           callback_data: `task_complete_${task.id}`,
         },
         {
-          text: '🗑️ Удалить',
+          text: '🗑️',
           callback_data: `task_delete_${task.id}`,
         },
       ]);
@@ -6835,9 +6832,6 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
         ...completedButtons,
       ];
 
-      rowsAll.push([
-        { text: '👀 Посмотреть активные', callback_data: 'tasks_today' },
-      ]);
       if (completedButtons.length > 0) {
         rowsAll.push([
           {
@@ -6896,7 +6890,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
             callback_data: `task_complete_${task.id}`,
           },
           {
-            text: '🗑️ Удалить',
+            text: '🗑️',
             callback_data: `task_delete_${task.id}`,
           },
         ]),
@@ -7818,7 +7812,7 @@ ${reminderText}`,
         {
           reply_markup: {
             inline_keyboard: [
-              [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
+              [{ text: '⬅️ К напоминаниям', callback_data: 'reminders' }],
               [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
             ],
           },
@@ -7981,7 +7975,7 @@ ${reminderText}`,
         {
           reply_markup: {
             inline_keyboard: [
-              [{ text: '⬅️ Назад к ИИ меню', callback_data: 'ai_back_menu' }],
+              [{ text: '⬅️ К напоминаниям', callback_data: 'reminders' }],
               [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
             ],
           },
