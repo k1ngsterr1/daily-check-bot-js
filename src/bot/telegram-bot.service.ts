@@ -4597,10 +4597,11 @@ XP (опыт) начисляется за выполнение задач. С к
       await this.showTasksList(ctx);
     });
 
-    // Handle back to tasks menu (open full tasks list)
+    // Handle back to tasks menu (redirect to tasks menu)
     this.bot.action('back_to_tasks', async (ctx) => {
       await ctx.answerCbQuery();
-      await this.showTasksList(ctx);
+      // Redirect to main tasks menu instead of showing tasks list directly
+      await this.showTasksMenu(ctx);
     });
 
     // No-op separator (for decorative rows) and view completed task
@@ -4630,7 +4631,7 @@ XP (опыт) начисляется за выполнение задач. С к
               },
             ],
             [{ text: '🗑️ Удалить', callback_data: `task_delete_${task.id}` }],
-            [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
+            [{ text: '🔙 Назад к списку задач', callback_data: 'tasks_list' }],
           ],
         };
 
@@ -6625,7 +6626,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
                 },
               ],
               [{ text: '📊 Мои лимиты', callback_data: 'show_limits' }],
-              [{ text: '⬅️ Назад', callback_data: 'back_to_tasks' }],
+              [{ text: '⬅️ Назад', callback_data: 'menu_tasks' }],
             ],
           },
         },
@@ -6749,7 +6750,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
         ]);
       }
       rows.push([
-        { text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' },
+        { text: '🔙 Назад к меню задач', callback_data: 'menu_tasks' },
       ]);
 
       const keyboard = { inline_keyboard: rows };
@@ -6841,7 +6842,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
         ]);
       }
       rowsAll.push([
-        { text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' },
+        { text: '🔙 Назад к меню задач', callback_data: 'menu_tasks' },
       ]);
 
       const keyboard = { inline_keyboard: rowsAll };
@@ -6928,7 +6929,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       }
 
       rows.push([
-        { text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' },
+        { text: '🔙 Назад к меню задач', callback_data: 'menu_tasks' },
       ]);
 
       const keyboard = { inline_keyboard: rows };
@@ -6987,7 +6988,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
               callback_data: `task_view_${task.id}`,
             },
           ]),
-          [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
+          [{ text: '🔙 Назад к меню задач', callback_data: 'menu_tasks' }],
         ],
       };
 
@@ -7050,7 +7051,7 @@ ${progressBar} ${Math.round(progress * 100)}%
           inline_keyboard: [
             [
               { text: '🏠 Главное меню', callback_data: 'back_to_menu' },
-              { text: '📋 Меню задач', callback_data: 'back_to_tasks' },
+              { text: '📋 Меню задач', callback_data: 'menu_tasks' },
             ],
           ],
         },
@@ -9931,7 +9932,7 @@ ${aiAdvice}
           reply_markup: {
             inline_keyboard: [
               [{ text: '📝 Добавить задачу', callback_data: 'tasks_add' }],
-              [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
+              [{ text: '🔙 Назад к меню задач', callback_data: 'menu_tasks' }],
             ],
           },
         },
@@ -9947,7 +9948,7 @@ ${aiAdvice}
         {
           reply_markup: {
             inline_keyboard: [
-              [{ text: '🔙 Назад к задачам', callback_data: 'back_to_tasks' }],
+              [{ text: '🔙 Назад к меню задач', callback_data: 'menu_tasks' }],
             ],
           },
         },
