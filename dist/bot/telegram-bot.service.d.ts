@@ -66,6 +66,7 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private showTasksList;
     private showAllTasksList;
     private showTodayTasks;
+    private showCompletedTasks;
     private completeTask;
     private getPriorityEmoji;
     private askForTimezone;
@@ -90,6 +91,7 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private transcribeAudio;
     private processReminderFromText;
     private isReminderWithoutTime;
+    private parseRussianNumber;
     private isReminderRequest;
     private isVerbByEnding;
     private findVerbsInText;
@@ -126,6 +128,7 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private confirmTimezone;
     private showTimezoneList;
     private formatTimeWithTimezone;
+    private formatDateWithTimezone;
     private startAddingHabit;
     private analyzeAndCreateFromVoice;
     private showVoiceAnalysisOptions;

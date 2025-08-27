@@ -2398,8 +2398,18 @@ ${
     });
 
     this.bot.action('create_reminder_help', async (ctx) => {
-      await ctx.answerCbQuery();
-      await this.showCreateReminderHelp(ctx);
+      try {
+        await ctx.answerCbQuery();
+        await this.showCreateReminderHelp(ctx);
+      } catch (error) {
+        this.logger.error('Error handling create_reminder_help:', error);
+        try {
+          await ctx.answerCbQuery();
+          await ctx.replyWithMarkdown('❌ Произошла ошибка. Попробуйте позже.');
+        } catch (fallbackError) {
+          this.logger.error('Error in fallback handling:', fallbackError);
+        }
+      }
     });
 
     this.bot.action('voice_reminder_help', async (ctx) => {
@@ -10452,7 +10462,8 @@ ${aiAnalysis}
   }
 
   private async showCreateReminderHelp(ctx: BotContext) {
-    const message = `
+    try {
+      const message = `
 ➕ *Создание напоминания*
 
 **Как создать напоминание:**
@@ -10468,16 +10479,26 @@ ${aiAnalysis}
 • Относительное время: "через 30 минут", "через 2 часа"
 
 💡 **Совет:** Просто напишите в чат что и когда нужно напомнить!
-    `;
+      `;
 
-    const keyboard = {
-      inline_keyboard: [
-        [{ text: '🔔 Мои напоминания', callback_data: 'reminders' }],
-        [{ text: '⬅️ Назад', callback_data: 'reminders' }],
-      ],
-    };
+      const keyboard = {
+        inline_keyboard: [
+          [{ text: '🔔 Мои напоминания', callback_data: 'reminders' }],
+          [{ text: '⬅️ Назад', callback_data: 'reminders' }],
+        ],
+      };
 
-    await ctx.editMessageTextWithMarkdown(message, { reply_markup: keyboard });
+      await ctx.editMessageTextWithMarkdown(message, {
+        reply_markup: keyboard,
+      });
+    } catch (error) {
+      this.logger.error('Error in showCreateReminderHelp:', error);
+      try {
+        await ctx.replyWithMarkdown('❌ Произошла ошибка. Попробуйте позже.');
+      } catch (replyError) {
+        this.logger.error('Error sending error message:', replyError);
+      }
+    }
   }
 
   private async showVoiceReminderHelp(ctx: BotContext) {
