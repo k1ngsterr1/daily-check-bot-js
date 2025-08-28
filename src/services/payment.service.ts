@@ -199,11 +199,11 @@ export class PaymentService {
       const now = new Date();
       const subscriptionEnds = new Date();
 
-      // Устанавливаем период подписки
-      if (subscriptionType === 'PREMIUM_PLUS') {
-        subscriptionEnds.setFullYear(subscriptionEnds.getFullYear() + 1); // 1 год
+      // Устанавливаем период подписки в зависимости от суммы
+      if (amount === 999) {
+        subscriptionEnds.setFullYear(subscriptionEnds.getFullYear() + 1); // 1 год для 999₽
       } else {
-        subscriptionEnds.setMonth(subscriptionEnds.getMonth() + 1); // 1 месяц
+        subscriptionEnds.setMonth(subscriptionEnds.getMonth() + 1); // 1 месяц для 199₽
       }
 
       await this.prisma.user.update({
@@ -287,15 +287,17 @@ export class PaymentService {
   // Предопределенные планы подписки
   getSubscriptionPlans() {
     return {
-      PREMIUM: {
+      PREMIUM_MONTHLY: {
         amount: 199,
         currency: 'RUB',
         period: '1 месяц',
         description: 'Premium подписка на 1 месяц',
+        subscriptionType: 'PREMIUM',
         features: [
-          'Неограниченные задачи и привычки',
+          'Безлимитные задачи, напоминания и привычки',
+          'Безлимитные запросы к ИИ',
           'Расширенная аналитика и отчеты',
-          'Приоритетная поддержка AI',
+          'Приоритетная поддержка',
           'Эксклюзивные темы и значки',
           'Экспорт данных',
           'Персональный менеджер продуктивности',
@@ -303,17 +305,19 @@ export class PaymentService {
           'Без рекламы',
         ],
       },
-      PREMIUM_PLUS: {
+      PREMIUM_YEARLY: {
         amount: 999,
         currency: 'RUB',
         period: '1 год',
         description: 'Premium подписка на 1 год (скидка 58%)',
+        subscriptionType: 'PREMIUM',
         features: [
           'Все Premium функции',
           'Экономия 1389₽ в год',
-          'Неограниченные задачи и привычки',
+          'Безлимитные задачи, напоминания и привычки',
+          'Безлимитные запросы к ИИ',
           'Расширенная аналитика и отчеты',
-          'Приоритетная поддержка AI',
+          'Приоритетная поддержка',
           'Эксклюзивные темы и значки',
           'Экспорт данных',
           'Персональный менеджер продуктивности',

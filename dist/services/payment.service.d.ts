@@ -25,18 +25,20 @@ export declare class PaymentService {
     private activateSubscription;
     private processReferralPayout;
     getSubscriptionPlans(): {
-        PREMIUM: {
+        PREMIUM_MONTHLY: {
             amount: number;
             currency: string;
             period: string;
             description: string;
+            subscriptionType: string;
             features: string[];
         };
-        PREMIUM_PLUS: {
+        PREMIUM_YEARLY: {
             amount: number;
             currency: string;
             period: string;
             description: string;
+            subscriptionType: string;
             features: string[];
         };
     };

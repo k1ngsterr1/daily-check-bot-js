@@ -30,16 +30,6 @@ export class BillingService {
         customThemes: false,
       },
       PREMIUM: {
-        dailyReminders: 50,
-        dailyTasks: 100,
-        dailyHabits: 20,
-        dailyAiQueries: 100,
-        maxFocusSessions: 20,
-        advancedAnalytics: true,
-        prioritySupport: false,
-        customThemes: true,
-      },
-      PREMIUM_PLUS: {
         dailyReminders: -1, // Unlimited
         dailyTasks: -1,
         dailyHabits: -1,

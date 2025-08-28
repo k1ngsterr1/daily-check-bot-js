@@ -54,7 +54,6 @@ enum ReminderType {
 enum SubscriptionType {
   FREE
   PREMIUM
-  PREMIUM_PLUS
 }
 
 enum PaymentStatus {

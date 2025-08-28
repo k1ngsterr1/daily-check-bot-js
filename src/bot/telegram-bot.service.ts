@@ -2900,36 +2900,31 @@ ${statusMessage}
 
       await ctx.editMessageTextWithMarkdown(
         `
-💎 *Обновление до Premium*
+💎 *Premium подписка*
 
 ${trialText}**Premium подписка включает:**
 
-🔔 **50 напоминаний** в день (сейчас 5)
-🧠 **100 ИИ-запросов** в день (сейчас 10)
-📝 **100 задач** в день (сейчас 10)
-🔄 **20 привычек** в день (сейчас 3)
+∞ **Безлимитные** напоминания
+∞ **Безлимитные** задачи  
+∞ **Безлимитные** привычки
+∞ **Безлимитные** ИИ-запросы
+∞ **Безлимитные** фокус-сессии
 📊 **Расширенная аналитика**
 🎨 **Кастомные темы**
-⚡ **20 фокус-сессий** в день
-
-💰 **Стоимость:** 299₽/месяц
-
-**Premium Plus** (безлимитный план):
-∞ **Безлимитные** напоминания, задачи, привычки
 🚀 **Приоритетная поддержка**
-💰 **Стоимость:** 599₽/месяц
 
-Выберите план подписки:
+**Варианты оплаты:**
+💰 199₽/месяц - помесячная оплата
+💰 999₽/год - годовая оплата (экономия 58%!)
+
+Выберите удобный вариант:
       `,
         {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '💎 Premium - 299₽', callback_data: 'buy_premium' },
-                {
-                  text: '🚀 Premium Plus - 599₽',
-                  callback_data: 'buy_premium_plus',
-                },
+                { text: '💎 199₽/месяц', callback_data: 'buy_premium_monthly' },
+                { text: '� 999₽/год', callback_data: 'buy_premium_yearly' },
               ],
               [{ text: '📊 Мои лимиты', callback_data: 'show_limits' }],
               [{ text: '⬅️ Назад', callback_data: 'back_to_menu' }],
@@ -2942,23 +2937,19 @@ ${trialText}**Premium подписка включает:**
     // Handle Premium Monthly purchase
     this.bot.action('buy_premium_monthly', async (ctx) => {
       await ctx.answerCbQuery();
-      await this.createPayment(ctx, 'PREMIUM');
+      await this.createPayment(ctx, 'PREMIUM', 199);
     });
 
     // Handle Premium Yearly purchase
     this.bot.action('buy_premium_yearly', async (ctx) => {
       await ctx.answerCbQuery();
-      await this.createPayment(ctx, 'PREMIUM_PLUS');
+      await this.createPayment(ctx, 'PREMIUM', 999);
     });
 
     // Handle old Premium purchase (for backwards compatibility)
     this.bot.action('buy_premium', async (ctx) => {
       await ctx.answerCbQuery();
-      await this.createPayment(ctx, 'PREMIUM');
-    }); // Handle Premium Plus purchase (for backwards compatibility)
-    this.bot.action('buy_premium_plus', async (ctx) => {
-      await ctx.answerCbQuery();
-      await this.createPayment(ctx, 'PREMIUM_PLUS');
+      await this.createPayment(ctx, 'PREMIUM', 199);
     });
 
     // Handle payment status check
@@ -11041,11 +11032,20 @@ ${aiTips}
 
   private async createPayment(
     ctx: BotContext,
-    subscriptionType: 'PREMIUM' | 'PREMIUM_PLUS',
+    subscriptionType: 'PREMIUM',
+    amount?: number,
   ) {
     try {
       const plans = this.paymentService.getSubscriptionPlans();
-      const plan = plans[subscriptionType];
+
+      // Определяем план по сумме
+      let plan;
+      if (amount === 999) {
+        plan = plans.PREMIUM_YEARLY;
+      } else {
+        plan = plans.PREMIUM_MONTHLY;
+        amount = 199; // Убеждаемся что сумма корректная
+      }
 
       await ctx.editMessageTextWithMarkdown('💳 *Создаю платеж...*');
 
@@ -11057,9 +11057,12 @@ ${aiTips}
         returnUrl: 'https://t.me/daily_check_bot',
       });
 
+      const planName =
+        amount === 999 ? 'Premium (годовая)' : 'Premium (месячная)';
+
       await ctx.editMessageTextWithMarkdown(
         `
-💎 *Оплата ${subscriptionType === 'PREMIUM' ? 'Premium' : 'Premium Plus'}*
+💎 *Оплата ${planName}*
 
 💰 **Сумма:** ${plan.amount}₽
 📅 **Период:** ${plan.period}
