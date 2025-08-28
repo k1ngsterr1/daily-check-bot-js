@@ -163,4 +163,7 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private showPomodoroMenu;
     private showActivePomodoroSession;
     isHabitSkippedToday(habitId: string, userId?: string): Promise<boolean>;
+    private createReminderWithRelativeTime;
+    private createReminderWithSpecificTime;
+    private handleReminderTimeInputFromTask;
 }

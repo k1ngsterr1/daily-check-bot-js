@@ -788,6 +788,12 @@ ${statusMessage}
         return;
       }
 
+      // Handle reminder time input
+      if (ctx.session.step === 'waiting_for_reminder_time') {
+        await this.handleReminderTimeInputFromTask(ctx, ctx.message.text);
+        return;
+      }
+
       // Handle custom dependency creation
       if (ctx.session.step === 'waiting_custom_dependency') {
         const dependencyName = ctx.message.text.trim();
@@ -1266,6 +1272,60 @@ ${statusMessage}
       await this.skipHabitFromNotification(ctx, habitId);
     });
 
+    // Handle create reminder from task
+    this.bot.action(/^create_reminder_from_task_(.+)$/, async (ctx) => {
+      await ctx.answerCbQuery();
+      const encodedTitle = ctx.match[1];
+      try {
+        // Decode the base64 title
+        const taskTitle = Buffer.from(encodedTitle, 'base64').toString('utf-8');
+
+        // Store the title for later use and ask for time
+        ctx.session.tempData = { taskTitle };
+        ctx.session.step = 'waiting_for_reminder_time';
+
+        await ctx.editMessageTextWithMarkdown(
+          `⏰ *Создание напоминания*\n\nВо сколько вам напомнить? Введите время в формате:\n• \`15:30\` - конкретное время\n• \`через 2 часа\` - относительное время\n• \`завтра в 14:00\` - время с датой`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: '⏰ Через 1 час', callback_data: 'reminder_time_1h' },
+                  {
+                    text: '⏰ Через 2 часа',
+                    callback_data: 'reminder_time_2h',
+                  },
+                ],
+                [
+                  {
+                    text: '⏰ Сегодня в 18:00',
+                    callback_data: 'reminder_time_18',
+                  },
+                  {
+                    text: '⏰ Завтра в 9:00',
+                    callback_data: 'reminder_time_tomorrow_9',
+                  },
+                ],
+                [{ text: '❌ Отмена', callback_data: 'back_to_menu' }],
+              ],
+            },
+          },
+        );
+      } catch (error) {
+        this.logger.error('Error creating reminder from task:', error);
+        await ctx.editMessageTextWithMarkdown(
+          '❌ Произошла ошибка при создании напоминания. Попробуйте еще раз.',
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+              ],
+            },
+          },
+        );
+      }
+    });
+
     // Handle showing more habits
     this.bot.action('habits_list_more', async (ctx) => {
       await ctx.answerCbQuery();
@@ -1296,6 +1356,27 @@ ${statusMessage}
     this.bot.action(/^cancel_delete_habit_(.+)$/, async (ctx) => {
       await ctx.answerCbQuery('❌ Удаление отменено');
       await this.showHabitsManagement(ctx);
+    });
+
+    // Quick reminder time selection handlers
+    this.bot.action('reminder_time_1h', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.createReminderWithRelativeTime(ctx, 1, 'hours');
+    });
+
+    this.bot.action('reminder_time_2h', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.createReminderWithRelativeTime(ctx, 2, 'hours');
+    });
+
+    this.bot.action('reminder_time_18', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.createReminderWithSpecificTime(ctx, '18:00');
+    });
+
+    this.bot.action('reminder_time_tomorrow_9', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.createReminderWithSpecificTime(ctx, '09:00', true); // tomorrow = true
     });
 
     this.bot.action('menu_mood', async (ctx) => {
@@ -13555,5 +13636,171 @@ ${this.getItemActivationMessage(itemType)}`,
       },
     });
     return !!skip;
+  }
+
+  // Helper methods for quick reminder creation
+  private async createReminderWithRelativeTime(
+    ctx: BotContext,
+    amount: number,
+    unit: 'hours' | 'minutes',
+  ) {
+    try {
+      if (!ctx.session.tempData?.taskTitle) {
+        throw new Error('No task title found in session');
+      }
+
+      const taskTitle = ctx.session.tempData.taskTitle;
+      const now = new Date();
+      const reminderTime = new Date(now);
+
+      if (unit === 'hours') {
+        reminderTime.setHours(reminderTime.getHours() + amount);
+      } else {
+        reminderTime.setMinutes(reminderTime.getMinutes() + amount);
+      }
+
+      const hours = reminderTime.getHours().toString().padStart(2, '0');
+      const minutes = reminderTime.getMinutes().toString().padStart(2, '0');
+
+      await this.handleReminderRequest(ctx, taskTitle, hours, minutes);
+    } catch (error) {
+      this.logger.error('Error creating reminder with relative time:', error);
+      await ctx.editMessageTextWithMarkdown(
+        '❌ Произошла ошибка при создании напоминания. Попробуйте еще раз.',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    }
+  }
+
+  private async createReminderWithSpecificTime(
+    ctx: BotContext,
+    time: string,
+    tomorrow: boolean = false,
+  ) {
+    try {
+      if (!ctx.session.tempData?.taskTitle) {
+        throw new Error('No task title found in session');
+      }
+
+      const taskTitle = ctx.session.tempData.taskTitle;
+      const [hours, minutes] = time.split(':');
+
+      // If tomorrow is true, we might need to handle date logic
+      // For now, just pass the time to handleReminderRequest
+      // The existing method should handle the time properly
+
+      await this.handleReminderRequest(ctx, taskTitle, hours, minutes);
+    } catch (error) {
+      this.logger.error('Error creating reminder with specific time:', error);
+      await ctx.editMessageTextWithMarkdown(
+        '❌ Произошла ошибка при создании напоминания. Попробуйте еще раз.',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    }
+  }
+
+  private async handleReminderTimeInputFromTask(
+    ctx: BotContext,
+    timeInput: string,
+  ) {
+    try {
+      if (!ctx.session.tempData?.taskTitle) {
+        await ctx.replyWithMarkdown(
+          '❌ Не найдена задача для создания напоминания. Попробуйте еще раз.',
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+              ],
+            },
+          },
+        );
+        return;
+      }
+
+      const taskTitle = ctx.session.tempData.taskTitle;
+
+      // Parse different time formats
+      const timeMatch = timeInput.match(/(\d{1,2}):(\d{2})/);
+      if (timeMatch) {
+        const hours = timeMatch[1];
+        const minutes = timeMatch[2];
+
+        // Clear the session
+        ctx.session.step = undefined;
+        ctx.session.tempData = undefined;
+
+        await this.handleReminderRequest(ctx, taskTitle, hours, minutes);
+        return;
+      }
+
+      // Handle relative time (через X часов/минут)
+      const relativeMatch = timeInput.match(
+        /через\s*(\d+)\s*(час|часа|часов|минут|минуты)/i,
+      );
+      if (relativeMatch) {
+        const amount = parseInt(relativeMatch[1]);
+        const unit = relativeMatch[2];
+        const isHours = unit.startsWith('час');
+
+        const now = new Date();
+        if (isHours) {
+          now.setHours(now.getHours() + amount);
+        } else {
+          now.setMinutes(now.getMinutes() + amount);
+        }
+
+        const hours = now.getHours().toString().padStart(2, '0');
+        const minutes = now.getMinutes().toString().padStart(2, '0');
+
+        // Clear the session
+        ctx.session.step = undefined;
+        ctx.session.tempData = undefined;
+
+        await this.handleReminderRequest(ctx, taskTitle, hours, minutes);
+        return;
+      }
+
+      // If we can't parse the time, ask again
+      await ctx.replyWithMarkdown(
+        `⚠️ Не удалось распознать время. Попробуйте еще раз:\n\n📝 **"${taskTitle}"**\n\nПримеры формата:\n• \`15:30\` - конкретное время\n• \`через 2 часа\` - относительное время`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '❌ Отмена', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.error('Error handling reminder time input from task:', error);
+
+      // Clear the session on error
+      ctx.session.step = undefined;
+      ctx.session.tempData = undefined;
+
+      await ctx.replyWithMarkdown(
+        '❌ Произошла ошибка при создании напоминания. Попробуйте еще раз.',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    }
   }
 }
