@@ -4653,6 +4653,37 @@ XP (опыт) начисляется за выполнение задач. С к
       await this.completeTask(ctx, taskId);
     });
 
+    // Handle task status toggle (complete/uncomplete)
+    this.bot.action(/^toggle_task_(.+)$/, async (ctx) => {
+      await ctx.answerCbQuery();
+      const taskId = ctx.match[1];
+      try {
+        // Найдем задачу и переключим её статус
+        const task = await this.taskService.findTaskById(taskId, ctx.userId);
+        if (task && task.userId === ctx.userId) {
+          if (task.status === 'COMPLETED') {
+            // Делаем задачу активной
+            await this.taskService.updateTask(taskId, ctx.userId, {
+              status: 'PENDING',
+              completedAt: null,
+            } as any);
+            await ctx.answerCbQuery('Задача отмечена как активная!');
+          } else {
+            // Завершаем задачу
+            await this.completeTask(ctx, taskId);
+            return; // completeTask уже обновляет интерфейс
+          }
+          // Обновляем список задач
+          await this.showAllTasksList(ctx);
+        } else {
+          await ctx.answerCbQuery('Задача не найдена');
+        }
+      } catch (error) {
+        this.logger.error('Error toggling task status:', error);
+        await ctx.answerCbQuery('Ошибка при изменении статуса задачи');
+      }
+    });
+
     // Handle task deletion (ask for confirmation)
     this.bot.action(/^task_delete_(.+)$/, async (ctx) => {
       await ctx.answerCbQuery();
@@ -6819,45 +6850,59 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       let message = `📋 *Ваши задачи:*\n\n`;
       message += `🔄 **Активных:** ${pendingTasks.length}\n`;
       message += `✅ **Выполненных:** ${completedTasks.length}\n\n`;
-      message += `*Выберите задачу для завершения:*`;
+      message += `*Выберите задачу для изменения статуса:*`;
 
-      // Create keyboard with task completion and delete buttons. Include 'view completed' only if there are completed tasks
-      const rows: any[] = [
-        ...pendingTasks.slice(0, 8).map((task) => [
-          {
-            text: `${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''} (${task.xpReward} XP)`,
-            callback_data: `task_complete_${task.id}`,
-          },
-          {
-            text: '🗑️',
-            callback_data: `task_delete_${task.id}`,
-          },
-        ]),
-        ...(pendingTasks.length > 8
-          ? [
-              [
-                {
-                  text: `... и еще ${pendingTasks.length - 8} задач`,
-                  callback_data: 'tasks_list_more',
-                },
-              ],
-            ]
-          : []),
-      ];
+      // Создаем кнопки с квадратиками для всех задач
+      const allTaskButtons: any[] = [];
 
-      if (completedTasks.length > 0) {
-        rows.push([
+      // Активные задачи с белыми квадратиками
+      pendingTasks.slice(0, 10).forEach((task) => {
+        allTaskButtons.push([
           {
-            text: '🗂️ Посмотреть выполненные',
+            text: `⬜ ${task.title.substring(0, 40)}${task.title.length > 40 ? '...' : ''} (${task.xpReward} XP)`,
+            callback_data: `toggle_task_${task.id}`,
+          },
+        ]);
+      });
+
+      // Выполненные задачи с зелеными квадратиками (показываем последние 5)
+      completedTasks.slice(0, 5).forEach((task) => {
+        allTaskButtons.push([
+          {
+            text: `✅ ${task.title.substring(0, 40)}${task.title.length > 40 ? '...' : ''} (${task.xpReward} XP)`,
+            callback_data: `toggle_task_${task.id}`,
+          },
+        ]);
+      });
+
+      // Дополнительные кнопки
+      const extraButtons: any[] = [];
+
+      if (pendingTasks.length > 10) {
+        extraButtons.push([
+          {
+            text: `... и еще ${pendingTasks.length - 10} активных задач`,
+            callback_data: 'tasks_list_more',
+          },
+        ]);
+      }
+
+      if (completedTasks.length > 5) {
+        extraButtons.push([
+          {
+            text: `🗂️ Посмотреть все выполненные (${completedTasks.length})`,
             callback_data: 'tasks_completed',
           },
         ]);
       }
-      rows.push([
+
+      extraButtons.push([
         { text: '🔙 Назад к меню задач', callback_data: 'menu_tasks' },
       ]);
 
-      const keyboard = { inline_keyboard: rows };
+      const keyboard = {
+        inline_keyboard: [...allTaskButtons, ...extraButtons],
+      };
 
       try {
         await ctx.editMessageTextWithMarkdown(message, {
