@@ -1273,19 +1273,32 @@ ${statusMessage}
     });
 
     // Handle create reminder from task
-    this.bot.action(/^create_reminder_from_task_(.+)$/, async (ctx) => {
+    this.bot.action(/^create_reminder_(.+)$/, async (ctx) => {
       await ctx.answerCbQuery();
-      const encodedTitle = ctx.match[1];
       try {
-        // Decode the base64 title
-        const taskTitle = Buffer.from(encodedTitle, 'base64').toString('utf-8');
+        // Получаем заголовок из сессии
+        const taskTitle = ctx.session.tempData?.pendingReminderTitle;
+
+        if (!taskTitle) {
+          await ctx.editMessageTextWithMarkdown(
+            '❌ Не удалось найти заголовок задачи. Попробуйте еще раз.',
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                ],
+              },
+            },
+          );
+          return;
+        }
 
         // Store the title for later use and ask for time
         ctx.session.tempData = { taskTitle };
         ctx.session.step = 'waiting_for_reminder_time';
 
         await ctx.editMessageTextWithMarkdown(
-          `⏰ *Создание напоминания*\n\nВо сколько вам напомнить? Введите время в формате:\n• \`15:30\` - конкретное время\n• \`через 2 часа\` - относительное время\n• \`завтра в 14:00\` - время с датой`,
+          `⏰ *Создание напоминания*\n\n📝 **"${taskTitle}"**\n\nВо сколько вам напомнить? Введите время в формате:\n• \`15:30\` - конкретное время\n• \`через 2 часа\` - относительное время\n• \`завтра в 14:00\` - время с датой`,
           {
             reply_markup: {
               inline_keyboard: [
@@ -9960,12 +9973,15 @@ _Просто напишите время в удобном формате_
         // Кнопка для создания напоминания на основе задачи
         // Логируем исходный заголовок задачи для отладки
         this.logger.log(`[LOG] Reminder button raw title: ${task.title}`);
-        // Формируем безопасный callback_data: base64 от заголовка, только A-Za-z0-9, ограничено 20 символами
-        const safeTitle = Buffer.from(String(task.title || ''))
-          .toString('base64')
-          .replace(/[^A-Za-z0-9]/g, '')
-          .slice(0, 20);
-        const reminderCallback = `create_reminder_from_task_${safeTitle}`;
+
+        // Сохраняем заголовок в сессии для использования позже
+        if (!ctx.session.tempData) {
+          ctx.session.tempData = {};
+        }
+        ctx.session.tempData.pendingReminderTitle = task.title;
+
+        // Используем ID задачи как более компактный идентификатор
+        const reminderCallback = `create_reminder_${task.id.slice(0, 10)}`;
         this.logger.log(
           `[LOG] Reminder button safe callback: ${reminderCallback}`,
         );
