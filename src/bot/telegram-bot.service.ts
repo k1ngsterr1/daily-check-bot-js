@@ -10457,8 +10457,8 @@ ${aiAnalysis}
 
       let message = `🔔 *Все напоминания*\n\n`;
 
-      // Активные напоминания с кнопками "Выполнено"
-      const activeButtons: any[] = [];
+      // Активные напоминания как чек-лист
+      const allButtons: any[] = [];
       if (activeReminders.length > 0) {
         message += `🟢 **Активные (${activeReminders.length}):**\n\n`;
         activeReminders.forEach((reminder, index) => {
@@ -10485,12 +10485,11 @@ ${aiAnalysis}
             minute: '2-digit',
           });
 
-          message += `${index + 1}. 📝 ${reminder.title}\n`;
-          message += `    ⏰ ${dateStr} в ${timeStr}\n\n`;
-          activeButtons.push([
+          // Кнопка с квадратиком для каждого напоминания
+          allButtons.push([
             {
-              text: '✅ Выполнено',
-              callback_data: `complete_reminder_${reminder.id}`,
+              text: `⬜ ${reminder.title} (${dateStr} в ${timeStr})`,
+              callback_data: `toggle_reminder_${reminder.id}`,
             },
           ]);
         });
@@ -10500,7 +10499,7 @@ ${aiAnalysis}
 
       // Завершенные напоминания
       if (completedReminders.length > 0) {
-        message += `✔️ **Недавние (последние ${completedReminders.length}):**\n`;
+        message += `\n✅ **Завершенные (последние ${completedReminders.length}):**\n\n`;
         completedReminders.forEach((reminder, index) => {
           const date = new Date(reminder.scheduledTime);
           const dateStr = date.toLocaleDateString('ru-RU', {
@@ -10511,16 +10510,22 @@ ${aiAnalysis}
             hour: '2-digit',
             minute: '2-digit',
           });
-          // Черная галочка ✔️, компактно, без лишних отступов
-          message += `${index + 1}. ✔️ ${reminder.title}\n   📅 ${dateStr} в ${timeStr}\n`;
+
+          // Кнопка с зеленым квадратиком для завершенных
+          allButtons.push([
+            {
+              text: `✅ ${reminder.title} (${dateStr} в ${timeStr})`,
+              callback_data: `toggle_reminder_${reminder.id}`,
+            },
+          ]);
         });
       } else {
-        message += `✅ **Завершенные:** нет истории`;
+        message += `\n✅ **Завершенные:** нет истории\n`;
       }
 
       const keyboard = {
         inline_keyboard: [
-          ...activeButtons,
+          ...allButtons,
           [
             { text: '🔔 Активные', callback_data: 'reminders' },
             { text: '➕ Создать', callback_data: 'create_reminder_help' },
@@ -10528,15 +10533,38 @@ ${aiAnalysis}
           [{ text: '⬅️ Назад', callback_data: 'reminders' }],
         ],
       };
-      // Обработчик отметки напоминания как выполненного
-      this.bot.action(/^complete_reminder_(.+)$/, async (ctx) => {
+      // Обработчик переключения статуса напоминания
+      this.bot.action(/^toggle_reminder_(.+)$/, async (ctx) => {
         const reminderId = ctx.match[1];
-        await this.prisma.reminder.update({
-          where: { id: reminderId },
-          data: { status: ReminderStatus.COMPLETED },
-        });
-        await ctx.answerCbQuery('Напоминание отмечено как выполненное!');
-        await this.showAllReminders(ctx);
+        try {
+          // Найдем напоминание и переключим его статус
+          const reminder = await this.prisma.reminder.findUnique({
+            where: { id: reminderId },
+          });
+
+          if (reminder) {
+            const newStatus =
+              reminder.status === ReminderStatus.ACTIVE
+                ? ReminderStatus.COMPLETED
+                : ReminderStatus.ACTIVE;
+
+            await this.prisma.reminder.update({
+              where: { id: reminderId },
+              data: { status: newStatus },
+            });
+
+            const statusText =
+              newStatus === ReminderStatus.COMPLETED
+                ? 'выполненным'
+                : 'активным';
+
+            await ctx.answerCbQuery(`Напоминание отмечено как ${statusText}!`);
+            await this.showAllReminders(ctx);
+          }
+        } catch (error) {
+          this.logger.error('Error toggling reminder status:', error);
+          await ctx.answerCbQuery('Ошибка при изменении статуса');
+        }
       });
 
       await ctx.editMessageTextWithMarkdown(message, {

@@ -8215,7 +8215,7 @@ ${aiAnalysis}
                 take: 5,
             });
             let message = `🔔 *Все напоминания*\n\n`;
-            const activeButtons = [];
+            const allButtons = [];
             if (activeReminders.length > 0) {
                 message += `🟢 **Активные (${activeReminders.length}):**\n\n`;
                 activeReminders.forEach((reminder, index) => {
@@ -8240,12 +8240,10 @@ ${aiAnalysis}
                         hour: '2-digit',
                         minute: '2-digit',
                     });
-                    message += `${index + 1}. 📝 ${reminder.title}\n`;
-                    message += `    ⏰ ${dateStr} в ${timeStr}\n\n`;
-                    activeButtons.push([
+                    allButtons.push([
                         {
-                            text: '✅ Выполнено',
-                            callback_data: `complete_reminder_${reminder.id}`,
+                            text: `⬜ ${reminder.title} (${dateStr} в ${timeStr})`,
+                            callback_data: `toggle_reminder_${reminder.id}`,
                         },
                     ]);
                 });
@@ -8254,7 +8252,7 @@ ${aiAnalysis}
                 message += `🟢 **Активные:** нет\n\n`;
             }
             if (completedReminders.length > 0) {
-                message += `✔️ **Недавние (последние ${completedReminders.length}):**\n`;
+                message += `\n✅ **Завершенные (последние ${completedReminders.length}):**\n\n`;
                 completedReminders.forEach((reminder, index) => {
                     const date = new Date(reminder.scheduledTime);
                     const dateStr = date.toLocaleDateString('ru-RU', {
@@ -8265,15 +8263,20 @@ ${aiAnalysis}
                         hour: '2-digit',
                         minute: '2-digit',
                     });
-                    message += `${index + 1}. ✔️ ${reminder.title}\n   📅 ${dateStr} в ${timeStr}\n`;
+                    allButtons.push([
+                        {
+                            text: `✅ ${reminder.title} (${dateStr} в ${timeStr})`,
+                            callback_data: `toggle_reminder_${reminder.id}`,
+                        },
+                    ]);
                 });
             }
             else {
-                message += `✅ **Завершенные:** нет истории`;
+                message += `\n✅ **Завершенные:** нет истории\n`;
             }
             const keyboard = {
                 inline_keyboard: [
-                    ...activeButtons,
+                    ...allButtons,
                     [
                         { text: '🔔 Активные', callback_data: 'reminders' },
                         { text: '➕ Создать', callback_data: 'create_reminder_help' },
@@ -8281,14 +8284,31 @@ ${aiAnalysis}
                     [{ text: '⬅️ Назад', callback_data: 'reminders' }],
                 ],
             };
-            this.bot.action(/^complete_reminder_(.+)$/, async (ctx) => {
+            this.bot.action(/^toggle_reminder_(.+)$/, async (ctx) => {
                 const reminderId = ctx.match[1];
-                await this.prisma.reminder.update({
-                    where: { id: reminderId },
-                    data: { status: client_1.ReminderStatus.COMPLETED },
-                });
-                await ctx.answerCbQuery('Напоминание отмечено как выполненное!');
-                await this.showAllReminders(ctx);
+                try {
+                    const reminder = await this.prisma.reminder.findUnique({
+                        where: { id: reminderId },
+                    });
+                    if (reminder) {
+                        const newStatus = reminder.status === client_1.ReminderStatus.ACTIVE
+                            ? client_1.ReminderStatus.COMPLETED
+                            : client_1.ReminderStatus.ACTIVE;
+                        await this.prisma.reminder.update({
+                            where: { id: reminderId },
+                            data: { status: newStatus },
+                        });
+                        const statusText = newStatus === client_1.ReminderStatus.COMPLETED
+                            ? 'выполненным'
+                            : 'активным';
+                        await ctx.answerCbQuery(`Напоминание отмечено как ${statusText}!`);
+                        await this.showAllReminders(ctx);
+                    }
+                }
+                catch (error) {
+                    this.logger.error('Error toggling reminder status:', error);
+                    await ctx.answerCbQuery('Ошибка при изменении статуса');
+                }
             });
             await ctx.editMessageTextWithMarkdown(message, {
                 reply_markup: keyboard,
