@@ -4756,22 +4756,50 @@ XP (опыт) начисляется за выполнение задач. С к
       try {
         const task = await this.taskService.findTaskById(taskId, ctx.userId);
 
-        const message = `✅ *${task.title}*\n
-Статус: *${task.status}*\n`;
+        const statusEmoji = task.status === 'COMPLETED' ? '✅' : '⏳';
+        const message =
+          `${statusEmoji} *${task.title}*\n\n` +
+          `📊 *Статус:* ${task.status === 'COMPLETED' ? 'Выполнена' : 'Активна'}\n` +
+          `🎯 *Приоритет:* ${task.priority}\n` +
+          `💎 *XP за выполнение:* ${task.xpReward}\n` +
+          (task.description ? `📝 *Описание:* ${task.description}\n` : '') +
+          (task.dueDate
+            ? `📅 *Срок:* ${new Date(task.dueDate).toLocaleDateString('ru-RU')}\n`
+            : '') +
+          (task.completedAt
+            ? `✅ *Выполнена:* ${new Date(task.completedAt).toLocaleDateString('ru-RU')}\n`
+            : '');
 
         const keyboard = {
           inline_keyboard: [
+            task.status === 'COMPLETED'
+              ? [
+                  {
+                    text: '🔁 Вернуть в активные',
+                    callback_data: `task_reopen_${task.id}`,
+                  },
+                  {
+                    text: '✏️ Редактировать',
+                    callback_data: `task_edit_options_${task.id}`,
+                  },
+                ]
+              : [
+                  {
+                    text: '✅ Выполнить',
+                    callback_data: `toggle_task_${task.id}`,
+                  },
+                  {
+                    text: '✏️ Редактировать',
+                    callback_data: `task_edit_options_${task.id}`,
+                  },
+                ],
+            [{ text: '🗑️ Удалить', callback_data: `task_delete_${task.id}` }],
             [
               {
-                text: '🔁 Вернуть в активные',
-                callback_data: `task_reopen_${task.id}`,
-              },
-              {
-                text: '✏️ Редактировать название',
-                callback_data: `task_edit_${task.id}`,
+                text: '⏰ Добавить напоминание',
+                callback_data: `add_task_reminder_${task.id}`,
               },
             ],
-            [{ text: '🗑️ Удалить', callback_data: `task_delete_${task.id}` }],
             [{ text: '🔙 Назад к списку задач', callback_data: 'tasks_list' }],
           ],
         };
@@ -4780,7 +4808,7 @@ XP (опыт) начисляется за выполнение задач. С к
           reply_markup: keyboard,
         });
       } catch (err) {
-        this.logger.error('Error showing completed task view:', err);
+        this.logger.error('Error showing task view:', err);
         await ctx.editMessageTextWithMarkdown('❌ Не удалось получить задачу');
       }
     });
@@ -4809,6 +4837,366 @@ XP (опыт) начисляется за выполнение задач. С к
       ctx.session.step = 'editing_task_title';
       ctx.session.pendingTaskTitle = taskId;
       await ctx.replyWithMarkdown('✏️ Отправьте новое название задачи:');
+    });
+
+    // Show task edit options
+    this.bot.action(/^task_edit_options_(.+)$/, async (ctx) => {
+      await ctx.answerCbQuery();
+      const taskId = ctx.match[1];
+      try {
+        const task = await this.taskService.findTaskById(taskId, ctx.userId);
+
+        const message =
+          `✏️ *Редактирование задачи*\n\n` +
+          `📝 *Текущее название:* ${task.title}\n\n` +
+          `Выберите, что хотите изменить:`;
+
+        const keyboard = {
+          inline_keyboard: [
+            [
+              {
+                text: '📝 Изменить название',
+                callback_data: `task_edit_title_${task.id}`,
+              },
+            ],
+            [
+              {
+                text: '📄 Изменить описание',
+                callback_data: `task_edit_description_${task.id}`,
+              },
+            ],
+            [
+              {
+                text: '🎯 Изменить приоритет',
+                callback_data: `task_edit_priority_${task.id}`,
+              },
+            ],
+            [
+              {
+                text: '⏰ Добавить напоминание',
+                callback_data: `add_task_reminder_${task.id}`,
+              },
+            ],
+            [
+              {
+                text: '🗑️ Удалить задачу',
+                callback_data: `task_delete_${task.id}`,
+              },
+            ],
+            [
+              {
+                text: '🔙 Назад к задаче',
+                callback_data: `task_view_${task.id}`,
+              },
+            ],
+          ],
+        };
+
+        await ctx.editMessageTextWithMarkdown(message, {
+          reply_markup: keyboard,
+        });
+      } catch (err) {
+        this.logger.error('Error showing task edit options:', err);
+        await ctx.editMessageTextWithMarkdown('❌ Не удалось получить задачу');
+      }
+    });
+
+    // Edit task title
+    this.bot.action(/^task_edit_title_(.+)$/, async (ctx) => {
+      await ctx.answerCbQuery();
+      const taskId = ctx.match[1];
+      ctx.session.step = 'editing_task_title';
+      ctx.session.pendingTaskTitle = taskId;
+      await ctx.editMessageTextWithMarkdown(
+        '✏️ Отправьте новое название задачи:',
+      );
+    });
+
+    // Edit task description
+    this.bot.action(/^task_edit_description_(.+)$/, async (ctx) => {
+      await ctx.answerCbQuery();
+      const taskId = ctx.match[1];
+      ctx.session.step = 'editing_task_description';
+      ctx.session.pendingTaskTitle = taskId; // Используем существующее поле
+      await ctx.editMessageTextWithMarkdown(
+        '📄 Отправьте новое описание задачи (или отправьте "удалить" чтобы убрать описание):',
+      );
+    });
+
+    // Edit task priority
+    this.bot.action(/^task_edit_priority_(.+)$/, async (ctx) => {
+      await ctx.answerCbQuery();
+      const taskId = ctx.match[1];
+
+      const keyboard = {
+        inline_keyboard: [
+          [
+            {
+              text: '🔴 Высокий',
+              callback_data: `set_task_priority_${taskId}_HIGH`,
+            },
+            {
+              text: '🟡 Средний',
+              callback_data: `set_task_priority_${taskId}_MEDIUM`,
+            },
+          ],
+          [
+            {
+              text: '🟢 Низкий',
+              callback_data: `set_task_priority_${taskId}_LOW`,
+            },
+            {
+              text: '🔥 Срочный',
+              callback_data: `set_task_priority_${taskId}_URGENT`,
+            },
+          ],
+          [{ text: '🔙 Назад', callback_data: `task_edit_options_${taskId}` }],
+        ],
+      };
+
+      await ctx.editMessageTextWithMarkdown(
+        '🎯 Выберите новый приоритет задачи:',
+        {
+          reply_markup: keyboard,
+        },
+      );
+    });
+
+    // Set task priority
+    this.bot.action(/^set_task_priority_(.+)_(.+)$/, async (ctx) => {
+      await ctx.answerCbQuery();
+      const taskId = ctx.match[1];
+      const priority = ctx.match[2];
+
+      try {
+        await this.taskService.updateTask(taskId, ctx.userId, {
+          priority: priority,
+        } as any);
+
+        const priorityText =
+          priority === 'HIGH'
+            ? '🔴 Высокий'
+            : priority === 'MEDIUM'
+              ? '🟡 Средний'
+              : priority === 'LOW'
+                ? '🟢 Низкий'
+                : '🔥 Срочный';
+
+        await ctx.editMessageTextWithMarkdown(
+          `✅ Приоритет задачи изменён на ${priorityText}`,
+        );
+
+        // Возвращаемся к просмотру задачи через небольшую паузу
+        setTimeout(async () => {
+          try {
+            const task = await this.taskService.findTaskById(
+              taskId,
+              ctx.userId,
+            );
+            const statusEmoji = task.status === 'COMPLETED' ? '✅' : '⏳';
+            const message =
+              `${statusEmoji} *${task.title}*\n\n` +
+              `📊 *Статус:* ${task.status === 'COMPLETED' ? 'Выполнена' : 'Активна'}\n` +
+              `🎯 *Приоритет:* ${task.priority}\n` +
+              `💎 *XP за выполнение:* ${task.xpReward}\n` +
+              (task.description ? `📝 *Описание:* ${task.description}\n` : '') +
+              (task.dueDate
+                ? `📅 *Срок:* ${new Date(task.dueDate).toLocaleDateString('ru-RU')}\n`
+                : '') +
+              (task.completedAt
+                ? `✅ *Выполнена:* ${new Date(task.completedAt).toLocaleDateString('ru-RU')}\n`
+                : '');
+
+            const keyboard = {
+              inline_keyboard: [
+                task.status === 'COMPLETED'
+                  ? [
+                      {
+                        text: '� Вернуть в активные',
+                        callback_data: `task_reopen_${task.id}`,
+                      },
+                      {
+                        text: '✏️ Редактировать',
+                        callback_data: `task_edit_options_${task.id}`,
+                      },
+                    ]
+                  : [
+                      {
+                        text: '✅ Отметить выполненной',
+                        callback_data: `toggle_task_${task.id}`,
+                      },
+                      {
+                        text: '✏️ Редактировать',
+                        callback_data: `task_edit_options_${task.id}`,
+                      },
+                    ],
+                [
+                  {
+                    text: '🗑️ Удалить',
+                    callback_data: `task_delete_${task.id}`,
+                  },
+                ],
+                [
+                  {
+                    text: '⏰ Добавить напоминание',
+                    callback_data: `add_task_reminder_${task.id}`,
+                  },
+                ],
+                [
+                  {
+                    text: '🔙 Назад к списку задач',
+                    callback_data: 'tasks_list',
+                  },
+                ],
+              ],
+            };
+
+            await ctx.editMessageTextWithMarkdown(message, {
+              reply_markup: keyboard,
+            });
+          } catch (err) {
+            this.logger.error('Error refreshing task view:', err);
+          }
+        }, 1500);
+      } catch (err) {
+        this.logger.error('Error updating task priority:', err);
+        await ctx.editMessageTextWithMarkdown(
+          '❌ Не удалось изменить приоритет задачи',
+        );
+      }
+    });
+
+    // Add task reminder
+    this.bot.action(/^add_task_reminder_(.+)$/, async (ctx) => {
+      await ctx.answerCbQuery();
+      const taskId = ctx.match[1];
+      ctx.session.step = 'setting_task_reminder';
+      ctx.session.tempData = { taskId }; // Используем tempData
+
+      await ctx.editMessageTextWithMarkdown(
+        `⏰ *Добавление напоминания для задачи*
+
+Отправьте время, когда хотите получить напоминание в формате:
+• \`ЧЧ:ММ\` - на сегодня (например: 15:30)
+• \`ДД.ММ ЧЧ:ММ\` - на конкретную дату (например: 15.09 10:00)
+
+Или выберите готовый вариант:`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '📅 Через 1 час',
+                  callback_data: `quick_reminder_${taskId}_1h`,
+                },
+                {
+                  text: '📅 Через 3 часа',
+                  callback_data: `quick_reminder_${taskId}_3h`,
+                },
+              ],
+              [
+                {
+                  text: '📅 Завтра утром (9:00)',
+                  callback_data: `quick_reminder_${taskId}_tomorrow`,
+                },
+                {
+                  text: '📅 Через неделю',
+                  callback_data: `quick_reminder_${taskId}_week`,
+                },
+              ],
+              [
+                {
+                  text: '🔙 Назад',
+                  callback_data: `task_edit_options_${taskId}`,
+                },
+              ],
+            ],
+          },
+        },
+      );
+    });
+
+    // Show tasks editing menu
+    this.bot.action('edit_tasks_menu', async (ctx) => {
+      await ctx.answerCbQuery();
+
+      try {
+        const user = await this.userService.findByTelegramId(ctx.userId);
+        const allTasks = await this.taskService.findTasksByUserId(user.id);
+
+        const pendingTasks = allTasks.filter(
+          (task) => task.status !== 'COMPLETED',
+        );
+        const completedTasks = allTasks.filter(
+          (task) => task.status === 'COMPLETED',
+        );
+
+        let message = '✏️ *Редактирование задач*\n\n';
+        message += 'Выберите задачу для редактирования:\n\n';
+
+        const rows: any[] = [];
+
+        // Активные задачи
+        if (pendingTasks.length > 0) {
+          rows.push([
+            {
+              text: '— Активные задачи —',
+              callback_data: 'noop_separator',
+            },
+          ]);
+
+          pendingTasks.slice(0, 15).forEach((task) => {
+            rows.push([
+              {
+                text: `⬜ ${task.title.substring(0, 40)}${task.title.length > 40 ? '...' : ''}`,
+                callback_data: `task_view_${task.id}`,
+              },
+            ]);
+          });
+        }
+
+        // Выполненные задачи
+        if (completedTasks.length > 0) {
+          rows.push([
+            {
+              text: '— Выполненные задачи —',
+              callback_data: 'noop_separator',
+            },
+          ]);
+
+          completedTasks.slice(0, 10).forEach((task) => {
+            rows.push([
+              {
+                text: `✅ ${task.title.substring(0, 40)}${task.title.length > 40 ? '...' : ''}`,
+                callback_data: `task_view_${task.id}`,
+              },
+            ]);
+          });
+        }
+
+        // Если нет задач
+        if (pendingTasks.length === 0 && completedTasks.length === 0) {
+          rows.push([
+            {
+              text: '📝 Нет задач для редактирования',
+              callback_data: 'noop_separator',
+            },
+          ]);
+        }
+
+        rows.push([
+          { text: '🔙 Назад к списку задач', callback_data: 'tasks_list' },
+        ]);
+
+        const keyboard = { inline_keyboard: rows };
+
+        await ctx.editMessageTextWithMarkdown(message, {
+          reply_markup: keyboard,
+        });
+      } catch (err) {
+        this.logger.error('Error showing edit tasks menu:', err);
+        await ctx.editMessageTextWithMarkdown('❌ Ошибка при загрузке задач');
+      }
     });
 
     // Handle back to main menu
@@ -6890,6 +7278,16 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
           {
             text: `✅ Выполненные (${completedTasks.length})`,
             callback_data: 'tasks_completed',
+          },
+        ]);
+      }
+
+      // Добавляем кнопку редактирования, если есть задачи
+      if (pendingTasks.length > 0 || completedTasks.length > 0) {
+        extraButtons.push([
+          {
+            text: '✏️ Редактировать задачи',
+            callback_data: 'edit_tasks_menu',
           },
         ]);
       }
