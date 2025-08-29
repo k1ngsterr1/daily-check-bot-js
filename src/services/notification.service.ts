@@ -397,7 +397,7 @@ export class NotificationService {
           const motivation = this.generateMorningMotivation(dependency.type);
 
           await this.telegramBotService.sendMessageToUser(
-            parseInt(dependency.userId),
+            parseInt(dependency.user.id),
             `🌅 *Доброе утро!*\n\n${motivation}\n\n💪 Ты сможешь справиться с этим!`,
             {
               reply_markup: {
@@ -421,7 +421,7 @@ export class NotificationService {
           });
         } catch (error) {
           this.logger.error(
-            `Failed to send morning message to ${dependency.userId}:`,
+            `Failed to send morning message to ${dependency.user.id}:`,
             error,
           );
         }
@@ -451,7 +451,7 @@ export class NotificationService {
           const checkMessage = this.generateEveningCheck(dependency.type);
 
           await this.telegramBotService.sendMessageToUser(
-            parseInt(dependency.userId),
+            parseInt(dependency.user.id),
             `🌙 *Время подвести итоги дня*\n\n${checkMessage}\n\n❓ Как прошел день? Продержался?`,
             {
               reply_markup: {
@@ -473,7 +473,7 @@ export class NotificationService {
           );
         } catch (error) {
           this.logger.error(
-            `Failed to send evening message to ${dependency.userId}:`,
+            `Failed to send evening message to ${dependency.user.id}:`,
             error,
           );
         }

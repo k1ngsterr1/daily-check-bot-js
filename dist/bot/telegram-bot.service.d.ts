@@ -166,4 +166,7 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private createReminderWithRelativeTime;
     private createReminderWithSpecificTime;
     private handleReminderTimeInputFromTask;
+    private showSystemInfo;
+    private getDependencyTypeRussian;
+    private testMotivationSystem;
 }

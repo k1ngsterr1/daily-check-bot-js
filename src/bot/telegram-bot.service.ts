@@ -340,6 +340,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 /start - Начать работу с ботом
 /help - Показать эту справку
 /menu - Главное меню
+/info - Информация о системе и напоминаниях
 /feedback - Оставить отзыв о боте
 /tasks - Управление задачами
 /habits - Управление привычками
@@ -354,6 +355,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 🍅 Техника Помодоро для фокуса
 📊 Статистика и аналитика
 ⏰ Умные напоминания о привычках
+🎯 Мотивационные сообщения для борьбы с зависимостями
 💎 Система биллинга с пробным периодом
 
 Для получения подробной информации используйте /menu
@@ -561,6 +563,16 @@ ${statusMessage}
         this.logger.error('Error resetting onboarding:', error);
         await ctx.replyWithMarkdown('❌ Ошибка при сбросе онбординга.');
       }
+    });
+
+    // Info command - показывает информацию о мотивационных сообщениях
+    this.bot.command('info', async (ctx) => {
+      await this.showSystemInfo(ctx);
+    });
+
+    // Test motivation command
+    this.bot.command('testmotivation', async (ctx) => {
+      await this.testMotivationSystem(ctx);
     });
 
     // Onboarding callback handlers
@@ -846,7 +858,8 @@ ${statusMessage}
           // });
 
           // Запускаем ежедневные мотивационные сообщения
-          this.startDailyMotivation(ctx.userId, 'custom');
+          const user = await this.userService.findByTelegramId(ctx.userId);
+          this.startDailyMotivation(user.id, 'custom');
 
           await ctx.replyWithMarkdown(
             `
@@ -3272,7 +3285,8 @@ ${trialText}**Premium подписка включает:**
             // });
 
             // Запускаем ежедневные мотивационные сообщения
-            this.startDailyMotivation(ctx.userId, type);
+            const user = await this.userService.findByTelegramId(ctx.userId);
+            this.startDailyMotivation(user.id, type);
 
             await ctx.editMessageTextWithMarkdown(
               `
@@ -13904,6 +13918,210 @@ ${this.getItemActivationMessage(itemType)}`,
             ],
           },
         },
+      );
+    }
+  }
+
+  private async showSystemInfo(ctx: BotContext) {
+    try {
+      const user = await this.userService.findByTelegramId(ctx.userId);
+
+      // Получаем информацию о зависимостях/мотивационных сообщениях
+      const dependencySupport = await this.prisma.dependencySupport.findFirst({
+        where: { userId: user.id, status: 'ACTIVE' },
+      });
+
+      // Получаем активные напоминания
+      const activeReminders = await this.prisma.reminder.findMany({
+        where: {
+          userId: user.id,
+          status: 'ACTIVE',
+          scheduledTime: { gte: new Date() },
+        },
+        orderBy: { scheduledTime: 'asc' },
+        take: 5,
+      });
+
+      // Получаем активные привычки с напоминаниями
+      const habitsWithReminders = await this.prisma.habit.findMany({
+        where: {
+          userId: user.id,
+          isActive: true,
+          reminderTime: { not: null },
+        },
+      });
+
+      // Формируем сообщение
+      let infoMessage = `🔍 *Системная информация*\n\n`;
+
+      // Информация о пользователе
+      infoMessage += `👤 **Ваш профиль:**\n`;
+      infoMessage += `• Часовой пояс: ${user.timezone || 'Не установлен'}\n`;
+      infoMessage += `• Подписка: ${user.subscriptionType === 'PREMIUM' ? '💎 Premium' : '🆓 Бесплатная'}\n\n`;
+
+      // Информация о мотивационных сообщениях
+      if (dependencySupport) {
+        infoMessage += `🎯 **Система поддержки активна:**\n`;
+        infoMessage += `• Тип: ${this.getDependencyTypeRussian(dependencySupport.type)}\n`;
+        infoMessage += `• Утренние сообщения: каждый день в ${dependencySupport.morningTime || '09:00'}\n`;
+        infoMessage += `• Вечерние проверки: каждый день в ${dependencySupport.eveningTime || '21:00'}\n`;
+        infoMessage += `• Обещаний выполнено: ${dependencySupport.totalPromises || 0}\n`;
+        infoMessage += `• Общее время поддержки: ${Math.floor((Date.now() - dependencySupport.createdAt.getTime()) / (1000 * 60 * 60 * 24))} дней\n\n`;
+
+        // Время до следующего сообщения
+        const now = new Date();
+        const currentHour = now.getHours();
+        const nextMorning = new Date();
+        const nextEvening = new Date();
+
+        if (currentHour < 9) {
+          nextMorning.setHours(9, 0, 0, 0);
+          infoMessage += `⏰ **Следующее мотивационное сообщение:** сегодня в 09:00\n\n`;
+        } else if (currentHour < 21) {
+          nextEvening.setHours(21, 0, 0, 0);
+          infoMessage += `⏰ **Следующая вечерняя проверка:** сегодня в 21:00\n\n`;
+        } else {
+          nextMorning.setDate(nextMorning.getDate() + 1);
+          nextMorning.setHours(9, 0, 0, 0);
+          infoMessage += `⏰ **Следующее мотивационное сообщение:** завтра в 09:00\n\n`;
+        }
+      } else {
+        infoMessage += `🎯 **Система поддержки:** не активна\n`;
+        infoMessage += `💡 Активируйте через раздел "Борьба с зависимостями"\n\n`;
+      }
+
+      // Информация о напоминаниях
+      if (activeReminders.length > 0) {
+        infoMessage += `⏰ **Активные напоминания (${activeReminders.length}):**\n`;
+        activeReminders.forEach((reminder, index) => {
+          if (index < 3) {
+            // Показываем только первые 3
+            const date = reminder.scheduledTime.toLocaleDateString('ru-RU');
+            const time = reminder.scheduledTime.toLocaleTimeString('ru-RU', {
+              hour: '2-digit',
+              minute: '2-digit',
+            });
+            infoMessage += `• ${reminder.title} - ${date} в ${time}\n`;
+          }
+        });
+        if (activeReminders.length > 3) {
+          infoMessage += `• ... и ещё ${activeReminders.length - 3}\n`;
+        }
+        infoMessage += `\n`;
+      } else {
+        infoMessage += `⏰ **Активные напоминания:** нет\n\n`;
+      }
+
+      // Информация о привычках с напоминаниями
+      if (habitsWithReminders.length > 0) {
+        infoMessage += `🔄 **Привычки с напоминаниями (${habitsWithReminders.length}):**\n`;
+        habitsWithReminders.forEach((habit) => {
+          infoMessage += `• ${habit.title} - ${habit.reminderTime}\n`;
+        });
+        infoMessage += `\n`;
+      } else {
+        infoMessage += `🔄 **Привычки с напоминаниями:** нет\n\n`;
+      }
+
+      // Техническая информация
+      infoMessage += `🔧 **Техническая информация:**\n`;
+      infoMessage += `• Время сервера: ${new Date().toLocaleString('ru-RU')}\n`;
+      infoMessage += `• Версия бота: 2.0.0\n`;
+
+      await ctx.replyWithMarkdown(infoMessage, {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: '🎯 Борьба с зависимостями',
+                callback_data: 'choose_dependency',
+              },
+              { text: '⏰ Напоминания', callback_data: 'reminders_menu' },
+            ],
+            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+          ],
+        },
+      });
+    } catch (error) {
+      this.logger.error('Error showing system info:', error);
+      await ctx.replyWithMarkdown(
+        '❌ Ошибка при получении информации о системе.',
+      );
+    }
+  }
+
+  private getDependencyTypeRussian(type: string): string {
+    const types = {
+      SMOKING: 'Курение',
+      ALCOHOL: 'Алкоголь',
+      SOCIAL_MEDIA: 'Социальные сети',
+      GAMING: 'Игры',
+      FOOD: 'Переедание',
+      SHOPPING: 'Шопинг',
+      CUSTOM: 'Персональная зависимость',
+    };
+    return types[type] || type;
+  }
+
+  private async testMotivationSystem(ctx: BotContext) {
+    try {
+      const user = await this.userService.findByTelegramId(ctx.userId);
+      const dependencySupport = await this.prisma.dependencySupport.findFirst({
+        where: { userId: user.id, status: 'ACTIVE' },
+      });
+
+      if (!dependencySupport) {
+        await ctx.replyWithMarkdown(
+          '❌ У вас нет активной системы поддержки.\n\n' +
+            'Активируйте её через раздел "Борьба с зависимостями".',
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: '🎯 Борьба с зависимостями',
+                    callback_data: 'choose_dependency',
+                  },
+                ],
+              ],
+            },
+          },
+        );
+        return;
+      }
+
+      // Проверяем работу NotificationService
+      const now = new Date();
+      const testMessage =
+        `🧪 **Тестовое мотивационное сообщение**\n\n` +
+        `🌅 Доброе утро! Каждый день без ${this.getDependencyTypeRussian(dependencySupport.type).toLowerCase()} - это победа!\n\n` +
+        `💪 Ты сможешь справиться с этим!\n\n` +
+        `⏰ Время: ${now.toLocaleTimeString('ru-RU')}\n` +
+        `📅 Дата: ${now.toLocaleDateString('ru-RU')}\n\n` +
+        `✅ Система мотивационных сообщений работает!\n` +
+        `🕘 Следующее утреннее сообщение в ${dependencySupport.morningTime}\n` +
+        `🕘 Следующая вечерняя проверка в ${dependencySupport.eveningTime}`;
+
+      await ctx.replyWithMarkdown(testMessage, {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: '🤝 Обещаю сам себе',
+                callback_data: `morning_promise_${dependencySupport.type.toLowerCase()}`,
+              },
+            ],
+            [{ text: '📊 Информация', callback_data: 'info' }],
+            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+          ],
+        },
+      });
+
+      this.logger.log(`Test motivation sent to user ${ctx.userId}`);
+    } catch (error) {
+      this.logger.error('Error testing motivation system:', error);
+      await ctx.replyWithMarkdown(
+        '❌ Ошибка при тестировании системы мотивации.',
       );
     }
   }

@@ -308,7 +308,7 @@ let NotificationService = NotificationService_1 = class NotificationService {
             for (const dependency of activeDependencies) {
                 try {
                     const motivation = this.generateMorningMotivation(dependency.type);
-                    await this.telegramBotService.sendMessageToUser(parseInt(dependency.userId), `🌅 *Доброе утро!*\n\n${motivation}\n\n💪 Ты сможешь справиться с этим!`, {
+                    await this.telegramBotService.sendMessageToUser(parseInt(dependency.user.id), `🌅 *Доброе утро!*\n\n${motivation}\n\n💪 Ты сможешь справиться с этим!`, {
                         reply_markup: {
                             inline_keyboard: [
                                 [
@@ -327,7 +327,7 @@ let NotificationService = NotificationService_1 = class NotificationService {
                     });
                 }
                 catch (error) {
-                    this.logger.error(`Failed to send morning message to ${dependency.userId}:`, error);
+                    this.logger.error(`Failed to send morning message to ${dependency.user.id}:`, error);
                 }
             }
             this.logger.log(`Sent morning messages to ${activeDependencies.length} users`);
@@ -346,7 +346,7 @@ let NotificationService = NotificationService_1 = class NotificationService {
             for (const dependency of activeDependencies) {
                 try {
                     const checkMessage = this.generateEveningCheck(dependency.type);
-                    await this.telegramBotService.sendMessageToUser(parseInt(dependency.userId), `🌙 *Время подвести итоги дня*\n\n${checkMessage}\n\n❓ Как прошел день? Продержался?`, {
+                    await this.telegramBotService.sendMessageToUser(parseInt(dependency.user.id), `🌙 *Время подвести итоги дня*\n\n${checkMessage}\n\n❓ Как прошел день? Продержался?`, {
                         reply_markup: {
                             inline_keyboard: [
                                 [
@@ -365,7 +365,7 @@ let NotificationService = NotificationService_1 = class NotificationService {
                     });
                 }
                 catch (error) {
-                    this.logger.error(`Failed to send evening message to ${dependency.userId}:`, error);
+                    this.logger.error(`Failed to send evening message to ${dependency.user.id}:`, error);
                 }
             }
             this.logger.log(`Sent evening messages to ${activeDependencies.length} users`);
