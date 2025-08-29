@@ -6856,47 +6856,39 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       let message = `📋 *Ваши задачи:*\n\n`;
       message += `🔄 **Активных:** ${pendingTasks.length}\n`;
       message += `✅ **Выполненных:** ${completedTasks.length}\n\n`;
-      message += `*Выберите задачу для изменения статуса:*`;
+      message += `*Активные задачи:*`;
 
-      // Создаем кнопки с квадратиками для всех задач
-      const allTaskButtons: any[] = [];
+      // Создаем кнопки только для активных задач
+      const activeTaskButtons: any[] = [];
 
-      // Активные задачи с белыми квадратиками
-      pendingTasks.slice(0, 10).forEach((task) => {
-        allTaskButtons.push([
+      // Показываем только активные задачи с выравниванием по левому краю
+      pendingTasks.forEach((task) => {
+        activeTaskButtons.push([
           {
-            text: `⬜ ${task.title.substring(0, 40)}${task.title.length > 40 ? '...' : ''} (${task.xpReward} XP)`,
+            text: `⬜ ${task.title.substring(0, 45)}${task.title.length > 45 ? '...' : ''}`,
             callback_data: `toggle_task_${task.id}`,
           },
         ]);
       });
 
-      // Выполненные задачи с зелеными квадратиками (показываем последние 5)
-      completedTasks.slice(0, 5).forEach((task) => {
-        allTaskButtons.push([
+      // Если нет активных задач, показываем сообщение
+      if (pendingTasks.length === 0) {
+        activeTaskButtons.push([
           {
-            text: `✅ ${task.title.substring(0, 40)}${task.title.length > 40 ? '...' : ''} (${task.xpReward} XP)`,
-            callback_data: `toggle_task_${task.id}`,
-          },
-        ]);
-      });
-
-      // Дополнительные кнопки
-      const extraButtons: any[] = [];
-
-      if (pendingTasks.length > 10) {
-        extraButtons.push([
-          {
-            text: `... и еще ${pendingTasks.length - 10} активных задач`,
-            callback_data: 'tasks_list_more',
+            text: '🎉 Все задачи выполнены!',
+            callback_data: 'noop_separator',
           },
         ]);
       }
 
-      if (completedTasks.length > 5) {
+      // Дополнительные кнопки
+      const extraButtons: any[] = [];
+
+      // Кнопка для просмотра выполненных задач (показываем всегда, если есть выполненные)
+      if (completedTasks.length > 0) {
         extraButtons.push([
           {
-            text: `🗂️ Посмотреть все выполненные (${completedTasks.length})`,
+            text: `✅ Выполненные (${completedTasks.length})`,
             callback_data: 'tasks_completed',
           },
         ]);
@@ -6907,7 +6899,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       ]);
 
       const keyboard = {
-        inline_keyboard: [...allTaskButtons, ...extraButtons],
+        inline_keyboard: [...activeTaskButtons, ...extraButtons],
       };
 
       try {
@@ -7133,17 +7125,16 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       }
 
       let message = `📂 *Выполненные задачи (${tasks.length}):*\n\n`;
-      message += `*Просмотрите историю выполненных задач:*`;
 
       const keyboard = {
         inline_keyboard: [
           ...tasks.slice(0, 20).map((task) => [
             {
-              text: `✅ ${task.title.substring(0, 40)}${task.title.length > 40 ? '...' : ''} (${task.xpReward} XP)`,
+              text: `✅ ${task.title.substring(0, 45)}${task.title.length > 45 ? '...' : ''}`,
               callback_data: `task_view_${task.id}`,
             },
           ]),
-          [{ text: '🔙 Назад к меню задач', callback_data: 'menu_tasks' }],
+          [{ text: '🔙 Назад к списку задач', callback_data: 'tasks_list' }],
         ],
       };
 
