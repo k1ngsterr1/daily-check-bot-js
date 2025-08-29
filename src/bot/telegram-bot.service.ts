@@ -2516,8 +2516,24 @@ ${
     });
 
     this.bot.action('reminders', async (ctx) => {
-      await ctx.answerCbQuery();
-      await this.showRemindersMenu(ctx);
+      try {
+        await ctx.answerCbQuery();
+        this.logger.log('Reminders button clicked by user:', ctx.userId);
+        await this.showRemindersMenu(ctx);
+      } catch (error) {
+        this.logger.error('Error in reminders action handler:', error);
+        try {
+          await ctx.answerCbQuery();
+          await ctx.replyWithMarkdown(
+            '❌ Произошла ошибка при загрузке напоминаний. Попробуйте позже.',
+          );
+        } catch (fallbackError) {
+          this.logger.error(
+            'Error in fallback handling for reminders:',
+            fallbackError,
+          );
+        }
+      }
     });
 
     this.bot.action('all_reminders', async (ctx) => {
@@ -10786,6 +10802,8 @@ ${aiAnalysis}
 
   private async showRemindersMenu(ctx: BotContext) {
     try {
+      this.logger.log('showRemindersMenu called for user:', ctx.userId);
+
       // Получаем активные напоминания пользователя
       const reminders = await this.prisma.reminder.findMany({
         where: {
@@ -10800,6 +10818,10 @@ ${aiAnalysis}
         },
         take: 10, // Показываем максимум 10 ближайших напоминаний
       });
+
+      this.logger.log(
+        `Found ${reminders.length} active reminders for user ${ctx.userId}`,
+      );
 
       let message = `🔔 *Мои напоминания*\n\n`;
 

@@ -2010,8 +2010,21 @@ ${referralStats.topReferrals && referralStats.topReferrals.length > 0
             });
         });
         this.bot.action('reminders', async (ctx) => {
-            await ctx.answerCbQuery();
-            await this.showRemindersMenu(ctx);
+            try {
+                await ctx.answerCbQuery();
+                this.logger.log('Reminders button clicked by user:', ctx.userId);
+                await this.showRemindersMenu(ctx);
+            }
+            catch (error) {
+                this.logger.error('Error in reminders action handler:', error);
+                try {
+                    await ctx.answerCbQuery();
+                    await ctx.replyWithMarkdown('❌ Произошла ошибка при загрузке напоминаний. Попробуйте позже.');
+                }
+                catch (fallbackError) {
+                    this.logger.error('Error in fallback handling for reminders:', fallbackError);
+                }
+            }
         });
         this.bot.action('all_reminders', async (ctx) => {
             await ctx.answerCbQuery();
@@ -8469,6 +8482,7 @@ ${aiAnalysis}
     }
     async showRemindersMenu(ctx) {
         try {
+            this.logger.log('showRemindersMenu called for user:', ctx.userId);
             const reminders = await this.prisma.reminder.findMany({
                 where: {
                     userId: ctx.userId,
@@ -8482,6 +8496,7 @@ ${aiAnalysis}
                 },
                 take: 10,
             });
+            this.logger.log(`Found ${reminders.length} active reminders for user ${ctx.userId}`);
             let message = `🔔 *Мои напоминания*\n\n`;
             if (reminders.length === 0) {
                 message += `У вас нет активных напоминаний.\n\n💡 Создайте напоминание, написав:\n"напомни мне купить молоко в 17:30"`;
