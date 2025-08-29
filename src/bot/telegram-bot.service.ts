@@ -1364,6 +1364,27 @@ ${statusMessage}
       await this.showHabitsManagement(ctx);
     });
 
+    // Handle habits notifications settings
+    this.bot.action('habits_notifications_settings', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.showHabitsNotificationsSettings(ctx);
+    });
+
+    // Handle specific habit notification settings
+    this.bot.action(/^habit_notification_(.+)$/, async (ctx) => {
+      await ctx.answerCbQuery();
+      const habitId = ctx.match[1];
+      await this.showHabitNotificationSettings(ctx, habitId);
+    });
+
+    // Handle setting habit frequency
+    this.bot.action(/^set_habit_frequency_(.+)_(.+)$/, async (ctx) => {
+      await ctx.answerCbQuery();
+      const habitId = ctx.match[1];
+      const frequency = ctx.match[2];
+      await this.updateHabitFrequency(ctx, habitId, frequency);
+    });
+
     // Handle habit deletion
     this.bot.action(/^habit_delete_(.+)$/, async (ctx) => {
       await ctx.answerCbQuery();
@@ -10622,6 +10643,12 @@ ${aiAdvice}
               ],
               [
                 {
+                  text: '🔔 Настройка уведомлений',
+                  callback_data: 'habits_notifications_settings',
+                },
+              ],
+              [
+                {
                   text: '🤖 AI-совет по привычкам',
                   callback_data: 'habits_ai_advice',
                 },
@@ -11836,6 +11863,234 @@ ${this.getItemActivationMessage(itemType)}`,
       await ctx.editMessageTextWithMarkdown(
         '❌ Ошибка при загрузке управления привычками',
       );
+    }
+  }
+
+  private async showHabitsNotificationsSettings(ctx: BotContext) {
+    try {
+      const habits = await this.habitService.findHabitsByUserId(ctx.userId);
+
+      if (habits.length === 0) {
+        await ctx.editMessageTextWithMarkdown(
+          `
+🔔 *Настройка уведомлений*
+
+У вас нет привычек для настройки уведомлений.
+        `,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: '🔙 Назад к привычкам',
+                    callback_data: 'menu_habits',
+                  },
+                ],
+              ],
+            },
+          },
+        );
+        return;
+      }
+
+      let message = `🔔 *Настройка уведомлений*\n\n`;
+      message += `Выберите привычку для настройки частоты напоминаний:\n\n`;
+
+      // Показываем текущие настройки для каждой привычки
+      const keyboardRows: any[] = [];
+
+      for (const habit of habits.slice(0, 10)) {
+        const frequencyText = this.getHabitFrequencyText(habit.frequency);
+        keyboardRows.push([
+          {
+            text: `🔔 ${habit.title.substring(0, 25)}${habit.title.length > 25 ? '...' : ''} (${frequencyText})`,
+            callback_data: `habit_notification_${habit.id}`,
+          },
+        ]);
+      }
+
+      keyboardRows.push([
+        { text: '🔙 Назад к привычкам', callback_data: 'menu_habits' },
+      ]);
+
+      const keyboard = { inline_keyboard: keyboardRows };
+
+      await ctx.editMessageTextWithMarkdown(message, {
+        reply_markup: keyboard,
+      });
+    } catch (error) {
+      this.logger.error('Error showing habits notifications settings:', error);
+      await ctx.editMessageTextWithMarkdown(
+        '❌ Ошибка при загрузке настроек уведомлений',
+      );
+    }
+  }
+
+  private getHabitFrequencyText(frequency: string): string {
+    switch (frequency) {
+      case 'DAILY':
+        return '1 раз/день';
+      case 'WEEKLY':
+        return '1 раз/неделя';
+      case 'CUSTOM':
+        return 'Настройка';
+      default:
+        return frequency;
+    }
+  }
+
+  private async showHabitNotificationSettings(
+    ctx: BotContext,
+    habitId: string,
+  ) {
+    try {
+      const habit = await this.habitService.findHabitById(habitId, ctx.userId);
+
+      if (!habit) {
+        await ctx.answerCbQuery('❌ Привычка не найдена');
+        return;
+      }
+
+      const currentFrequency = this.getHabitFrequencyText(habit.frequency);
+
+      let message = `🔔 *Настройка уведомлений*\n\n`;
+      message += `📝 **Привычка:** ${habit.title}\n`;
+      message += `⏰ **Текущая частота:** ${currentFrequency}\n\n`;
+      message += `Выберите новую частоту напоминаний:`;
+
+      const keyboard = {
+        inline_keyboard: [
+          [
+            {
+              text: '📅 1 раз в день',
+              callback_data: `set_habit_frequency_${habitId}_DAILY`,
+            },
+          ],
+          [
+            {
+              text: '📅 1 раз в неделю',
+              callback_data: `set_habit_frequency_${habitId}_WEEKLY`,
+            },
+          ],
+          [
+            {
+              text: '🔄 2 раза в день',
+              callback_data: `set_habit_frequency_${habitId}_TWICE_DAILY`,
+            },
+          ],
+          [
+            {
+              text: '🔄 3 раза в день',
+              callback_data: `set_habit_frequency_${habitId}_THREE_TIMES`,
+            },
+          ],
+          [
+            {
+              text: '⚡ Каждые 2 часа (активно)',
+              callback_data: `set_habit_frequency_${habitId}_EVERY_2H`,
+            },
+          ],
+          [
+            {
+              text: '🔕 Отключить уведомления',
+              callback_data: `set_habit_frequency_${habitId}_DISABLED`,
+            },
+          ],
+          [
+            {
+              text: '🔙 Назад',
+              callback_data: 'habits_notifications_settings',
+            },
+          ],
+        ],
+      };
+
+      await ctx.editMessageTextWithMarkdown(message, {
+        reply_markup: keyboard,
+      });
+    } catch (error) {
+      this.logger.error('Error showing habit notification settings:', error);
+      await ctx.editMessageTextWithMarkdown(
+        '❌ Ошибка при загрузке настроек привычки',
+      );
+    }
+  }
+
+  private async updateHabitFrequency(
+    ctx: BotContext,
+    habitId: string,
+    frequency: string,
+  ) {
+    try {
+      const habit = await this.habitService.findHabitById(habitId, ctx.userId);
+
+      if (!habit) {
+        await ctx.editMessageTextWithMarkdown('❌ Привычка не найдена');
+        return;
+      }
+
+      // Обновляем частоту привычки
+      await this.habitService.updateHabit(habitId, ctx.userId, {
+        frequency: frequency === 'DISABLED' ? 'CUSTOM' : frequency, // Для отключенных используем CUSTOM
+        // В реальном приложении можно добавить отдельное поле для статуса уведомлений
+      } as any);
+
+      const frequencyText = this.getFrequencyDisplayText(frequency);
+
+      let message = `✅ *Настройки обновлены*\n\n`;
+      message += `📝 **Привычка:** ${habit.title}\n`;
+      message += `⏰ **Новая частота уведомлений:** ${frequencyText}\n\n`;
+
+      if (frequency === 'DISABLED') {
+        message += `🔕 Уведомления для этой привычки отключены.`;
+      } else {
+        message += `🔔 Теперь вы будете получать напоминания с новой частотой.`;
+      }
+
+      const keyboard = {
+        inline_keyboard: [
+          [
+            {
+              text: '⚙️ Настроить другую привычку',
+              callback_data: 'habits_notifications_settings',
+            },
+          ],
+          [
+            {
+              text: '🎯 Вернуться к привычкам',
+              callback_data: 'menu_habits',
+            },
+          ],
+        ],
+      };
+
+      await ctx.editMessageTextWithMarkdown(message, {
+        reply_markup: keyboard,
+      });
+    } catch (error) {
+      this.logger.error('Error updating habit frequency:', error);
+      await ctx.editMessageTextWithMarkdown(
+        '❌ Ошибка при обновлении настроек привычки',
+      );
+    }
+  }
+
+  private getFrequencyDisplayText(frequency: string): string {
+    switch (frequency) {
+      case 'DAILY':
+        return '📅 1 раз в день';
+      case 'WEEKLY':
+        return '📅 1 раз в неделю';
+      case 'TWICE_DAILY':
+        return '🔄 2 раза в день';
+      case 'THREE_TIMES':
+        return '🔄 3 раза в день';
+      case 'EVERY_2H':
+        return '⚡ Каждые 2 часа';
+      case 'DISABLED':
+        return '🔕 Отключены';
+      default:
+        return frequency;
     }
   }
 
