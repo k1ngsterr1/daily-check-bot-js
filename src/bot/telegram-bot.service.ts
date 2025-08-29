@@ -479,7 +479,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
-              [{ text: '🔄 Мои привычки', callback_data: 'habits_list' }],
+              [{ text: '🎯 Мои привычки', callback_data: 'habits_list' }],
               [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
             ],
           },
@@ -1034,7 +1034,7 @@ ${statusMessage}
             {
               reply_markup: {
                 inline_keyboard: [
-                  [{ text: '🔄 Мои привычки', callback_data: 'menu_habits' }],
+                  [{ text: '🎯 Мои привычки', callback_data: 'menu_habits' }],
                   [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
                 ],
               },
@@ -1485,7 +1485,7 @@ ${statusMessage}
       const keyboard = {
         inline_keyboard: [
           [{ text: '📝 Мои задачи', callback_data: 'tasks_list' }],
-          [{ text: '🔄 Мои привычки', callback_data: 'habits_list' }],
+          [{ text: '🎯 Мои привычки', callback_data: 'habits_list' }],
           [{ text: '⬅️ Назад', callback_data: 'back_to_menu' }],
         ],
       };
@@ -6627,7 +6627,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
         { command: 'start', description: '🎬 Начать работу с ботом' },
         { command: 'menu', description: '🏠 Главное меню' },
         { command: 'tasks', description: '📝 Мои задачи' },
-        { command: 'habits', description: '🔄 Мои привычки' },
+        { command: 'habits', description: '🎯 Мои привычки' },
         { command: 'reminders', description: '⏰ Активные напоминания' },
         { command: 'mood', description: '😊 Дневник настроения' },
         { command: 'focus', description: '🍅 Режим фокуса' },
@@ -10182,7 +10182,7 @@ ${aiAdvice}
       try {
         const habits = await this.habitService.findHabitsByUserId(ctx.userId);
 
-        let message = `🔄 *Мои привычки*\n\n`;
+        let message = `🎯 *Мои привычки*\n\n`;
 
         if (habits.length === 0) {
           message += `У вас пока нет привычек.\n\n💡 Добавьте первую привычку, чтобы начать отслеживание!`;
@@ -11342,7 +11342,7 @@ ${this.getItemActivationMessage(itemType)}`,
         {
           reply_markup: {
             inline_keyboard: [
-              [{ text: '🔄 Мои привычки', callback_data: 'habits_list' }],
+              [{ text: '🎯 Мои привычки', callback_data: 'habits_list' }],
               [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
             ],
           },
@@ -11922,7 +11922,7 @@ ${this.getItemActivationMessage(itemType)}`,
         {
           reply_markup: {
             inline_keyboard: [
-              [{ text: '🔄 Мои привычки', callback_data: 'menu_habits' }],
+              [{ text: '🎯 Мои привычки', callback_data: 'menu_habits' }],
               [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
             ],
           },
@@ -12531,7 +12531,7 @@ ${this.getItemActivationMessage(itemType)}`,
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '🔄 Мои привычки', callback_data: 'habits_list' }],
+            [{ text: '🎯 Мои привычки', callback_data: 'habits_list' }],
           ],
         },
       });
@@ -12600,7 +12600,7 @@ ${this.getItemActivationMessage(itemType)}`,
         {
           reply_markup: {
             inline_keyboard: [
-              [{ text: '🔄 Мои привычки', callback_data: 'habits_list' }],
+              [{ text: '🎯 Мои привычки', callback_data: 'habits_list' }],
             ],
           },
         },
@@ -12651,7 +12651,7 @@ ${this.getItemActivationMessage(itemType)}`,
                 callback_data: `complete_habit_${habitId}`,
               },
             ],
-            [{ text: '🔄 Мои привычки', callback_data: 'habits_list' }],
+            [{ text: '🎯 Мои привычки', callback_data: 'habits_list' }],
           ],
         },
       });
@@ -12686,7 +12686,7 @@ ${this.getItemActivationMessage(itemType)}`,
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '🔄 Мои привычки', callback_data: 'habits_list' }],
+            [{ text: '🎯 Мои привычки', callback_data: 'habits_list' }],
           ],
         },
       });
@@ -12890,7 +12890,7 @@ ${this.getItemActivationMessage(itemType)}`,
                 callback_data: `complete_habit_${habitId}`,
               },
             ],
-            [{ text: '🔄 Мои привычки', callback_data: 'habits_list' }],
+            [{ text: '🎯 Мои привычки', callback_data: 'habits_list' }],
           ],
         },
       });
