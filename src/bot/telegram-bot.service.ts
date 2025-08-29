@@ -12006,6 +12006,35 @@ ${this.getItemActivationMessage(itemType)}`,
     }
   }
 
+  private mapDependencyType(type: string): string {
+    const mappings: { [key: string]: string } = {
+      'smoking': 'SMOKING',
+      'alcohol': 'ALCOHOL',
+      'gambling': 'GAMBLING',
+      'sweets': 'SWEET',
+      'social': 'SOCIAL_MEDIA',
+      'gaming': 'GAMING',
+      'shopping': 'OTHER', // No specific enum for shopping, using OTHER
+      'custom': 'OTHER'
+    };
+    
+    return mappings[type] || 'OTHER';
+  }
+
+  private mapEnumToCallbackType(enumType: string): string {
+    const reverseMappings: { [key: string]: string } = {
+      'SMOKING': 'smoking',
+      'ALCOHOL': 'alcohol', 
+      'GAMBLING': 'gambling',
+      'SWEET': 'sweets',
+      'SOCIAL_MEDIA': 'social',
+      'GAMING': 'gaming',
+      'OTHER': 'custom'
+    };
+    
+    return reverseMappings[enumType] || 'custom';
+  }
+
   private async startDailyMotivation(userId: string, dependencyType: string) {
     this.logger.log(
       `Starting daily motivation for user ${userId}, dependency: ${dependencyType}`,
@@ -12013,10 +12042,11 @@ ${this.getItemActivationMessage(itemType)}`,
 
     try {
       // Ищем существующую запись
+      const mappedType = this.mapDependencyType(dependencyType);
       const existing = await this.prisma.dependencySupport.findFirst({
         where: {
           userId: userId,
-          type: dependencyType.toUpperCase() as any,
+          type: mappedType as any,
         },
       });
 
@@ -12034,7 +12064,7 @@ ${this.getItemActivationMessage(itemType)}`,
         await this.prisma.dependencySupport.create({
           data: {
             userId: userId,
-            type: dependencyType.toUpperCase() as any,
+            type: mappedType as any,
             status: 'ACTIVE',
             morningTime: '09:00',
             eveningTime: '21:00',
@@ -14054,11 +14084,11 @@ ${this.getItemActivationMessage(itemType)}`,
     const types = {
       SMOKING: 'Курение',
       ALCOHOL: 'Алкоголь',
+      GAMBLING: 'Азартные игры',
+      SWEET: 'Сладкое',
       SOCIAL_MEDIA: 'Социальные сети',
       GAMING: 'Игры',
-      FOOD: 'Переедание',
-      SHOPPING: 'Шопинг',
-      CUSTOM: 'Персональная зависимость',
+      OTHER: 'Другое',
     };
     return types[type] || type;
   }
@@ -14108,7 +14138,7 @@ ${this.getItemActivationMessage(itemType)}`,
             [
               {
                 text: '🤝 Обещаю сам себе',
-                callback_data: `morning_promise_${dependencySupport.type.toLowerCase()}`,
+                callback_data: `morning_promise_${this.mapEnumToCallbackType(dependencySupport.type)}`,
               },
             ],
             [{ text: '📊 Информация', callback_data: 'info' }],

@@ -137,6 +137,8 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private extractTaskName;
     private createHabitFromVoice;
     private createTaskFromVoice;
+    private mapDependencyType;
+    private mapEnumToCallbackType;
     private startDailyMotivation;
     private handleLongTermReminder;
     private parseSpecificTimeExpressions;
