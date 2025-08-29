@@ -2440,10 +2440,11 @@ ${trialText}**Premium подписка включает:**
                     const dependencyNames = {
                         SMOKING: '🚭 Курение',
                         ALCOHOL: '🍺 Алкоголь',
-                        SOCIAL: '📱 Соцсети',
+                        GAMBLING: '🎰 Азартные игры',
+                        SWEET: '🍰 Сладкое',
+                        SOCIAL_MEDIA: '📱 Соцсети',
                         GAMING: '🎮 Игры',
-                        SHOPPING: '🛒 Покупки',
-                        SWEETS: '🍰 Сладкое',
+                        OTHER: '🛒 Другое',
                     };
                     const depName = dependencyNames[dependency.type] ||
                         `✍️ ${dependency.customName || dependency.type}`;
@@ -9441,28 +9442,28 @@ ${this.getItemActivationMessage(itemType)}`, {
     }
     mapDependencyType(type) {
         const mappings = {
-            'smoking': 'SMOKING',
-            'alcohol': 'ALCOHOL',
-            'gambling': 'GAMBLING',
-            'sweets': 'SWEET',
-            'social': 'SOCIAL_MEDIA',
-            'gaming': 'GAMING',
-            'shopping': 'OTHER',
-            'custom': 'OTHER'
+            smoking: 'SMOKING',
+            alcohol: 'ALCOHOL',
+            gambling: 'GAMBLING',
+            sweets: 'SWEET',
+            social: 'SOCIAL_MEDIA',
+            gaming: 'GAMING',
+            shopping: 'OTHER',
+            custom: 'OTHER',
         };
         return mappings[type] || 'OTHER';
     }
     mapEnumToCallbackType(enumType) {
         const reverseMappings = {
-            'SMOKING': 'smoking',
-            'ALCOHOL': 'alcohol',
-            'GAMBLING': 'gambling',
-            'SWEET': 'sweets',
-            'SOCIAL_MEDIA': 'social',
-            'GAMING': 'gaming',
-            'OTHER': 'custom'
+            SMOKING: 'smoking',
+            ALCOHOL: 'alcohol',
+            GAMBLING: 'gambling',
+            SWEET: 'sweets',
+            SOCIAL_MEDIA: 'social',
+            GAMING: 'gaming',
+            OTHER: 'shopping',
         };
-        return reverseMappings[enumType] || 'custom';
+        return reverseMappings[enumType] || 'shopping';
     }
     async startDailyMotivation(userId, dependencyType) {
         this.logger.log(`Starting daily motivation for user ${userId}, dependency: ${dependencyType}`);

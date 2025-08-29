@@ -3072,10 +3072,11 @@ ${trialText}**Premium подписка включает:**
           const dependencyNames = {
             SMOKING: '🚭 Курение',
             ALCOHOL: '🍺 Алкоголь',
-            SOCIAL: '📱 Соцсети',
+            GAMBLING: '🎰 Азартные игры',
+            SWEET: '🍰 Сладкое',
+            SOCIAL_MEDIA: '📱 Соцсети',
             GAMING: '🎮 Игры',
-            SHOPPING: '🛒 Покупки',
-            SWEETS: '🍰 Сладкое',
+            OTHER: '🛒 Другое',
           };
 
           const depName =
@@ -12008,31 +12009,31 @@ ${this.getItemActivationMessage(itemType)}`,
 
   private mapDependencyType(type: string): string {
     const mappings: { [key: string]: string } = {
-      'smoking': 'SMOKING',
-      'alcohol': 'ALCOHOL',
-      'gambling': 'GAMBLING',
-      'sweets': 'SWEET',
-      'social': 'SOCIAL_MEDIA',
-      'gaming': 'GAMING',
-      'shopping': 'OTHER', // No specific enum for shopping, using OTHER
-      'custom': 'OTHER'
+      smoking: 'SMOKING',
+      alcohol: 'ALCOHOL',
+      gambling: 'GAMBLING',
+      sweets: 'SWEET',
+      social: 'SOCIAL_MEDIA',
+      gaming: 'GAMING',
+      shopping: 'OTHER', // No specific enum for shopping, using OTHER
+      custom: 'OTHER',
     };
-    
+
     return mappings[type] || 'OTHER';
   }
 
   private mapEnumToCallbackType(enumType: string): string {
     const reverseMappings: { [key: string]: string } = {
-      'SMOKING': 'smoking',
-      'ALCOHOL': 'alcohol', 
-      'GAMBLING': 'gambling',
-      'SWEET': 'sweets',
-      'SOCIAL_MEDIA': 'social',
-      'GAMING': 'gaming',
-      'OTHER': 'custom'
+      SMOKING: 'smoking',
+      ALCOHOL: 'alcohol',
+      GAMBLING: 'gambling',
+      SWEET: 'sweets',
+      SOCIAL_MEDIA: 'social',
+      GAMING: 'gaming',
+      OTHER: 'shopping', // Map OTHER back to shopping for existing handlers
     };
-    
-    return reverseMappings[enumType] || 'custom';
+
+    return reverseMappings[enumType] || 'shopping';
   }
 
   private async startDailyMotivation(userId: string, dependencyType: string) {
