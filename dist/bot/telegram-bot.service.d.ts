@@ -103,6 +103,7 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private showTasksAIAdvice;
     private showHabitsAIAdvice;
     private showHabitsMenu;
+    private showHabitDetails;
     private showMoodMenu;
     private showMoodAIAnalysis;
     private showFocusSession;
@@ -128,6 +129,9 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private showHabitNotificationSettings;
     private updateHabitFrequency;
     private getFrequencyDisplayText;
+    private showHabitFrequencySettings;
+    private showHabitTimeSettings;
+    private updateHabitTime;
     private confirmHabitDeletion;
     private deleteHabit;
     private confirmTimezone;

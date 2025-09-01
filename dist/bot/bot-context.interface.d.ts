@@ -10,6 +10,7 @@ export interface BotContext extends Context {
         feedbackLiked?: string;
         aiChatMode?: boolean;
         aiHabitCreationMode?: boolean;
+        currentHabitId?: string;
         pendingReminder?: {
             text: string;
             originalText: string;
