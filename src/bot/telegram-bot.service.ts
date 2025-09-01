@@ -7411,13 +7411,25 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       return;
     }
 
-    await ctx.replyWithMarkdown(`
+    await ctx.replyWithMarkdown(
+      `
 ➕ *Создание новой задачи*
 
 📊 **Задач сегодня:** ${limitCheck.current}/${limitCheck.limit === -1 ? '∞' : limitCheck.limit}
 
 📝 Напишите или скажите в голосовом сообщении название задачи:
-    `);
+    `,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🏠 Главное меню', callback_data: 'back_to_menu' },
+              { text: '📋 К задачам', callback_data: 'menu_tasks' },
+            ],
+          ],
+        },
+      },
+    );
 
     ctx.session.step = 'waiting_for_task_title';
   }
@@ -7446,7 +7458,8 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
         'dailyTasks',
       );
 
-      await ctx.replyWithMarkdown(`
+      await ctx.replyWithMarkdown(
+        `
 ✅ *Задача создана!*
 
 📝 *${task.title}*
@@ -7454,10 +7467,22 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
 📊 **Задач сегодня:** ${usageInfo.current}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit}
 
 Задача добавлена в ваш список!
-      `);
+      `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '📋 Мои задачи', callback_data: 'tasks_list' },
+                { text: '📅 Сегодня', callback_data: 'tasks_today' },
+              ],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
 
       ctx.session.step = undefined;
-      setTimeout(() => this.showTasksMenu(ctx), 1500);
+      // Убираем автоматический переход, пользователь сам выберет через кнопки
     } catch (error) {
       this.logger.error('Error creating task:', error);
       await ctx.replyWithMarkdown(`
