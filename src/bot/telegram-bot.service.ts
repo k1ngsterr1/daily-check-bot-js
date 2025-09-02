@@ -10877,12 +10877,10 @@ ${aiAdvice}
                 : []),
               [
                 { text: '➕ Добавить', callback_data: 'habits_add' },
-                [
-                  {
-                    text: '🛠️ Управление',
-                    callback_data: 'habits_manage',
-                  },
-                ],
+                {
+                  text: '🛠️ Управление',
+                  callback_data: 'habits_manage',
+                },
               ],
 
               [
