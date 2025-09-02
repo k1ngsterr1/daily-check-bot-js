@@ -8526,22 +8526,22 @@ ${aiAdvice}
                                     ],
                                 ]
                                 : []),
-                            [{ text: '➕ Добавить привычку', callback_data: 'habits_add' }],
                             [
-                                {
-                                    text: '🛠️ Управление привычками',
-                                    callback_data: 'habits_manage',
-                                },
+                                { text: '➕ Добавить', callback_data: 'habits_add' },
+                                [
+                                    {
+                                        text: '🛠️ Управление',
+                                        callback_data: 'habits_manage',
+                                    },
+                                ],
                             ],
                             [
                                 {
-                                    text: '🔔 Настройка уведомлений',
+                                    text: '🔔 Уведомления',
                                     callback_data: 'habits_notifications_settings',
                                 },
-                            ],
-                            [
                                 {
-                                    text: '🤖 AI-совет по привычкам',
+                                    text: '🤖 AI-совет',
                                     callback_data: 'habits_ai_advice',
                                 },
                             ],
