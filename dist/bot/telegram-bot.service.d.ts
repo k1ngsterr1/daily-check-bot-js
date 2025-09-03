@@ -131,6 +131,8 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private getFrequencyDisplayText;
     private showHabitFrequencySettings;
     private showHabitTimeSettings;
+    private showHabitHourSelection;
+    private showHabitMinuteSelection;
     private updateHabitTime;
     private confirmHabitDeletion;
     private deleteHabit;
@@ -170,6 +172,8 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private handleQuickReminderTime;
     private handleTomorrowReminder;
     private askForCustomReminderTime;
+    private showHourSelection;
+    private showMinuteSelection;
     private createHabitFromExample;
     private showPomodoroMenu;
     private showActivePomodoroSession;
