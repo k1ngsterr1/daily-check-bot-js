@@ -274,7 +274,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 *Быстрые действия:*
 📝 Добавить задачу
 ✅ Завершить задачу
-🔄 Добавить привычку
+🎯 Добавить привычку
 😊 Отметить настроение
 ⏰ Сессия фокуса
 
@@ -776,9 +776,14 @@ ${statusMessage}
           ctx.session.step = undefined;
           ctx.session.pendingTaskTitle = undefined;
 
-          await ctx.replyWithMarkdown('✅ Название задачи обновлено.');
-          // Refresh today's tasks view
-          await this.showTodayTasks(ctx);
+          await ctx.replyWithMarkdown('✅ Название задачи обновлено.', {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '📋 Все задачи', callback_data: 'tasks_list' }],
+                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+              ],
+            },
+          });
         } catch (err) {
           this.logger.error('Error updating task title:', err);
           await ctx.replyWithMarkdown(
@@ -1558,7 +1563,7 @@ ${statusMessage}
       const keyboard = {
         inline_keyboard: [
           [{ text: '📝 Добавить задачу', callback_data: 'tasks_add' }],
-          [{ text: '🔄 Добавить привычку', callback_data: 'habits_add' }],
+          [{ text: '🎯 Добавить привычку', callback_data: 'habits_add' }],
           [{ text: '🎙️ Отправить голосовое', callback_data: 'voice_message' }],
           [{ text: '⬅️ Назад', callback_data: 'back_to_menu' }],
         ],
@@ -4954,20 +4959,25 @@ XP (опыт) начисляется за выполнение задач. С к
       }
     });
 
-    // Start edit title flow
-    this.bot.action(/^task_edit_(.+)$/, async (ctx) => {
-      await ctx.answerCbQuery();
-      const taskId = ctx.match[1];
-      // Set session to editing mode and ask for new title
-      ctx.session.step = 'editing_task_title';
-      ctx.session.pendingTaskTitle = taskId;
-      await ctx.replyWithMarkdown('✏️ Отправьте новое название задачи:');
-    });
+    // Start edit title flow (DEPRECATED - this handler is not used anymore)
+    // this.bot.action(/^task_edit_title_direct_(.+)$/, async (ctx) => {
+    //   await ctx.answerCbQuery();
+    //   const taskId = ctx.match[1];
+    //   // Set session to editing mode and ask for new title
+    //   ctx.session.step = 'editing_task_title';
+    //   ctx.session.pendingTaskTitle = taskId;
+    //   await ctx.replyWithMarkdown('✏️ Отправьте новое название задачи:');
+    // });
 
     // Show task edit options
     this.bot.action(/^task_edit_options_(.+)$/, async (ctx) => {
       await ctx.answerCbQuery();
       const taskId = ctx.match[1];
+
+      // Сбрасываем состояние редактирования при возврате к опциям
+      ctx.session.step = undefined;
+      ctx.session.pendingTaskTitle = undefined;
+
       try {
         const task = await this.taskService.findTaskById(taskId, ctx.userId);
 
@@ -5034,6 +5044,18 @@ XP (опыт) начисляется за выполнение задач. С к
       ctx.session.pendingTaskTitle = taskId;
       await ctx.editMessageTextWithMarkdown(
         '✏️ Отправьте новое название задачи:',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '🔙 Назад к редактированию',
+                  callback_data: `task_edit_options_${taskId}`,
+                },
+              ],
+            ],
+          },
+        },
       );
     });
 
@@ -5061,7 +5083,7 @@ XP (опыт) начисляется за выполнение задач. С к
               callback_data: `set_task_priority_${taskId}_HIGH`,
             },
             {
-              text: '🟡 Средний',
+              text: '⬜ Средний',
               callback_data: `set_task_priority_${taskId}_MEDIUM`,
             },
           ],
@@ -5102,7 +5124,7 @@ XP (опыт) начисляется за выполнение задач. С к
           priority === 'HIGH'
             ? '🔴 Высокий'
             : priority === 'MEDIUM'
-              ? '🟡 Средний'
+              ? '⬜ Средний'
               : priority === 'LOW'
                 ? '🟢 Низкий'
                 : '🔥 Срочный';
@@ -5368,7 +5390,7 @@ XP (опыт) начисляется за выполнение задач. С к
         if (completedTasks.length > 0) {
           rows.push([
             {
-              text: `� Выполненные задачи (${completedTasks.length})`,
+              text: `✅ Выполненные задачи (${completedTasks.length})`,
               callback_data: 'edit_completed_tasks',
             },
           ]);
@@ -5691,16 +5713,6 @@ XP (опыт) начисляется за выполнение задач. С к
                         callback_data: 'reminder_done',
                       },
                     ],
-                    [
-                      {
-                        text: '⏰ Через 15 мин',
-                        callback_data: 'reminder_snooze_15',
-                      },
-                      {
-                        text: '⏰ Через час',
-                        callback_data: 'reminder_snooze_60',
-                      },
-                    ],
                   ],
                 },
               },
@@ -5740,16 +5752,6 @@ XP (опыт) начисляется за выполнение задач. С к
                       {
                         text: '✅ Готово',
                         callback_data: 'reminder_done',
-                      },
-                    ],
-                    [
-                      {
-                        text: '⏰ Через 15 мин',
-                        callback_data: 'reminder_snooze_15',
-                      },
-                      {
-                        text: '⏰ Через час',
-                        callback_data: 'reminder_snooze_60',
                       },
                     ],
                   ],
@@ -5795,16 +5797,6 @@ XP (опыт) начисляется за выполнение задач. С к
                         callback_data: `reminder_done_${String(reminderId).slice(0, 20)}`,
                       },
                     ],
-                    [
-                      {
-                        text: '⏰ Через 15 мин',
-                        callback_data: `reminder_snooze_15_${String(reminderId).slice(0, 20)}`,
-                      },
-                      {
-                        text: '⏰ Через час',
-                        callback_data: `reminder_snooze_60_${String(reminderId).slice(0, 20)}`,
-                      },
-                    ],
                   ],
                 },
               },
@@ -5845,16 +5837,6 @@ XP (опыт) начисляется за выполнение задач. С к
                       {
                         text: '✅ Готово',
                         callback_data: `reminder_done_${reminderId}`,
-                      },
-                    ],
-                    [
-                      {
-                        text: '⏰ Через 15 мин',
-                        callback_data: `reminder_snooze_15_${reminderId}`,
-                      },
-                      {
-                        text: '⏰ Через час',
-                        callback_data: `reminder_snooze_60_${reminderId}`,
                       },
                     ],
                   ],
@@ -7090,7 +7072,7 @@ ${timeAdvice}
       inline_keyboard: [
         [
           {
-            text: '➕ Добавить привычку',
+            text: '🎯 Добавить привычку',
             callback_data: 'onboarding_add_habit',
           },
           { text: '⏭️ Пропустить', callback_data: 'onboarding_skip_habit' },
@@ -7337,7 +7319,6 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
           { text: '➕ Добавить задачу', callback_data: 'tasks_add' },
           { text: '📋 Все задачи', callback_data: 'tasks_list' },
         ],
-        [{ text: '📅 Задачи на сегодня', callback_data: 'tasks_today' }],
         [{ text: '🤖 AI-совет по задачам', callback_data: 'tasks_ai_advice' }],
         [{ text: '🔙 Назад в меню', callback_data: 'back_to_main' }],
       ],
@@ -7522,11 +7503,11 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       // Создаем кнопки только для активных задач
       const activeTaskButtons: any[] = [];
 
-      // Показываем только активные задачи с выравниванием по левому краю
+      // Показываем только активные задачи с выравниванием по центру
       pendingTasks.forEach((task) => {
         activeTaskButtons.push([
           {
-            text: `⬜ ${task.title.substring(0, 45)}${task.title.length > 45 ? '...' : ''}`,
+            text: `     ⬜ ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''}     `,
             callback_data: `toggle_task_${task.id}`,
           },
         ]);
@@ -7618,17 +7599,13 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       }
 
       let message = `📋 *Все активные задачи (${pendingTasks.length}):*\n\n`;
-      message += `*Выберите задачу для завершения:*`;
+      message += `*Нажмите на задачу для завершения:*`;
 
       // Create keyboard with pending tasks first, then completed tasks marked green
       const pendingButtons = pendingTasks.map((task) => [
         {
-          text: `${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 35)}${task.title.length > 35 ? '...' : ''} (${task.xpReward} XP)`,
+          text: `     ${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 25)}${task.title.length > 25 ? '...' : ''}     `,
           callback_data: `task_complete_${task.id}`,
-        },
-        {
-          text: '🗑️',
-          callback_data: `task_delete_${task.id}`,
         },
       ]);
 
@@ -7681,24 +7658,45 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       const tasks = await this.taskService.getTodayTasks(ctx.userId);
 
       if (tasks.length === 0) {
-        await ctx.editMessageTextWithMarkdown(
-          `
+        try {
+          await ctx.editMessageTextWithMarkdown(
+            `
 📅 *Задачи на сегодня*
 
 На сегодня задач нет! 🎉
         `,
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '➕ Добавить задачу', callback_data: 'tasks_add' }],
-                [
-                  { text: '🏠 Главное меню', callback_data: 'back_to_menu' },
-                  { text: '📋 Все задачи', callback_data: 'tasks_list' },
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '➕ Добавить задачу', callback_data: 'tasks_add' }],
+                  [
+                    { text: '🏠 Главное меню', callback_data: 'back_to_menu' },
+                    { text: '📋 Все задачи', callback_data: 'tasks_list' },
+                  ],
                 ],
-              ],
+              },
             },
-          },
-        );
+          );
+        } catch (editErr) {
+          await ctx.replyWithMarkdown(
+            `
+📅 *Задачи на сегодня*
+
+На сегодня задач нет! 🎉
+        `,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '➕ Добавить задачу', callback_data: 'tasks_add' }],
+                  [
+                    { text: '🏠 Главное меню', callback_data: 'back_to_menu' },
+                    { text: '📋 Все задачи', callback_data: 'tasks_list' },
+                  ],
+                ],
+              },
+            },
+          );
+        }
         return;
       }
 
@@ -7710,20 +7708,16 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       let message = `📅 *Задачи на сегодня:*\n\n`;
       message += `🔄 **К выполнению:** ${pendingTasks.length}\n`;
       message += `✅ **Выполнено:** ${completedTasks.length}\n\n`;
-      message += `*Выберите задачу для завершения:*`;
+      message += `*Нажмите на задачу для завершения:*`;
 
       const rows: any[] = [];
 
-      // Pending tasks (complete / delete)
+      // Pending tasks (complete only)
       rows.push(
         ...pendingTasks.slice(0, 8).map((task) => [
           {
-            text: `${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''} (${task.xpReward} XP)`,
+            text: `     ${this.getPriorityEmoji(task.priority)} ${task.title.substring(0, 25)}${task.title.length > 25 ? '...' : ''}     `,
             callback_data: `task_complete_${task.id}`,
-          },
-          {
-            text: '🗑️',
-            callback_data: `task_delete_${task.id}`,
           },
         ]),
       );
@@ -7738,26 +7732,23 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       }
 
       // Completed tasks: show and allow editing/reopen/delete
+      // Add completed tasks button if there are any
       if (completedTasks.length > 0) {
         rows.push([
           {
-            text: '— Выполненные (редактируемые) —',
-            callback_data: 'noop_separator',
+            text: `✅ Выполненные (${completedTasks.length})`,
+            callback_data: 'tasks_completed',
           },
         ]);
-        rows.push(
-          ...completedTasks.slice(0, 20).map((task) => [
-            {
-              text: `✅ ${task.title.substring(0, 40)}${task.title.length > 40 ? '...' : ''} (${task.xpReward} XP)`,
-              callback_data: `task_view_${task.id}`,
-            },
-            {
-              text: '✏️ Редактировать',
-              callback_data: `task_edit_${task.id}`,
-            },
-          ]),
-        );
       }
+
+      // Add edit tasks button
+      rows.push([
+        {
+          text: '✏️ Редактировать задачи',
+          callback_data: 'edit_tasks_menu',
+        },
+      ]);
 
       rows.push([
         { text: '🔙 Назад к меню задач', callback_data: 'menu_tasks' },
@@ -7774,10 +7765,11 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
         const desc = e?.response?.description || e?.message || '';
         if (
           typeof desc === 'string' &&
-          desc.includes('message is not modified')
+          (desc.includes('message is not modified') ||
+            desc.includes("message can't be edited"))
         ) {
           this.logger.log(
-            'Edit resulted in no-op (showTodayTasks), sending a new message instead',
+            'Edit failed (showTodayTasks), sending a new message instead',
           );
           await ctx.replyWithMarkdown(message, { reply_markup: keyboard });
         } else {
@@ -7786,9 +7778,13 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       }
     } catch (error) {
       this.logger.error('Error showing today tasks:', error);
-      await ctx.editMessageTextWithMarkdown(
-        '❌ Ошибка при получении задач на сегодня',
-      );
+      try {
+        await ctx.editMessageTextWithMarkdown(
+          '❌ Ошибка при получении задач на сегодня',
+        );
+      } catch (editErr) {
+        await ctx.replyWithMarkdown('❌ Ошибка при получении задач на сегодня');
+      }
     }
   }
 
@@ -7867,7 +7863,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       case 'HIGH':
         return '🟠';
       case 'MEDIUM':
-        return '🟡';
+        return '⬜';
       case 'LOW':
         return '🟢';
       default:
@@ -8396,6 +8392,18 @@ ${
         /напомни\s+мне\s+(.+?)\s+через\s+(\d+)\s+минут/i,
         /напомни\s+(.+?)\s+через\s+(\d+)\s+минут/i,
         /напоминание\s+(.+?)\s+через\s+(\d+)\s+минут/i,
+        // Добавляем поддержку "через минуту", "через час"
+        /напомни\s+мне\s+(.+?)\s+через\s+минуту/i,
+        /напомни\s+(.+?)\s+через\s+минуту/i,
+        /напоминание\s+(.+?)\s+через\s+минуту/i,
+        /напомни\s+мне\s+(.+?)\s+через\s+час/i,
+        /напомни\s+(.+?)\s+через\s+час/i,
+        /напоминание\s+(.+?)\s+через\s+час/i,
+        // Простые паттерны без "напомни"
+        /^(.+?)\s+через\s+минуту$/i,
+        /^(.+?)\s+через\s+час$/i,
+        /^(.+?)\s+через\s+(\d+)\s+минут$/i,
+        /^(.+?)\s+через\s+(\d+)\s+часа?$/i,
       ];
 
       const intervalPatterns = [
@@ -8433,8 +8441,8 @@ ${
       for (const pattern of absoluteTimePatterns) {
         reminderMatch = message.match(pattern);
         if (reminderMatch) {
-          const [, reminderText, hours, minutes] = reminderMatch;
-          await this.handleReminderRequest(ctx, reminderText, hours, minutes);
+          const [, reminderText] = reminderMatch;
+          await this.askForReminderTime(ctx, reminderText.trim());
           return;
         }
       }
@@ -8443,12 +8451,8 @@ ${
       for (const pattern of relativeTimePatterns) {
         reminderMatch = message.match(pattern);
         if (reminderMatch) {
-          const [, reminderText, minutesFromNow] = reminderMatch;
-          await this.handleRelativeReminderRequest(
-            ctx,
-            reminderText,
-            parseInt(minutesFromNow),
-          );
+          const [, reminderText] = reminderMatch;
+          await this.askForReminderTime(ctx, reminderText.trim());
           return;
         }
       }
@@ -10841,7 +10845,7 @@ ${aiAdvice}
           const keyboard = {
             reply_markup: {
               inline_keyboard: [
-                [{ text: '➕ Добавить привычку', callback_data: 'habits_add' }],
+                [{ text: '🎯 Добавить привычку', callback_data: 'habits_add' }],
                 [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
               ],
             },
@@ -13760,6 +13764,7 @@ ${this.getItemActivationMessage(itemType)}`,
           reply_markup: {
             inline_keyboard: [
               [{ text: '🎯 Мои привычки', callback_data: 'habits_list' }],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
             ],
           },
         },
