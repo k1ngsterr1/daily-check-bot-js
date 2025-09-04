@@ -6113,29 +6113,36 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
             let message = `📋 *Ваши задачи:*\n\n`;
             message += `🔄 **Активных:** ${pendingTasks.length}\n`;
             message += `✅ **Выполненных:** ${completedTasks.length}\n\n`;
-            message += `*Активные задачи:*`;
-            const activeTaskButtons = [];
+            const taskButtons = [];
             pendingTasks.forEach((task) => {
-                activeTaskButtons.push([
+                taskButtons.push([
                     {
                         text: `     ⬜ ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''}     `,
-                        callback_data: `toggle_task_${task.id}`,
+                        callback_data: `task_complete_${task.id}`,
                     },
                 ]);
             });
-            if (pendingTasks.length === 0) {
-                activeTaskButtons.push([
+            completedTasks.slice(0, 5).forEach((task) => {
+                taskButtons.push([
                     {
-                        text: '🎉 Все задачи выполнены!',
+                        text: `     ✅ ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''}     `,
+                        callback_data: `noop_completed_${task.id}`,
+                    },
+                ]);
+            });
+            if (pendingTasks.length === 0 && completedTasks.length === 0) {
+                taskButtons.push([
+                    {
+                        text: '📝 Пока нет задач',
                         callback_data: 'noop_separator',
                     },
                 ]);
             }
             const extraButtons = [];
-            if (completedTasks.length > 0) {
+            if (completedTasks.length > 5) {
                 extraButtons.push([
                     {
-                        text: `✅ Выполненные (${completedTasks.length})`,
+                        text: `✅ Все выполненные (${completedTasks.length})`,
                         callback_data: 'tasks_completed',
                     },
                 ]);
@@ -6152,7 +6159,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
                 { text: '🔙 Назад к меню задач', callback_data: 'menu_tasks' },
             ]);
             const keyboard = {
-                inline_keyboard: [...activeTaskButtons, ...extraButtons],
+                inline_keyboard: [...taskButtons, ...extraButtons],
             };
             try {
                 await ctx.editMessageTextWithMarkdown(message, {
@@ -6277,7 +6284,6 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
             let message = `📅 *Задачи на сегодня:*\n\n`;
             message += `🔄 **К выполнению:** ${pendingTasks.length}\n`;
             message += `✅ **Выполнено:** ${completedTasks.length}\n\n`;
-            message += `*Нажмите на задачу для завершения:*`;
             const rows = [];
             rows.push(...pendingTasks.slice(0, 8).map((task) => [
                 {
@@ -6288,15 +6294,21 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
             if (pendingTasks.length > 8) {
                 rows.push([
                     {
-                        text: `... и еще ${pendingTasks.length - 8} задач`,
+                        text: `... и еще ${pendingTasks.length - 8} активных задач`,
                         callback_data: 'tasks_list_more',
                     },
                 ]);
             }
-            if (completedTasks.length > 0) {
+            rows.push(...completedTasks.slice(0, 3).map((task) => [
+                {
+                    text: `     ✅ ${task.title.substring(0, 25)}${task.title.length > 25 ? '...' : ''}     `,
+                    callback_data: `task_view_${task.id}`,
+                },
+            ]));
+            if (completedTasks.length > 3) {
                 rows.push([
                     {
-                        text: `✅ Выполненные (${completedTasks.length})`,
+                        text: `✅ Все выполненные (${completedTasks.length})`,
                         callback_data: 'tasks_completed',
                     },
                 ]);
@@ -6392,7 +6404,16 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
                 xpGained: result.xpGained,
             });
             await ctx.answerCbQuery('✅ Задача выполнена!');
-            await this.showTodayTasks(ctx);
+            const currentMessage = ctx.callbackQuery?.message?.text;
+            if (currentMessage?.includes('Все активные задачи')) {
+                await this.showAllTasksList(ctx);
+            }
+            else if (currentMessage?.includes('Задачи на сегодня')) {
+                await this.showTodayTasks(ctx);
+            }
+            else {
+                await this.showTodayTasks(ctx);
+            }
         }
         catch (error) {
             this.logger.error('Error completing task:', error);
