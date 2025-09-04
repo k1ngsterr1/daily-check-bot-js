@@ -1418,18 +1418,18 @@ ${user.todayTasks > 0 || user.todayHabits > 0 ? '🟢 Активный день!
 📧 Username: ${user.username ? `@${user.username}` : 'Не указано'}
 
 🔔 **Уведомления:**
-📱 Уведомления: ${user.notifications ? '✅ Включены' : '❌ Отключены'}
+📱 Уведомления: ${user.notifications !== false ? '✅ Включены' : '❌ Отключены'}
 ⏰ Время напоминаний: ${user.reminderTime || 'Не установлено'}
-📊 Еженедельная сводка: ${user.weeklySummary ? '✅ Включена' : '❌ Отключена'}
+📊 Еженедельная сводка: ${user.weeklySummary !== false ? '✅ Включена' : '❌ Отключена'}
 
 🎨 **Интерфейс:**
 🎭 Тема: ${user.theme || 'По умолчанию'}
-✨ Анимации: ${user.showAnimations ? '✅ Включены' : '❌ Отключены'}
-🎙️ Голосовые команды: ${user.voiceCommands ? '✅ Включены' : '❌ Отключены'}
+✨ Анимации: ${user.showAnimations !== false ? '✅ Включены' : '❌ Отключены'}
+🎙️ Голосовые команды: ${user.voiceCommands !== false ? '✅ Включены' : '❌ Отключены'}
 
 🤖 **AI и режимы:**
-🧠 AI режим: ${user.aiMode ? '✅ Включен' : '❌ Отключен'}
-🔧 Режим разработки: ${user.dryMode ? '✅ Включен' : '❌ Отключен'}
+🧠 AI режим: ${user.aiMode !== false ? '✅ Включен' : '❌ Отключен'}
+🔧 Режим разработки: ${user.dryMode === true ? '✅ Включен' : '❌ Отключен'}
 
 🔒 **Приватность:**
 👁️ Уровень приватности: ${user.privacyLevel || 'Обычный'}
@@ -1470,123 +1470,182 @@ ${user.todayTasks > 0 || user.todayHabits > 0 ? '🟢 Активный день!
             }
         });
         this.bot.action('settings_notifications', async (ctx) => {
-            await ctx.answerCbQuery();
-            const user = await this.userService.findByTelegramId(ctx.userId);
-            await ctx.editMessageTextWithMarkdown(`
+            try {
+                await ctx.answerCbQuery();
+                const user = await this.userService.findByTelegramId(ctx.userId);
+                await ctx.editMessageTextWithMarkdown(`
 🔔 *Настройки уведомлений*
 
 Текущие настройки:
-📱 Уведомления: ${user.notifications ? '✅ Включены' : '❌ Отключены'}
-⏰ Время напоминаний: ${user.reminderTime}
-📊 Еженедельная сводка: ${user.weeklySummary ? '✅ Включена' : '❌ Отключена'}
-📅 Ежедневные напоминания: ${user.dailyReminders ? '✅ Включены' : '❌ Отключены'}
-        `, {
-                reply_markup: {
-                    inline_keyboard: [
-                        [
-                            {
-                                text: user.notifications
-                                    ? '🔕 Отключить уведомления'
-                                    : '🔔 Включить уведомления',
-                                callback_data: 'toggle_notifications',
-                            },
+📱 Уведомления: ${user.notifications !== false ? '✅ Включены' : '❌ Отключены'}
+⏰ Время напоминаний: ${user.reminderTime || 'Не установлено'}
+📊 Еженедельная сводка: ${user.weeklySummary !== false ? '✅ Включена' : '❌ Отключена'}
+📅 Ежедневные напоминания: ${user.dailyReminders !== false ? '✅ Включены' : '❌ Отключены'}
+          `, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: user.notifications !== false
+                                        ? '🔕 Отключить уведомления'
+                                        : '🔔 Включить уведомления',
+                                    callback_data: 'toggle_notifications',
+                                },
+                            ],
+                            [
+                                {
+                                    text: '⏰ Изменить время напоминаний',
+                                    callback_data: 'change_reminder_time',
+                                },
+                            ],
+                            [
+                                {
+                                    text: user.weeklySummary !== false
+                                        ? '📊❌ Отключить сводку'
+                                        : '📊✅ Включить сводку',
+                                    callback_data: 'toggle_weekly_summary',
+                                },
+                            ],
+                            [
+                                {
+                                    text: '⬅️ Назад к настройкам',
+                                    callback_data: 'user_settings',
+                                },
+                            ],
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
                         ],
-                        [
-                            {
-                                text: '⏰ Изменить время напоминаний',
-                                callback_data: 'change_reminder_time',
-                            },
+                    },
+                });
+            }
+            catch (error) {
+                this.logger.error(`Error in settings_notifications handler: ${error}`);
+                await ctx.answerCbQuery('❌ Произошла ошибка');
+                await ctx.editMessageText('❌ Произошла ошибка при загрузке настроек уведомлений.', {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '⬅️ Назад к настройкам',
+                                    callback_data: 'user_settings',
+                                },
+                            ],
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
                         ],
-                        [
-                            {
-                                text: user.weeklySummary
-                                    ? '📊❌ Отключить сводку'
-                                    : '📊✅ Включить сводку',
-                                callback_data: 'toggle_weekly_summary',
-                            },
-                        ],
-                        [
-                            {
-                                text: '⬅️ Назад к настройкам',
-                                callback_data: 'user_settings',
-                            },
-                        ],
-                        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-                    ],
-                },
-            });
+                    },
+                });
+            }
         });
         this.bot.action('settings_interface', async (ctx) => {
-            await ctx.answerCbQuery();
-            const user = await this.userService.findByTelegramId(ctx.userId);
-            await ctx.editMessageTextWithMarkdown(`
+            try {
+                await ctx.answerCbQuery();
+                const user = await this.userService.findByTelegramId(ctx.userId);
+                await ctx.editMessageTextWithMarkdown(`
 🎨 *Настройки интерфейса*
 
 Текущие настройки:
-🎭 Тема: ${user.theme}
-✨ Анимации: ${user.showAnimations ? '✅ Включены' : '❌ Отключены'}
-🎙️ Голосовые команды: ${user.voiceCommands ? '✅ Включены' : '❌ Отключены'}
-        `, {
-                reply_markup: {
-                    inline_keyboard: [
-                        [
-                            {
-                                text: user.showAnimations
-                                    ? '✨❌ Отключить анимации'
-                                    : '✨✅ Включить анимации',
-                                callback_data: 'toggle_animations',
-                            },
+🎭 Тема: ${user.theme || 'По умолчанию'}
+✨ Анимации: ${user.showAnimations !== false ? '✅ Включены' : '❌ Отключены'}
+🎙️ Голосовые команды: ${user.voiceCommands !== false ? '✅ Включены' : '❌ Отключены'}
+          `, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: user.showAnimations !== false
+                                        ? '✨❌ Отключить анимации'
+                                        : '✨✅ Включить анимации',
+                                    callback_data: 'toggle_animations',
+                                },
+                            ],
+                            [
+                                {
+                                    text: user.voiceCommands !== false
+                                        ? '🎙️❌ Отключить голос'
+                                        : '🎙️✅ Включить голос',
+                                    callback_data: 'toggle_voice_commands',
+                                },
+                            ],
+                            [{ text: '🎭 Сменить тему', callback_data: 'change_theme' }],
+                            [
+                                {
+                                    text: '⬅️ Назад к настройкам',
+                                    callback_data: 'user_settings',
+                                },
+                            ],
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
                         ],
-                        [
-                            {
-                                text: user.voiceCommands
-                                    ? '🎙️❌ Отключить голос'
-                                    : '🎙️✅ Включить голос',
-                                callback_data: 'toggle_voice_commands',
-                            },
+                    },
+                });
+            }
+            catch (error) {
+                this.logger.error(`Error in settings_interface handler: ${error}`);
+                await ctx.answerCbQuery('❌ Произошла ошибка');
+                await ctx.editMessageText('❌ Произошла ошибка при загрузке настроек интерфейса.', {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '⬅️ Назад к настройкам',
+                                    callback_data: 'user_settings',
+                                },
+                            ],
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
                         ],
-                        [{ text: '🎭 Сменить тему', callback_data: 'change_theme' }],
-                        [
-                            {
-                                text: '⬅️ Назад к настройкам',
-                                callback_data: 'user_settings',
-                            },
-                        ],
-                        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-                    ],
-                },
-            });
+                    },
+                });
+            }
         });
         this.bot.action('settings_ai', async (ctx) => {
-            await ctx.answerCbQuery();
-            const user = await this.userService.findByTelegramId(ctx.userId);
-            await ctx.editMessageTextWithMarkdown(`
+            try {
+                await ctx.answerCbQuery();
+                const user = await this.userService.findByTelegramId(ctx.userId);
+                await ctx.editMessageTextWithMarkdown(`
 🤖 *AI настройки*
 
 Текущие настройки:
-🧠 AI режим: ${user.aiMode ? '✅ Включен' : '❌ Отключен'}
-🔧 Режим разработки: ${user.dryMode ? '✅ Включен' : '❌ Отключен'}
+🧠 AI режим: ${user.aiMode !== false ? '✅ Включен' : '❌ Отключен'}
+🔧 Режим разработки: ${user.dryMode === true ? '✅ Включен' : '❌ Отключен'}
 
 💡 AI режим позволяет боту давать умные советы и помогать с планированием.
-        `, {
-                reply_markup: {
-                    inline_keyboard: [
-                        [
-                            {
-                                text: user.aiMode ? '🧠❌ Отключить AI' : '🧠✅ Включить AI',
-                                callback_data: 'toggle_ai_mode',
-                            },
+          `, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: user.aiMode !== false
+                                        ? '🧠❌ Отключить AI'
+                                        : '🧠✅ Включить AI',
+                                    callback_data: 'toggle_ai_mode',
+                                },
+                            ],
+                            [
+                                {
+                                    text: '⬅️ Назад к настройкам',
+                                    callback_data: 'user_settings',
+                                },
+                            ],
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
                         ],
-                        [
-                            {
-                                text: '⬅️ Назад к настройкам',
-                                callback_data: 'user_settings',
-                            },
+                    },
+                });
+            }
+            catch (error) {
+                this.logger.error(`Error in settings_ai handler: ${error}`);
+                await ctx.answerCbQuery('❌ Произошла ошибка');
+                await ctx.editMessageText('❌ Произошла ошибка при загрузке AI настроек.', {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '⬅️ Назад к настройкам',
+                                    callback_data: 'user_settings',
+                                },
+                            ],
+                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
                         ],
-                        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-                    ],
-                },
-            });
+                    },
+                });
+            }
         });
         this.bot.action('settings_privacy', async (ctx) => {
             try {
@@ -1640,23 +1699,29 @@ ${user.todayTasks > 0 || user.todayHabits > 0 ? '🟢 Активный день!
             }
         });
         this.bot.action('toggle_notifications', async (ctx) => {
-            await ctx.answerCbQuery();
-            const user = await this.userService.findByTelegramId(ctx.userId);
-            await this.userService.updateUser(ctx.userId, {
-                notifications: !user.notifications,
-            });
-            await ctx.editMessageTextWithMarkdown(`✅ Уведомления ${!user.notifications ? 'включены' : 'отключены'}`, {
-                reply_markup: {
-                    inline_keyboard: [
-                        [
-                            {
-                                text: '⬅️ Назад к уведомлениям',
-                                callback_data: 'settings_notifications',
-                            },
+            try {
+                await ctx.answerCbQuery();
+                const user = await this.userService.findByTelegramId(ctx.userId);
+                await this.userService.updateUser(ctx.userId, {
+                    notifications: !(user.notifications !== false),
+                });
+                await ctx.editMessageTextWithMarkdown(`✅ Уведомления ${!(user.notifications !== false) ? 'включены' : 'отключены'}`, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '⬅️ Назад к уведомлениям',
+                                    callback_data: 'settings_notifications',
+                                },
+                            ],
                         ],
-                    ],
-                },
-            });
+                    },
+                });
+            }
+            catch (error) {
+                this.logger.error(`Error in toggle_notifications handler: ${error}`);
+                await ctx.answerCbQuery('❌ Ошибка при изменении настроек');
+            }
         });
         this.bot.action('toggle_weekly_summary', async (ctx) => {
             await ctx.answerCbQuery();
