@@ -7703,7 +7703,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
             inline_keyboard: [
               [
                 { text: '📋 Мои задачи', callback_data: 'tasks_list' },
-                { text: '📅 Сегодня', callback_data: 'tasks_today' },
+                { text: '➕ Добавить', callback_data: 'tasks_add' },
               ],
               [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
             ],
