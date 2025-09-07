@@ -1317,8 +1317,8 @@ ${statusMessage}
       await this.skipHabitFromNotification(ctx, habitId);
     });
 
-    // Handle create reminder from task
-    this.bot.action(/^create_reminder_(.+)$/, async (ctx) => {
+    // Handle create reminder from task (only matches task IDs, not 'help')
+    this.bot.action(/^create_reminder_([a-f0-9]{10})$/, async (ctx) => {
       await ctx.answerCbQuery();
       try {
         // Получаем заголовок из сессии
@@ -11475,6 +11475,14 @@ ${aiAnalysis}
       // Отображаем список напоминаний
       for (let i = 0; i < Math.min(5, reminders.length); i++) {
         const reminder = reminders[i];
+
+        // Логируем данные напоминания для отладки
+        this.logger.log(`Reminder ${i}: `, {
+          id: reminder.id,
+          title: reminder.title,
+          scheduledTime: reminder.scheduledTime,
+        });
+
         const date = new Date(reminder.scheduledTime);
         const dateStr = date.toLocaleDateString('ru-RU', {
           day: 'numeric',
@@ -11485,7 +11493,10 @@ ${aiAnalysis}
           minute: '2-digit',
         });
 
-        message += `${i + 1}. 📝 ${reminder.title}\n`;
+        // Проверяем и очищаем title от возможных проблемных символов
+        const cleanTitle = reminder.title || 'Без названия';
+
+        message += `${i + 1}. 📝 ${cleanTitle}\n`;
         message += `    ⏰ ${dateStr} в ${timeStr}\n\n`;
       }
 
