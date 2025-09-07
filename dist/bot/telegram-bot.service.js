@@ -3116,8 +3116,7 @@ ${trialText}**Premium подписка включает:**
             }
             const focusTimer = setTimeout(async () => {
                 try {
-                    await ctx.editMessageTextWithMarkdown(`
-🔔 *Время фокуса закончилось!*
+                    await ctx.telegram.sendMessage(ctx.userId, `🔔 *Время фокуса закончилось!*
 
 🎉 Поздравляем! Вы сосредоточенно работали 25 минут.
 
@@ -3127,12 +3126,13 @@ ${trialText}**Premium подписка включает:**
 • Выпейте воды
 • Не проверяйте соцсети!
 
-⏰ Перерыв заканчивается через 5 минут.
-          `);
+⏰ Перерыв заканчивается через 5 минут.`, {
+                        parse_mode: 'Markdown',
+                        disable_notification: false,
+                    });
                     const breakTimer = setTimeout(async () => {
                         try {
-                            await ctx.editMessageTextWithMarkdown(`
-⏰ *Перерыв закончился!*
+                            await ctx.telegram.sendMessage(ctx.userId, `⏰ *Перерыв закончился!*
 
 🍅 5-минутный перерыв завершен. Готовы к следующей сессии фокуса?
 
@@ -3141,8 +3141,9 @@ ${trialText}**Premium подписка включает:**
 • 5 минут отдыха  
 • После 4 циклов - длинный перерыв 15-30 минут
 
-🎯 Хотите продолжить?
-              `, {
+🎯 Хотите продолжить?`, {
+                                parse_mode: 'Markdown',
+                                disable_notification: false,
                                 reply_markup: {
                                     inline_keyboard: [
                                         [
@@ -3185,6 +3186,78 @@ ${trialText}**Premium подписка включает:**
                 focusTimer,
                 startTime,
             });
+        });
+        this.bot.action('start_pomodoro_break', async (ctx) => {
+            await ctx.answerCbQuery();
+            try {
+                await ctx.telegram.sendMessage(ctx.userId, `☕ *Время перерыва*
+
+🎉 Фокус-сессия завершена!
+⏰ Идет 5-минутный перерыв
+💪 Разомнитесь и отдохните
+
+*Перерыв скоро закончится*`, {
+                    parse_mode: 'Markdown',
+                    disable_notification: false,
+                });
+                const breakTimer = setTimeout(async () => {
+                    try {
+                        await ctx.telegram.sendMessage(ctx.userId, `⏰ *Перерыв закончился!*
+
+🍅 5-минутный перерыв завершен. Готовы к следующей сессии фокуса?
+
+💪 Следующий цикл:
+• 25 минут фокуса
+• 5 минут отдыха  
+• После 4 циклов - длинный перерыв 15-30 минут
+
+🎯 Хотите продолжить?`, {
+                            parse_mode: 'Markdown',
+                            disable_notification: false,
+                            reply_markup: {
+                                inline_keyboard: [
+                                    [
+                                        {
+                                            text: '🚀 Начать новую сессию',
+                                            callback_data: 'start_pomodoro_session',
+                                        },
+                                    ],
+                                    [
+                                        {
+                                            text: '📊 Посмотреть статистику',
+                                            callback_data: 'pomodoro_history',
+                                        },
+                                    ],
+                                    [
+                                        {
+                                            text: '⬅️ Назад',
+                                            callback_data: 'pomodoro_focus',
+                                        },
+                                    ],
+                                ],
+                            },
+                        });
+                        this.activePomodoroSessions.delete(ctx.userId);
+                    }
+                    catch (error) {
+                        console.log('Failed to send break completion message:', error);
+                    }
+                }, 5 * 60 * 1000);
+                const session = this.activePomodoroSessions.get(ctx.userId);
+                if (session) {
+                    session.breakTimer = breakTimer;
+                }
+                else {
+                    this.activePomodoroSessions.set(ctx.userId, {
+                        breakTimer,
+                        startTime: new Date(),
+                    });
+                }
+            }
+            catch (error) {
+                console.log('Failed to start break timer:', error);
+                await ctx.replyWithMarkdown('❌ Произошла ошибка при запуске перерыва');
+            }
         });
         this.bot.action('pause_pomodoro', async (ctx) => {
             await ctx.answerCbQuery();
@@ -3274,8 +3347,7 @@ ${trialText}**Premium подписка включает:**
                         try {
                             const currentSession = this.activePomodoroSessions.get(ctx.userId);
                             if (currentSession) {
-                                await ctx.telegram.sendMessage(ctx.userId, `
-🔔 *Время фокус-сессии истекло!*
+                                await ctx.telegram.sendMessage(ctx.userId, `🔔 *Время фокус-сессии истекло!*
 
 ⏰ 25 минут прошли
 🎉 Поздравляем с завершением сессии!
@@ -3283,9 +3355,9 @@ ${trialText}**Premium подписка включает:**
 *Что дальше?*
 
 ✅ Время для 5-минутного перерыва
-🍅 Или начать новую сессию
-                  `, {
+🍅 Или начать новую сессию`, {
                                     parse_mode: 'Markdown',
+                                    disable_notification: false,
                                     reply_markup: {
                                         inline_keyboard: [
                                             [
@@ -11072,7 +11144,11 @@ ${this.getItemActivationMessage(itemType)}`, {
     }
     async sendMessageToUser(userId, text, options) {
         try {
-            await this.bot.telegram.sendMessage(userId, text, options);
+            const defaultOptions = {
+                disable_notification: false,
+                ...options,
+            };
+            await this.bot.telegram.sendMessage(userId, text, defaultOptions);
             this.logger.log(`Message sent to user ${userId}`);
         }
         catch (error) {
