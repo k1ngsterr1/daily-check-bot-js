@@ -1491,19 +1491,15 @@ ${statusMessage}
       const habitId = ctx.match[1];
       const hour = parseInt(ctx.match[2]);
 
-      // Get current habit to preserve minutes
-      const habit = await this.habitService.findHabitById(habitId, ctx.userId);
-      if (!habit) {
-        await ctx.answerCbQuery('❌ Привычка не найдена');
-        return;
+      // Сохраняем выбранный час в tempData
+      if (!ctx.session.tempData) {
+        ctx.session.tempData = {};
       }
+      ctx.session.tempData.selectedHour = hour.toString().padStart(2, '0');
+      ctx.session.tempData.habitId = habitId;
 
-      const currentMinute = habit.reminderTime
-        ? habit.reminderTime.split(':')[1]
-        : '00';
-      const newTime = `${hour.toString().padStart(2, '0')}:${currentMinute}`;
-
-      await this.updateHabitTime(ctx, habitId, newTime);
+      // Показываем выбор минут
+      await this.showHabitMinuteSelection(ctx, habitId);
     });
 
     // Handle setting specific minute for habit
@@ -1512,18 +1508,29 @@ ${statusMessage}
       const habitId = ctx.match[1];
       const minute = parseInt(ctx.match[2]);
 
-      // Get current habit to preserve hour
-      const habit = await this.habitService.findHabitById(habitId, ctx.userId);
-      if (!habit) {
-        await ctx.answerCbQuery('❌ Привычка не найдена');
-        return;
+      // Используем сохраненный час из tempData или текущее время привычки
+      let selectedHour = '09'; // по умолчанию
+
+      if (
+        ctx.session.tempData?.selectedHour &&
+        ctx.session.tempData?.habitId === habitId
+      ) {
+        // Используем сохраненный час из текущей сессии выбора
+        selectedHour = ctx.session.tempData.selectedHour;
+        // Очищаем tempData после использования
+        ctx.session.tempData = {};
+      } else {
+        // Получаем текущий час из привычки
+        const habit = await this.habitService.findHabitById(
+          habitId,
+          ctx.userId,
+        );
+        if (habit && habit.reminderTime) {
+          selectedHour = habit.reminderTime.split(':')[0];
+        }
       }
 
-      const currentHour = habit.reminderTime
-        ? habit.reminderTime.split(':')[0]
-        : '09';
-      const newTime = `${currentHour}:${minute.toString().padStart(2, '0')}`;
-
+      const newTime = `${selectedHour}:${minute.toString().padStart(2, '0')}`;
       await this.updateHabitTime(ctx, habitId, newTime);
     });
 
@@ -12883,12 +12890,24 @@ ${this.getItemActivationMessage(itemType)}`,
         return;
       }
 
-      const currentTime = habit.reminderTime || '09:00';
-      const currentMinute = parseInt(currentTime.split(':')[1]);
+      // Определяем текущее время для отображения
+      let displayTime = habit.reminderTime || '09:00';
+
+      // Если есть выбранный час в tempData, используем его для отображения
+      if (
+        ctx.session.tempData?.selectedHour &&
+        ctx.session.tempData?.habitId === habitId
+      ) {
+        const selectedHour = ctx.session.tempData.selectedHour;
+        const currentMinute = displayTime.split(':')[1];
+        displayTime = `${selectedHour}:${currentMinute}`;
+      }
+
+      const currentMinute = parseInt(displayTime.split(':')[1]);
 
       let message = `🕕 *Выбор минут*\n\n`;
       message += `📝 **Привычка:** ${habit.title}\n`;
-      message += `⏰ **Текущее время:** ${currentTime}\n\n`;
+      message += `⏰ **Выбранное время:** ${displayTime}\n\n`;
       message += `Выберите минуты для напоминания:`;
 
       const minutes = [
