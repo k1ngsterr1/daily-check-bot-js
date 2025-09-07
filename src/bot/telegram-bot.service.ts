@@ -7751,7 +7751,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       // Создаем кнопки для всех задач
       const taskButtons: any[] = [];
 
-      // Показываем активные задачи с серыми квадратиками
+      // Показываем только активные задачи с серыми квадратиками
       pendingTasks.forEach((task) => {
         taskButtons.push([
           {
@@ -7761,21 +7761,11 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
         ]);
       });
 
-      // Показываем выполненные задачи с зелеными галочками (только последние 5)
-      completedTasks.slice(0, 5).forEach((task) => {
+      // Если нет активных задач, показываем сообщение
+      if (pendingTasks.length === 0) {
         taskButtons.push([
           {
-            text: `     ✅ ${task.title.substring(0, 30)}${task.title.length > 30 ? '...' : ''}     `,
-            callback_data: `noop_completed_${task.id}`,
-          },
-        ]);
-      });
-
-      // Если нет задач вообще, показываем сообщение
-      if (pendingTasks.length === 0 && completedTasks.length === 0) {
-        taskButtons.push([
-          {
-            text: '📝 Пока нет задач',
+            text: '📝 Нет активных задач',
             callback_data: 'noop_separator',
           },
         ]);
@@ -7784,11 +7774,11 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       // Дополнительные кнопки
       const extraButtons: any[] = [];
 
-      // Кнопка для просмотра всех выполненных задач (если их больше 5)
-      if (completedTasks.length > 5) {
+      // Кнопка для просмотра всех выполненных задач (показываем всегда, если есть выполненные)
+      if (completedTasks.length > 0) {
         extraButtons.push([
           {
-            text: `✅ Все выполненные (${completedTasks.length})`,
+            text: `✅ Выполненные (${completedTasks.length})`,
             callback_data: 'tasks_completed',
           },
         ]);
