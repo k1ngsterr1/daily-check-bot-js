@@ -526,8 +526,8 @@ ${statusMessage}
 **Текущее использование сегодня:**
 🔔 Напоминания: ${subscriptionStatus.usage.dailyReminders}/${limitsText}
 🧠 ИИ-запросы: ${subscriptionStatus.usage.dailyAiQueries}/${aiLimitsText}
-📝 Задачи: ${subscriptionStatus.usage.dailyTasks}/${subscriptionStatus.limits.dailyTasks === -1 ? '∞' : subscriptionStatus.limits.dailyTasks}
-🔄 Привычки: ${subscriptionStatus.usage.dailyHabits}/${subscriptionStatus.limits.dailyHabits === -1 ? '∞' : subscriptionStatus.limits.dailyHabits}
+📝 Задачи: ${subscriptionStatus.usage.dailyTasks}${subscriptionStatus.limits.dailyTasks === -1 ? '' : `/${subscriptionStatus.limits.dailyTasks}`}
+🔄 Привычки: ${subscriptionStatus.usage.dailyHabits}${subscriptionStatus.limits.dailyHabits === -1 ? '' : `/${subscriptionStatus.limits.dailyHabits}`}
 
 **Доступные функции:**
 📊 Расширенная аналитика: ${subscriptionStatus.limits.advancedAnalytics ? '✅' : '❌'}
@@ -987,7 +987,7 @@ ${statusMessage}
 🎯 **Название:** ${habitName}
 📅 **Описание:** каждый день
 
-📊 **Использовано:** ${usageInfo.current}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit} привычек
+📊 **Использовано:** ${usageInfo.current}${usageInfo.limit === -1 ? '' : `/${usageInfo.limit}`} привычек
 
 💡 **Подсказка:** Вы можете настроить напоминания для этой привычки в меню привычек.
         `,
@@ -3167,8 +3167,8 @@ ${statusMessage}
 **Текущее использование сегодня:**
 🔔 Напоминания: ${subscriptionStatus.usage.dailyReminders}/${limitsText}
 🧠 ИИ-запросы: ${subscriptionStatus.usage.dailyAiQueries}/${aiLimitsText}
-📝 Задачи: ${subscriptionStatus.usage.dailyTasks}/${subscriptionStatus.limits.dailyTasks === -1 ? '∞' : subscriptionStatus.limits.dailyTasks}
-🔄 Привычки: ${subscriptionStatus.usage.dailyHabits}/${subscriptionStatus.limits.dailyHabits === -1 ? '∞' : subscriptionStatus.limits.dailyHabits}
+📝 Задачи: ${subscriptionStatus.usage.dailyTasks}${subscriptionStatus.limits.dailyTasks === -1 ? '' : `/${subscriptionStatus.limits.dailyTasks}`}
+🔄 Привычки: ${subscriptionStatus.usage.dailyHabits}${subscriptionStatus.limits.dailyHabits === -1 ? '' : `/${subscriptionStatus.limits.dailyHabits}`}
 
 **Доступные функции:**
 📊 Расширенная аналитика: ${subscriptionStatus.limits.advancedAnalytics ? '✅' : '❌'}
@@ -7750,7 +7750,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       `
 ➕ *Создание новой задачи*
 
-📊 **Задач сегодня:** ${limitCheck.current}/${limitCheck.limit === -1 ? '∞' : limitCheck.limit}
+📊 **Задач сегодня:** ${limitCheck.current}${limitCheck.limit === -1 ? '' : `/${limitCheck.limit}`}
 
 📝 Напишите или скажите в голосовом сообщении название задачи:
     `,
@@ -7799,7 +7799,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
 
 📝 *${task.title}*
 ⚡ XP за выполнение: ${task.xpReward}
-📊 **Задач сегодня:** ${usageInfo.current}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit}
+📊 **Задач сегодня:** ${usageInfo.current}${usageInfo.limit === -1 ? '' : `/${usageInfo.limit}`}
 
 Задача добавлена в ваш список!
       `,
@@ -8869,7 +8869,7 @@ ${
 
 ${personalizedResponse}
 
-📊 ИИ-запросов: ${usageInfo.current}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit}
+📊 ИИ-запросов: ${usageInfo.current}${usageInfo.limit === -1 ? '' : `/${usageInfo.limit}`}
       `,
         {
           reply_markup: {
@@ -9151,7 +9151,7 @@ ${reminderText}`,
 ⏰ **Время:** ${timeStr}
 📅 **Дата:** ${dateStr}
 
-📊 **Использовано сегодня:** ${usageInfo.current}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit} напоминаний
+📊 **Использовано сегодня:** ${usageInfo.current}${usageInfo.limit === -1 ? '' : `/${usageInfo.limit}`} напоминаний
 
 Я напомню вам в указанное время! 🔔
       `,
@@ -15035,7 +15035,7 @@ ${this.getItemActivationMessage(itemType)}`,
 ⏱️ **Интервал:** каждые ${intervalText}
 🕐 **Начато:** ${startTime.toLocaleTimeString('ru-RU')}
 
-📊 **Использовано:** ${usageInfo.current}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit} напоминаний
+📊 **Использовано:** ${usageInfo.current}${usageInfo.limit === -1 ? '' : `/${usageInfo.limit}`} напоминаний
 
 🔔 Первое напоминание через ${intervalText}!
         `,
@@ -15293,7 +15293,7 @@ ${this.getItemActivationMessage(itemType)}`,
 🎯 **Название:** ${habitName}
 📅 **Описание:** каждый день
 
-📊 **Использовано:** ${usageInfo.current}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit} привычек
+📊 **Использовано:** ${usageInfo.current}${usageInfo.limit === -1 ? '' : `/${usageInfo.limit}`} привычек
 
 💡 **Подсказка:** Вы можете настроить напоминания для этой привычки в меню привычек.
         `,
