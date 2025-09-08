@@ -459,11 +459,11 @@ export class NotificationService {
                   [
                     {
                       text: '💪 Держусь',
-                      callback_data: `evening_success_${dependency.type.toLowerCase()}`,
+                      callback_data: `evening_holding_${dependency.type.toLowerCase()}`,
                     },
                     {
                       text: '😔 Сдался',
-                      callback_data: `evening_fail_${dependency.type.toLowerCase()}`,
+                      callback_data: `evening_failed_${dependency.type.toLowerCase()}`,
                     },
                   ],
                 ],
