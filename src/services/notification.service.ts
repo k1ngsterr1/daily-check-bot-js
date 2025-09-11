@@ -27,9 +27,9 @@ export class NotificationService {
   ) {}
 
   async onModuleInit() {
-    this.logger.log(
-      'Notification service initialized (habit reminders disabled to avoid duplicates)',
-    );
+    this.logger.log('Notification service initialized');
+    // Загружаем активные напоминания при запуске
+    await this.loadActiveHabitReminders();
   }
 
   async loadActiveHabitReminders() {
@@ -357,6 +357,91 @@ export class NotificationService {
     }, delayMs);
 
     this.logger.log(`Snoozed habit ${habitId} for ${minutes} minutes`);
+  }
+
+  // Cron job для проверки и отправки напоминаний каждую минуту
+  @Cron(CronExpression.EVERY_MINUTE)
+  async checkAndSendReminders() {
+    try {
+      const now = new Date();
+      const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
+      
+      // Находим напоминания, которые должны быть отправлены сейчас
+      const remindersToSend = await this.prisma.reminder.findMany({
+        where: {
+          status: 'ACTIVE',
+          scheduledTime: {
+            gte: oneMinuteAgo,
+            lte: now,
+          },
+        },
+        include: {
+          user: true,
+        },
+      });
+
+      for (const reminder of remindersToSend) {
+        try {
+          await this.sendGeneralReminder(reminder);
+          
+          // Обновляем статус напоминания
+          await this.prisma.reminder.update({
+            where: { id: reminder.id },
+            data: { 
+              status: 'COMPLETED',
+            },
+          });
+          
+          this.logger.log(`Sent reminder "${reminder.title}" to user ${reminder.userId}`);
+        } catch (error) {
+          this.logger.error(`Failed to send reminder ${reminder.id}:`, error);
+          
+          // Помечаем как отклоненное
+          await this.prisma.reminder.update({
+            where: { id: reminder.id },
+            data: { status: 'DISMISSED' },
+          });
+        }
+      }
+
+      if (remindersToSend.length > 0) {
+        this.logger.log(`Processed ${remindersToSend.length} reminders`);
+      }
+    } catch (error) {
+      this.logger.error('Error in checkAndSendReminders:', error);
+    }
+  }
+
+  private async sendGeneralReminder(reminder: any) {
+    const message = `🔔 *Напоминание!*\n\n${reminder.message}`;
+    
+    await this.telegramBotService.sendMessageToUser(
+      parseInt(reminder.user.id),
+      message,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: '✅ Готово',
+                callback_data: `reminder_done_${reminder.id.substring(0, 20)}`,
+              },
+            ],
+            [
+              {
+                text: '⏰ Через 15 мин',
+                callback_data: `reminder_snooze_15_${reminder.id.substring(0, 20)}`,
+              },
+              {
+                text: '⏰ Через час',
+                callback_data: `reminder_snooze_60_${reminder.id.substring(0, 20)}`,
+              },
+            ],
+          ],
+        },
+      },
+    );
   }
 
   // Cron job для очистки старых напоминаний (раз в день)

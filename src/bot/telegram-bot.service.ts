@@ -1673,59 +1673,7 @@ ${statusMessage}
 
     this.bot.action('my_progress', async (ctx) => {
       await ctx.answerCbQuery();
-      const user = await this.userService.findByTelegramId(ctx.userId);
-      const userStats = await this.userService.getUserStats(ctx.userId);
-
-      // Calculate level progress
-      const currentLevelXp = this.userService.getCurrentLevelXp(user);
-      const nextLevelXp = this.userService.getNextLevelXp(user);
-      const progressXp = this.userService.getProgressXp(user);
-      const xpToNextLevel = this.userService.getXpToNextLevel(user);
-      const progressRatio = this.userService.getLevelProgressRatio(user);
-
-      // Create progress bar
-      const progressBarLength = 10;
-      const filledBars = Math.floor(progressRatio * progressBarLength);
-      const emptyBars = progressBarLength - filledBars;
-      const progressBar = '█'.repeat(filledBars) + '░'.repeat(emptyBars);
-
-      await ctx.editMessageTextWithMarkdown(
-        `
-🏠 *Ваш прогресс*
-
-👤 **Профиль:**
-⭐ Опыт: ${user.totalXp} XP
-🎖️ Уровень: ${user.level}
-⏰ Часовой пояс: ${user.timezone || 'Не указан'}
-
-📊 **Статистика:**
-📋 Всего задач: ${user.totalTasks}
-✅ Выполнено: ${user.completedTasks}
-📈 Процент выполнения: ${userStats.completionRate}%
-
-🎯 **Прогресс уровня:**
-\`${progressBar}\` ${Math.round(progressRatio * 100)}%
-${progressXp}/${nextLevelXp - currentLevelXp} XP до ${user.level + 1} уровня
-
-📅 **Аккаунт создан:** ${user.createdAt.toLocaleDateString('ru-RU')}
-
-Продолжайте в том же духе! 🚀
-      `,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '🎯 Детальная статистика',
-                  callback_data: 'progress_stats',
-                },
-                { text: '🏆 Достижения', callback_data: 'achievements' },
-              ],
-              [{ text: '🔙 Главное меню', callback_data: 'back_to_menu' }],
-            ],
-          },
-        },
-      );
+      await this.showMainStatistics(ctx);
     });
 
     this.bot.action('ai_chat', async (ctx) => {
@@ -2392,7 +2340,13 @@ ${
                   callback_data: 'copy_referral_link',
                 },
                 {
-                  text: '📊 Детальная статистика',
+                  text: '� Поделиться',
+                  callback_data: 'share_referral_link',
+                },
+              ],
+              [
+                {
+                  text: '�📊 Детальная статистика',
                   callback_data: 'referral_stats',
                 },
               ],
@@ -2423,6 +2377,66 @@ ${
         `🔗 *Ваша реферальная ссылка:*\n\n\`${referralLink}\`\n\n📱 Поделитесь этой ссылкой с друзьями!\n💰 За каждого приглашенного +500 XP + 40% от всех их оплат!`,
         { parse_mode: 'Markdown' },
       );
+    });
+
+    // Handler for sharing referral link
+    this.bot.action('share_referral_link', async (ctx) => {
+      await ctx.answerCbQuery();
+      const botUsername = 'test_healthcheck_dev_bot';
+      const referralLink = `https://t.me/${botUsername}?start=ref_${ctx.userId}`;
+
+      const shareText = `🚀 Присоединяйся к Daily Check - боту для продуктивности!
+
+💪 Планируй задачи и привычки
+🎯 Фокус-сессии по методу Pomodoro  
+📊 Отслеживай прогресс и получай XP
+🤖 ИИ-помощник для мотивации
+
+Переходи по ссылке и начни достигать целей уже сегодня!
+${referralLink}`;
+
+      try {
+        // Используем Telegram API для открытия списка контактов
+        await ctx.reply(
+          `📤 *Поделиться с друзьями*
+
+Нажмите кнопку ниже, чтобы выбрать друга из списка контактов и отправить ему приглашение:`,
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: '📤 Выбрать контакт',
+                    switch_inline_query: shareText,
+                  },
+                ],
+                [
+                  {
+                    text: '💬 Поделиться в чате',
+                    switch_inline_query_current_chat: shareText,
+                  },
+                ],
+                [
+                  {
+                    text: '📋 Копировать ссылку',
+                    callback_data: 'copy_referral_link',
+                  },
+                ],
+                [
+                  {
+                    text: '⬅️ Назад',
+                    callback_data: 'bonuses_referrals',
+                  },
+                ],
+              ],
+            },
+          },
+        );
+      } catch (error) {
+        this.logger.error('Error sharing referral link:', error);
+        await ctx.reply('❌ Произошла ошибка при попытке поделиться ссылкой.');
+      }
     });
 
     this.bot.action('referral_stats', async (ctx) => {
@@ -2546,8 +2560,12 @@ ${
                   text: '📋 Копировать ссылку',
                   callback_data: 'copy_referral_link',
                 },
-                { text: '⬅️ К рефералам', callback_data: 'bonuses_referrals' },
+                {
+                  text: '📤 Поделиться',
+                  callback_data: 'share_referral_link',
+                },
               ],
+              [{ text: '⬅️ К рефералам', callback_data: 'bonuses_referrals' }],
             ],
           },
         },
@@ -7164,9 +7182,15 @@ ${timeAdvice}
                 text: '📊 Моя статистика',
                 callback_data: 'referral_stats',
               },
+            ],
+            [
               {
-                text: '🔗 Поделиться ссылкой',
+                text: '� Копировать ссылку',
                 callback_data: 'copy_referral_link',
+              },
+              {
+                text: '📤 Поделиться',
+                callback_data: 'share_referral_link',
               },
             ],
           ],
@@ -15964,8 +15988,24 @@ ${this.getItemActivationMessage(itemType)}`,
       // Get user's current level and XP
       const totalXP = user.totalXp || 0;
       const level = user.level || 1;
-      const xpForNextLevel = level * 100; // Simple XP calculation
-      const currentLevelXP = totalXP % 100;
+
+      // Calculate XP for current level (each level requires level * 100 XP)
+      let xpRequiredForCurrentLevel = 0;
+      for (let i = 1; i < level; i++) {
+        xpRequiredForCurrentLevel += i * 100;
+      }
+
+      const xpForNextLevel = level * 100; // XP needed to reach next level
+      const currentLevelXP = Math.max(0, totalXP - xpRequiredForCurrentLevel); // XP progress within current level
+      const xpToNextLevel = Math.max(0, xpForNextLevel - currentLevelXP);
+
+      // Create progress bar
+      const progressRatio =
+        xpForNextLevel > 0 ? currentLevelXP / xpForNextLevel : 0;
+      const progressBarLength = 10;
+      const filledBars = Math.floor(progressRatio * progressBarLength);
+      const emptyBars = progressBarLength - filledBars;
+      const progressBar = '█'.repeat(filledBars) + '░'.repeat(emptyBars);
 
       const message = `
 📊 *Ваша статистика*
@@ -15973,7 +16013,12 @@ ${this.getItemActivationMessage(itemType)}`,
 👤 **Профиль:**
 ⭐ Общий опыт: ${totalXP} XP
 🎖️ Уровень: ${level}
-📈 До следующего уровня: ${xpForNextLevel - currentLevelXP} XP
+
+🎯 **Прогресс уровня:**
+\`${progressBar}\` ${Math.round(progressRatio * 100)}%
+📈 ${currentLevelXP}/${xpForNextLevel} XP до ${level + 1} уровня
+⏳ Осталось: ${xpToNextLevel} XP
+
 📅 В системе с: ${user.createdAt.toLocaleDateString('ru-RU')}
 
 📝 **Задачи:**
