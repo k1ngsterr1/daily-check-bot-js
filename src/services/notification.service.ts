@@ -365,7 +365,7 @@ export class NotificationService {
     try {
       const now = new Date();
       const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
-      
+
       // Находим напоминания, которые должны быть отправлены сейчас
       const remindersToSend = await this.prisma.reminder.findMany({
         where: {
@@ -383,19 +383,21 @@ export class NotificationService {
       for (const reminder of remindersToSend) {
         try {
           await this.sendGeneralReminder(reminder);
-          
+
           // Обновляем статус напоминания
           await this.prisma.reminder.update({
             where: { id: reminder.id },
-            data: { 
+            data: {
               status: 'COMPLETED',
             },
           });
-          
-          this.logger.log(`Sent reminder "${reminder.title}" to user ${reminder.userId}`);
+
+          this.logger.log(
+            `Sent reminder "${reminder.title}" to user ${reminder.userId}`,
+          );
         } catch (error) {
           this.logger.error(`Failed to send reminder ${reminder.id}:`, error);
-          
+
           // Помечаем как отклоненное
           await this.prisma.reminder.update({
             where: { id: reminder.id },
@@ -414,7 +416,7 @@ export class NotificationService {
 
   private async sendGeneralReminder(reminder: any) {
     const message = `🔔 *Напоминание!*\n\n${reminder.message}`;
-    
+
     await this.telegramBotService.sendMessageToUser(
       parseInt(reminder.user.id),
       message,

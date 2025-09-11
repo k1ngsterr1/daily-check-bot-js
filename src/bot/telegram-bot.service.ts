@@ -1625,8 +1625,8 @@ ${statusMessage}
       await ctx.answerCbQuery();
       const keyboard = {
         inline_keyboard: [
-          [{ text: '📝 Добавить задачу', callback_data: 'tasks_add' }],
           [{ text: '🎯 Добавить привычку', callback_data: 'habits_add' }],
+          [{ text: '📝 Добавить задачу', callback_data: 'tasks_add' }],
           [{ text: '🎙️ Отправить голосовое', callback_data: 'voice_message' }],
           [{ text: '⬅️ Назад', callback_data: 'back_to_menu' }],
         ],
@@ -1661,8 +1661,8 @@ ${statusMessage}
       await ctx.answerCbQuery();
       const keyboard = {
         inline_keyboard: [
-          [{ text: '📝 Мои задачи', callback_data: 'tasks_list' }],
           [{ text: '🎯 Мои привычки', callback_data: 'habits_list' }],
+          [{ text: '📝 Мои задачи', callback_data: 'tasks_list' }],
           [{ text: '⬅️ Назад', callback_data: 'back_to_menu' }],
         ],
       };
@@ -2387,7 +2387,7 @@ ${
 
       const shareText = `🚀 Присоединяйся к Daily Check - боту для продуктивности!
 
-💪 Планируй задачи и привычки
+💪 Планируй привычки и задачи
 🎯 Фокус-сессии по методу Pomodoro  
 📊 Отслеживай прогресс и получай XP
 🤖 ИИ-помощник для мотивации
@@ -7451,8 +7451,8 @@ ${timeAdvice}
   private async showMainMenu(ctx: BotContext, shouldEdit: boolean = false) {
     const keyboard = {
       inline_keyboard: [
-        [{ text: '➕ Добавить задачу/привычку', callback_data: 'add_item' }],
-        [{ text: '📋 Мои задачи и привычки', callback_data: 'my_items' }],
+        [{ text: '➕ Добавить привычку/задачу', callback_data: 'add_item' }],
+        [{ text: '📋 Мои привычки и задачи', callback_data: 'my_items' }],
         [
           { text: '🟢 Ещё функции', callback_data: 'more_functions' },
           { text: '🧠 Чат с ИИ', callback_data: 'ai_chat' },
@@ -9061,47 +9061,7 @@ ${reminderText}`,
         },
       });
 
-      // Schedule the reminder (в реальном приложении лучше использовать очереди типа Bull или Agenda)
-      const delay = reminderDate.getTime() - now.getTime();
-      setTimeout(async () => {
-        try {
-          await ctx.telegram.sendMessage(
-            ctx.userId,
-            `🔔 *Напоминание!*\n\n${reminderText}`,
-            {
-              parse_mode: 'Markdown',
-              reply_markup: {
-                inline_keyboard: [
-                  [
-                    {
-                      text: '✅ Готово',
-                      callback_data: `reminder_done_${String(savedReminder.id).slice(0, 20)}`,
-                    },
-                  ],
-                  [
-                    {
-                      text: '⏰ Через 15 мин',
-                      callback_data: `reminder_snooze_15_${String(savedReminder.id).slice(0, 20)}`,
-                    },
-                    {
-                      text: '⏰ Через час',
-                      callback_data: `reminder_snooze_60_${String(savedReminder.id).slice(0, 20)}`,
-                    },
-                  ],
-                ],
-              },
-            },
-          );
-
-          // Обновляем статус напоминания на выполненное
-          await this.prisma.reminder.update({
-            where: { id: savedReminder.id },
-            data: { status: ReminderStatus.COMPLETED },
-          });
-        } catch (error) {
-          this.logger.error('Error sending reminder:', error);
-        }
-      }, delay);
+      // Уведомления будут отправлены через cron job в NotificationService
 
       // Increment usage counter
       await this.billingService.incrementUsage(ctx.userId, 'dailyReminders');
