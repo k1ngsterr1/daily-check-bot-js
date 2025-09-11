@@ -624,6 +624,8 @@ ${statusMessage}
 • Читать перед сном
 
 *Напиши название привычки:*
+
+⬇️ *Введите название привычки в поле для ввода ниже*
       `,
         {
           reply_markup: {
@@ -818,7 +820,7 @@ ${statusMessage}
 
         if (!timeRegex.test(timeText)) {
           await ctx.replyWithMarkdown(
-            '⚠️ Неверный формат времени. Используйте формат ЧЧ:ММ (например, 09:30 или 14:15):\n\n⏰ *Введите время для уведомлений:*',
+            '⚠️ Неверный формат времени. Используйте формат ЧЧ:ММ (например, 09:30 или 14:15):\n\n⏰ *Введите время для уведомлений:*\n\n⬇️ *Введите время в поле для ввода ниже*',
           );
           return;
         }
@@ -836,7 +838,7 @@ ${statusMessage}
 
         if (!dependencyName || dependencyName.length < 2) {
           await ctx.replyWithMarkdown(
-            '⚠️ Название зависимости должно содержать минимум 2 символа. Попробуйте еще раз:',
+            '⚠️ Название зависимости должно содержать минимум 2 символа. Попробуйте еще раз:\n\n⬇️ *Введите название зависимости в поле для ввода ниже*',
           );
           return;
         }
@@ -1030,7 +1032,7 @@ ${statusMessage}
 
         if (!habitTitle || habitTitle.length < 2) {
           await ctx.replyWithMarkdown(
-            '⚠️ Название привычки должно содержать минимум 2 символа. Попробуйте еще раз:',
+            '⚠️ Название привычки должно содержать минимум 2 символа. Попробуйте еще раз:\n\n⬇️ *Введите название привычки в поле для ввода ниже*',
           );
           return;
         }
@@ -1179,7 +1181,7 @@ ${statusMessage}
       } else {
         ctx.session.step = 'adding_habit';
         await ctx.editMessageTextWithMarkdown(
-          '🔄 *Добавление привычки*\n\nВыберите готовый пример или введите название привычки вручную:',
+          '🔄 *Добавление привычки*\n\nВыберите готовый пример или введите название привычки вручную:\n\n⬇️ *Введите название привычки в поле для ввода ниже*',
           {
             reply_markup: {
               inline_keyboard: [
@@ -1248,7 +1250,7 @@ ${statusMessage}
       await ctx.answerCbQuery();
       ctx.session.step = 'adding_habit'; // Add this line!
       await ctx.editMessageTextWithMarkdown(
-        '🔄 *Добавление привычки*\n\nВведите название привычки, которую хотите отслеживать:',
+        '🔄 *Добавление привычки*\n\nВведите название привычки, которую хотите отслеживать:\n\n⬇️ *Введите название привычки в поле для ввода ниже*',
         {
           reply_markup: {
             inline_keyboard: [
@@ -1343,7 +1345,7 @@ ${statusMessage}
         ctx.session.step = 'waiting_for_reminder_time';
 
         await ctx.editMessageTextWithMarkdown(
-          `⏰ *Создание напоминания*\n\n📝 **"${taskTitle}"**\n\nВо сколько вам напомнить? Введите время в формате:\n• \`15:30\` - конкретное время\n• \`через 2 часа\` - относительное время\n• \`завтра в 14:00\` - время с датой`,
+          `⏰ *Создание напоминания*\n\n📝 **"${taskTitle}"**\n\nВо сколько вам напомнить? Введите время в формате:\n• \`15:30\` - конкретное время\n• \`через 2 часа\` - относительное время\n• \`завтра в 14:00\` - время с датой\n\n⬇️ *Введите время в поле для ввода ниже*`,
           {
             reply_markup: {
               inline_keyboard: [
@@ -1455,7 +1457,7 @@ ${statusMessage}
       ctx.session.tempData = { habitId };
 
       await ctx.editMessageTextWithMarkdown(
-        '⏰ *Введите время в формате ЧЧ:ММ*\n\nНапример: 09:30, 14:15, 21:00',
+        '⏰ *Введите время в формате ЧЧ:ММ*\n\nНапример: 09:30, 14:15, 21:00\n\n⬇️ *Введите время в поле для ввода ниже*',
         {
           reply_markup: {
             inline_keyboard: [
@@ -1594,9 +1596,7 @@ ${statusMessage}
 
     this.bot.action('menu_stats', async (ctx) => {
       await ctx.answerCbQuery();
-      await ctx.editMessageTextWithMarkdown(
-        '📊 *Статистика* - функция в разработке',
-      );
+      await this.showMainStatistics(ctx);
     });
 
     this.bot.action('menu_settings', async (ctx) => {
@@ -1775,60 +1775,7 @@ ${progressXp}/${nextLevelXp - currentLevelXp} XP до ${user.level + 1} уров
     // Additional functions handlers
     this.bot.action('progress_stats', async (ctx) => {
       await ctx.answerCbQuery();
-      const user = await this.userService.findByTelegramId(ctx.userId);
-      const userStats = await this.userService.getUserStats(ctx.userId);
-
-      // Get today's date for progress display
-      const today = new Date();
-      const todayStr = today.toLocaleDateString('ru-RU');
-
-      await ctx.editMessageTextWithMarkdown(
-        `
-🎯 *Детальная статистика*
-
-📊 **Общая информация:**
-⭐ Опыт: ${user.totalXp} XP
-🎖️ Уровень: ${user.level}
-📅 Дата регистрации: ${user.createdAt.toLocaleDateString('ru-RU')}
-
-📝 **Задачи:**
-📝 Всего создано: ${user.totalTasks}
-✅ Выполнено: ${user.completedTasks}
-📈 Процент выполнения: ${userStats.completionRate}%
-🎯 Сегодня: ${user.todayTasks}
-
-🔄 **Привычки:**
-💪 Всего создано: ${user.totalHabits}
-✅ Выполнено: ${user.completedHabits}
-📈 Процент выполнения: ${userStats.habitCompletionRate}%
-🎯 Сегодня: ${user.todayHabits}
-
-📈 **Прогресс за сегодня:** ${todayStr}
-${user.todayTasks > 0 || user.todayHabits > 0 ? '🟢 Активный день!' : '🔴 Пока без активности'}
-
-🎮 **Скоро появятся достижения!**
-🌅 Ранняя пташка (подъем до 7:00)
-🏃 Спринтер задач (выполнить 5 задач подряд)
-🔥 Серия успехов (выполнить все задачи дня)  
-🎯 Снайпер целей (попасть в дедлайн)
-
-Продолжайте выполнять задачи для получения XP! 🚀
-      `,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '📊 Основная статистика',
-                  callback_data: 'my_progress',
-                },
-                { text: '🏆 Достижения', callback_data: 'achievements' },
-              ],
-              [{ text: '🔙 Назад', callback_data: 'more_functions' }],
-            ],
-          },
-        },
-      );
+      await this.showDetailedStatistics(ctx);
     });
 
     this.bot.action('user_settings', async (ctx) => {
@@ -3539,6 +3486,8 @@ ${trialText}**Premium подписка включает:**
 Напишите название зависимости, от которой хотите избавиться:
 
 *Например:* "Переедание", "Прокрастинация", "Негативные мысли" и т.д.
+
+⬇️ *Введите название зависимости в поле для ввода ниже*
       `,
         {
           reply_markup: {
@@ -7753,6 +7702,8 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
 📊 **Задач сегодня:** ${limitCheck.current}${limitCheck.limit === -1 ? '' : `/${limitCheck.limit}`}
 
 📝 Напишите или скажите в голосовом сообщении название задачи:
+
+⬇️ *Введите название задачи в поле для ввода ниже*
     `,
       {
         reply_markup: {
@@ -8387,7 +8338,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       ctx.session.pendingAction = undefined;
       ctx.session.step = 'adding_habit';
       await ctx.replyWithMarkdown(
-        '🔄 *Добавление привычки*\n\nВведите название привычки, которую хотите отслеживать:',
+        '🔄 *Добавление привычки*\n\nВведите название привычки, которую хотите отслеживать:\n\n⬇️ *Введите название привычки в поле для ввода ниже*',
         {
           reply_markup: {
             inline_keyboard: [
@@ -13248,7 +13199,7 @@ ${this.getItemActivationMessage(itemType)}`,
         ctx.session.pendingAction = undefined;
         ctx.session.step = 'adding_habit';
         await ctx.editMessageTextWithMarkdown(
-          '🔄 *Добавление привычки*\n\nВведите название привычки, которую хотите отслеживать:',
+          '🔄 *Добавление привычки*\n\nВведите название привычки, которую хотите отслеживать:\n\n⬇️ *Введите название привычки в поле для ввода ниже*',
           {
             reply_markup: {
               inline_keyboard: [
@@ -13337,7 +13288,7 @@ ${this.getItemActivationMessage(itemType)}`,
 
     ctx.session.step = 'adding_habit';
     await ctx.replyWithMarkdown(
-      '🔄 *Добавление привычки*\n\nВыберите готовый пример или введите название привычки вручную:',
+      '🔄 *Добавление привычки*\n\nВыберите готовый пример или введите название привычки вручную:\n\n⬇️ *Введите название привычки в поле для ввода ниже*',
       {
         reply_markup: {
           inline_keyboard: [
@@ -15918,6 +15869,338 @@ ${this.getItemActivationMessage(itemType)}`,
       this.logger.error('Error testing motivation system:', error);
       await ctx.replyWithMarkdown(
         '❌ Ошибка при тестировании системы мотивации.',
+      );
+    }
+  }
+
+  /**
+   * Show main statistics
+   */
+  private async showMainStatistics(ctx: BotContext) {
+    try {
+      const user = await this.getOrCreateUser(ctx);
+
+      // Get today's date in user's timezone
+      const today = new Date();
+      const userTimezone = user.timezone || 'Europe/Moscow';
+      const todayStr = today.toLocaleDateString('ru-RU', {
+        timeZone: userTimezone,
+      });
+
+      // Get current date bounds for today's statistics
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+      const endOfToday = new Date();
+      endOfToday.setHours(23, 59, 59, 999);
+
+      // Get statistics from database
+      const [
+        completedTasksCount,
+        totalTasksCount,
+        habitStats,
+        todayTasksCount,
+        todayHabitsCount,
+      ] = await Promise.all([
+        // Completed tasks total
+        this.prisma.task.count({
+          where: {
+            userId: user.id,
+            status: 'COMPLETED',
+          },
+        }),
+        // Total tasks
+        this.prisma.task.count({
+          where: {
+            userId: user.id,
+          },
+        }),
+        // Get habit statistics
+        this.prisma.habit.aggregate({
+          where: {
+            userId: user.id,
+          },
+          _sum: {
+            totalCompletions: true,
+          },
+          _count: {
+            id: true,
+          },
+        }),
+        // Today's completed tasks
+        this.prisma.task.count({
+          where: {
+            userId: user.id,
+            completedAt: {
+              gte: startOfToday,
+              lte: endOfToday,
+            },
+          },
+        }),
+        // Today's habit completions - we'll approximate this by counting habits with recent activity
+        this.prisma.habit.count({
+          where: {
+            userId: user.id,
+            updatedAt: {
+              gte: startOfToday,
+              lte: endOfToday,
+            },
+          },
+        }),
+      ]);
+
+      const totalHabitsCount = habitStats._count.id || 0;
+      const completedHabitsCount = habitStats._sum.totalCompletions || 0;
+
+      // Calculate completion rates
+      const taskCompletionRate =
+        totalTasksCount > 0
+          ? Math.round((completedTasksCount / totalTasksCount) * 100)
+          : 0;
+      const habitCompletionRate =
+        totalHabitsCount > 0
+          ? Math.round((completedHabitsCount / totalHabitsCount) * 100)
+          : 0;
+
+      // Get user's current level and XP
+      const totalXP = user.totalXp || 0;
+      const level = user.level || 1;
+      const xpForNextLevel = level * 100; // Simple XP calculation
+      const currentLevelXP = totalXP % 100;
+
+      const message = `
+📊 *Ваша статистика*
+
+👤 **Профиль:**
+⭐ Общий опыт: ${totalXP} XP
+🎖️ Уровень: ${level}
+📈 До следующего уровня: ${xpForNextLevel - currentLevelXP} XP
+📅 В системе с: ${user.createdAt.toLocaleDateString('ru-RU')}
+
+📝 **Задачи:**
+✅ Выполнено: ${completedTasksCount} из ${totalTasksCount}
+📊 Процент выполнения: ${taskCompletionRate}%
+🎯 Сегодня выполнено: ${todayTasksCount}
+
+🔄 **Привычки:**
+✅ Всего выполнений: ${completedHabitsCount}
+📋 Создано привычек: ${totalHabitsCount}
+📊 Активность: ${habitCompletionRate}%
+🎯 Сегодня выполнено: ${todayHabitsCount}
+
+📅 **Сегодня (${todayStr}):**
+${
+  todayTasksCount > 0 || todayHabitsCount > 0
+    ? `🟢 Активный день! Выполнено ${todayTasksCount + todayHabitsCount} действий`
+    : '🔴 Пока активности не было'
+}
+
+💡 *Продолжайте выполнять задачи и привычки для получения XP!*
+      `;
+
+      await ctx.editMessageTextWithMarkdown(message, {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: '🎯 Детальная статистика',
+                callback_data: 'progress_stats',
+              },
+            ],
+            [
+              {
+                text: '🏆 Достижения',
+                callback_data: 'achievements',
+              },
+            ],
+            [
+              {
+                text: '🔙 Назад',
+                callback_data: 'back_to_menu',
+              },
+            ],
+          ],
+        },
+      });
+    } catch (error) {
+      this.logger.error('Error showing main statistics:', error);
+      await ctx.editMessageTextWithMarkdown(
+        '❌ Произошла ошибка при загрузке статистики. Попробуйте позже.',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '🔙 Назад',
+                  callback_data: 'back_to_menu',
+                },
+              ],
+            ],
+          },
+        },
+      );
+    }
+  }
+
+  async showDetailedStatistics(ctx: any) {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: ctx.userId },
+      });
+
+      if (!user) {
+        await ctx.editMessageTextWithMarkdown(`❌ Пользователь не найден.`, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔙 Назад', callback_data: 'more_functions' }],
+            ],
+          },
+        });
+        return;
+      }
+
+      // Get today's date for progress display
+      const today = new Date();
+      const todayStart = new Date(
+        today.getFullYear(),
+        today.getMonth(),
+        today.getDate(),
+      );
+      const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+
+      // Get task statistics
+      const taskStats = await this.prisma.task.aggregate({
+        where: { userId: user.id },
+        _count: {
+          id: true,
+        },
+      });
+
+      const completedTaskStats = await this.prisma.task.aggregate({
+        where: {
+          userId: user.id,
+          status: 'COMPLETED',
+        },
+        _count: {
+          id: true,
+        },
+      });
+
+      const todayTaskStats = await this.prisma.task.aggregate({
+        where: {
+          userId: user.id,
+          createdAt: {
+            gte: todayStart,
+            lt: todayEnd,
+          },
+        },
+        _count: {
+          id: true,
+        },
+      });
+
+      // Get habit statistics
+      const habitStats = await this.prisma.habit.aggregate({
+        where: { userId: user.id },
+        _count: {
+          id: true,
+        },
+      });
+
+      const habitCompletionStats = await this.prisma.habit.aggregate({
+        where: { userId: user.id },
+        _sum: {
+          totalCompletions: true,
+        },
+      });
+
+      const todayHabitStats = await this.prisma.habit.aggregate({
+        where: {
+          userId: user.id,
+          createdAt: {
+            gte: todayStart,
+            lt: todayEnd,
+          },
+        },
+        _count: {
+          id: true,
+        },
+      });
+
+      const totalTasks = taskStats._count.id || 0;
+      const completedTasks = completedTaskStats._count.id || 0;
+      const todayTasks = todayTaskStats._count.id || 0;
+
+      const totalHabits = habitStats._count.id || 0;
+      const completedHabits = habitCompletionStats._sum.totalCompletions || 0;
+      const todayHabits = todayHabitStats._count.id || 0;
+
+      const completionRate =
+        totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+      const habitCompletionRate =
+        totalHabits > 0
+          ? Math.round((completedHabits / (totalHabits * 30)) * 100)
+          : 0; // Assuming 30 days average
+
+      const todayStr = today.toLocaleDateString('ru-RU');
+
+      await ctx.editMessageTextWithMarkdown(
+        `
+🎯 *Детальная статистика*
+
+📊 **Общая информация:**
+⭐ Опыт: ${user.totalXp} XP
+🎖️ Уровень: ${user.level}
+📅 Дата регистрации: ${user.createdAt.toLocaleDateString('ru-RU')}
+
+📝 **Задачи:**
+📝 Всего создано: ${totalTasks}
+✅ Выполнено: ${completedTasks}
+📈 Процент выполнения: ${completionRate}%
+🎯 Сегодня создано: ${todayTasks}
+
+🔄 **Привычки:**
+💪 Всего создано: ${totalHabits}
+✅ Выполнений: ${completedHabits}
+📈 Средняя активность: ${habitCompletionRate}%
+🎯 Сегодня создано: ${todayHabits}
+
+📈 **Прогресс за сегодня:** ${todayStr}
+${todayTasks > 0 || todayHabits > 0 ? '🟢 Активный день!' : '🔴 Пока без активности'}
+
+🎮 **Скоро появятся достижения!**
+🌅 Ранняя пташка (подъем до 7:00)
+🏃 Спринтер задач (выполнить 5 задач подряд)
+🔥 Серия успехов (выполнить все задачи дня)  
+🎯 Снайпер целей (попасть в дедлайн)
+
+Продолжайте выполнять задачи для получения XP! 🚀
+      `,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '📊 Основная статистика',
+                  callback_data: 'my_progress',
+                },
+                { text: '🏆 Достижения', callback_data: 'achievements' },
+              ],
+              [{ text: '🔙 Назад', callback_data: 'more_functions' }],
+            ],
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.error('Error showing detailed statistics:', error);
+      await ctx.editMessageTextWithMarkdown(
+        `❌ Произошла ошибка при загрузке детальной статистики.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔙 Назад', callback_data: 'more_functions' }],
+            ],
+          },
+        },
       );
     }
   }
