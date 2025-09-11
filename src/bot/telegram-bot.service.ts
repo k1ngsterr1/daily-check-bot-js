@@ -4869,6 +4869,57 @@ XP (опыт) начисляется за выполнение задач. С к
       await this.createHabitFromVoice(ctx, habitName);
     });
 
+    // New handlers for voice text stored in session
+    this.bot.action('create_task_from_voice_text', async (ctx) => {
+      await ctx.answerCbQuery();
+      const voiceText = ctx.session.tempData?.voiceText;
+      if (voiceText) {
+        await this.createTaskFromText(ctx, voiceText);
+      } else {
+        await ctx.reply(
+          '❌ Текст голосового сообщения не найден. Попробуйте еще раз.',
+        );
+      }
+    });
+
+    this.bot.action('create_habit_from_voice_text', async (ctx) => {
+      await ctx.answerCbQuery();
+      const voiceText = ctx.session.tempData?.voiceText;
+      if (voiceText) {
+        const habitName = this.extractHabitName(voiceText);
+        await this.createHabitFromVoice(ctx, habitName);
+      } else {
+        await ctx.reply(
+          '❌ Текст голосового сообщения не найден. Попробуйте еще раз.',
+        );
+      }
+    });
+
+    this.bot.action('create_reminder_from_voice_text', async (ctx) => {
+      await ctx.answerCbQuery();
+      const voiceText = ctx.session.tempData?.voiceText;
+      if (voiceText) {
+        await this.processReminderFromText(ctx, voiceText);
+      } else {
+        await ctx.reply(
+          '❌ Текст голосового сообщения не найден. Попробуйте еще раз.',
+        );
+      }
+    });
+
+    this.bot.action('ai_chat_from_voice_text', async (ctx) => {
+      await ctx.answerCbQuery();
+      const voiceText = ctx.session.tempData?.voiceText;
+      if (voiceText) {
+        ctx.session.aiChatMode = true;
+        await this.handleAIChatMessage(ctx, voiceText);
+      } else {
+        await ctx.reply(
+          '❌ Текст голосового сообщения не найден. Попробуйте еще раз.',
+        );
+      }
+    });
+
     this.bot.action(/^create_reminder_from_voice:(.+)$/, async (ctx) => {
       await ctx.answerCbQuery();
       const reminderText = decodeURIComponent(ctx.match[1]);
@@ -13354,9 +13405,12 @@ ${this.getItemActivationMessage(itemType)}`,
           aiJson = JSON.parse(jsonStr);
         } catch (parseError) {
           this.logger.warn(
-            'AI classification returned non-JSON, falling back to options UI',
+            'AI classification returned non-JSON, creating task as fallback',
             parseError,
           );
+          // Fallback: try to create a task by default
+          await this.createTaskFromText(ctx, text);
+          return;
         }
 
         if (aiJson && aiJson.intent) {
@@ -13394,15 +13448,16 @@ ${this.getItemActivationMessage(itemType)}`,
           }
         }
 
-        // Fallback: show options UI if AI couldn't classify
-        await this.showVoiceAnalysisOptions(ctx, text);
+        // Fallback: if AI couldn't classify, create task by default
+        await this.createTaskFromText(ctx, text);
         return;
       } catch (error) {
         this.logger.error(
           'Error during AI classification of voice text:',
           error,
         );
-        await this.showVoiceAnalysisOptions(ctx, text);
+        // Fallback: create task if AI analysis fails completely
+        await this.createTaskFromText(ctx, text);
         return;
       }
     }
@@ -13413,8 +13468,8 @@ ${this.getItemActivationMessage(itemType)}`,
   }
 
   private async showVoiceAnalysisOptions(ctx: BotContext, text: string) {
-    // Вместо текста используем временный id (например, timestamp или hash)
-    const tempId = Date.now().toString(36);
+    // Сохраняем текст в сессии для дальнейшего использования
+    ctx.session.tempData = { voiceText: text };
 
     await ctx.replyWithMarkdown(
       `🤔 *Что вы хотели сделать?*
@@ -13428,25 +13483,25 @@ ${this.getItemActivationMessage(itemType)}`,
             [
               {
                 text: '📝 Создать задачу',
-                callback_data: `create_task_from_voice:${tempId}`,
+                callback_data: 'create_task_from_voice_text',
               },
             ],
             [
               {
                 text: '⏰ Создать напоминание',
-                callback_data: `create_reminder_from_voice:${tempId}`,
+                callback_data: 'create_reminder_from_voice_text',
               },
             ],
             [
               {
                 text: '🔄 Создать привычку',
-                callback_data: `create_habit_from_voice:${tempId}`,
+                callback_data: 'create_habit_from_voice_text',
               },
             ],
             [
               {
                 text: '💬 Спросить у ИИ',
-                callback_data: `ai_chat_from_voice:${tempId}`,
+                callback_data: 'ai_chat_from_voice_text',
               },
             ],
             [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
