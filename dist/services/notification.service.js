@@ -186,8 +186,17 @@ let NotificationService = NotificationService_1 = class NotificationService {
                 this.logger.warn(`User not found for habit ${habit.id}`);
                 return;
             }
+            if (!user.dailyReminders) {
+                this.logger.log(`User ${user.id} has disabled reminders, skipping habit reminder`);
+                return;
+            }
             if (await this.telegramBotService.isHabitSkippedToday(habit.id, user.id)) {
                 this.logger.log(`Habit ${habit.id} is skipped for today, not sending reminder`);
+                return;
+            }
+            const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+            if (habit.updatedAt && habit.updatedAt > thirtyMinutesAgo) {
+                this.logger.log(`Habit reminder for ${habit.id} was already sent recently, skipping`);
                 return;
             }
             const message = this.generateReminderMessage(habit);
@@ -249,6 +258,12 @@ let NotificationService = NotificationService_1 = class NotificationService {
                         callback_data: `skip_habit_${habitId}`,
                     },
                 ],
+                [
+                    {
+                        text: '🔕 Отключить уведомления',
+                        callback_data: 'disable_all_reminders',
+                    },
+                ],
             ],
         };
     }
@@ -291,13 +306,16 @@ let NotificationService = NotificationService_1 = class NotificationService {
     async checkAndSendReminders() {
         try {
             const now = new Date();
-            const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
+            const currentMinuteStart = new Date(now);
+            currentMinuteStart.setSeconds(0, 0);
+            const currentMinuteEnd = new Date(currentMinuteStart);
+            currentMinuteEnd.setMinutes(currentMinuteEnd.getMinutes() + 1);
             const remindersToSend = await this.prisma.reminder.findMany({
                 where: {
                     status: 'ACTIVE',
                     scheduledTime: {
-                        gte: oneMinuteAgo,
-                        lte: now,
+                        gte: currentMinuteStart,
+                        lt: currentMinuteEnd,
                     },
                 },
                 include: {
@@ -306,6 +324,14 @@ let NotificationService = NotificationService_1 = class NotificationService {
             });
             for (const reminder of remindersToSend) {
                 try {
+                    if (!reminder.user.dailyReminders) {
+                        this.logger.log(`User ${reminder.userId} has disabled reminders, skipping`);
+                        await this.prisma.reminder.update({
+                            where: { id: reminder.id },
+                            data: { status: 'DISMISSED' },
+                        });
+                        continue;
+                    }
                     await this.sendGeneralReminder(reminder);
                     await this.prisma.reminder.update({
                         where: { id: reminder.id },
@@ -351,6 +377,12 @@ let NotificationService = NotificationService_1 = class NotificationService {
                         {
                             text: '⏰ Через час',
                             callback_data: `reminder_snooze_60_${reminder.id.substring(0, 20)}`,
+                        },
+                    ],
+                    [
+                        {
+                            text: '🔕 Отключить уведомления',
+                            callback_data: 'disable_all_reminders',
                         },
                     ],
                 ],

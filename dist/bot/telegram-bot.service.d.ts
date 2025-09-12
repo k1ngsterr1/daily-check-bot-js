@@ -103,6 +103,7 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private showTasksAIAdvice;
     private showHabitsAIAdvice;
     private showHabitsMenu;
+    private getHabitProgressAnimation;
     private showHabitDetails;
     private showMoodMenu;
     private showMoodAIAnalysis;
@@ -122,6 +123,7 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private processXPPurchase;
     private getItemActivationMessage;
     private completeHabit;
+    private quickCompleteHabit;
     private showAllHabitsList;
     private showHabitsManagement;
     private showHabitsNotificationsSettings;
@@ -186,4 +188,5 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private testMotivationSystem;
     private showMainStatistics;
     showDetailedStatistics(ctx: any): Promise<void>;
+    private showHabitsStatistics;
 }

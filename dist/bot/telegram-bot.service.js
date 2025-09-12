@@ -991,6 +991,11 @@ ${statusMessage}
             const habitId = ctx.match[1];
             await this.completeHabit(ctx, habitId);
         });
+        this.bot.action(/^habit_quick_complete_(.+)$/, async (ctx) => {
+            await ctx.answerCbQuery('🎉 Отлично! Привычка выполнена!');
+            const habitId = ctx.match[1];
+            await this.quickCompleteHabit(ctx, habitId);
+        });
         this.bot.action(/^complete_habit_(.+)$/, async (ctx) => {
             await ctx.answerCbQuery('✅ Отличная работа!');
             const habitId = ctx.match[1];
@@ -1071,6 +1076,10 @@ ${statusMessage}
         this.bot.action('habits_manage', async (ctx) => {
             await ctx.answerCbQuery();
             await this.showHabitsManagement(ctx);
+        });
+        this.bot.action('habits_stats', async (ctx) => {
+            await ctx.answerCbQuery();
+            await this.showHabitsStatistics(ctx);
         });
         this.bot.action('habits_notifications_settings', async (ctx) => {
             await ctx.answerCbQuery();
@@ -2235,6 +2244,93 @@ ${referralStats.topReferrals && referralStats.topReferrals.length > 0
             const reminderId = ctx.match[1];
             await ctx.answerCbQuery();
             await this.handleDeleteReminder(ctx, reminderId);
+        });
+        this.bot.action('disable_all_reminders', async (ctx) => {
+            await ctx.answerCbQuery();
+            try {
+                await this.userService.updateUser(ctx.userId, {
+                    dailyReminders: false,
+                });
+                await this.prisma.reminder.updateMany({
+                    where: {
+                        userId: ctx.userId,
+                        status: 'ACTIVE',
+                    },
+                    data: {
+                        status: 'DISMISSED',
+                    },
+                });
+                await ctx.editMessageTextWithMarkdown(`🔕 *Уведомления отключены*
+
+Все ваши напоминания были отключены. Вы больше не будете получать уведомления.
+
+💡 Вы можете включить их обратно в настройках бота.`, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '🔔 Включить обратно',
+                                    callback_data: 'enable_all_reminders',
+                                },
+                            ],
+                            [
+                                {
+                                    text: '⚙️ Настройки',
+                                    callback_data: 'settings_menu',
+                                },
+                            ],
+                            [
+                                {
+                                    text: '🏠 Главное меню',
+                                    callback_data: 'back_to_menu',
+                                },
+                            ],
+                        ],
+                    },
+                });
+            }
+            catch (error) {
+                this.logger.error('Error disabling reminders:', error);
+                await ctx.editMessageTextWithMarkdown('❌ Произошла ошибка при отключении уведомлений.');
+            }
+        });
+        this.bot.action('enable_all_reminders', async (ctx) => {
+            await ctx.answerCbQuery();
+            try {
+                await this.userService.updateUser(ctx.userId, {
+                    dailyReminders: true,
+                });
+                await ctx.editMessageTextWithMarkdown(`🔔 *Уведомления включены*
+
+Уведомления снова активированы. Вы будете получать напоминания согласно расписанию.`, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                {
+                                    text: '🔔 Мои напоминания',
+                                    callback_data: 'reminders',
+                                },
+                            ],
+                            [
+                                {
+                                    text: '⚙️ Настройки',
+                                    callback_data: 'settings_menu',
+                                },
+                            ],
+                            [
+                                {
+                                    text: '🏠 Главное меню',
+                                    callback_data: 'back_to_menu',
+                                },
+                            ],
+                        ],
+                    },
+                });
+            }
+            catch (error) {
+                this.logger.error('Error enabling reminders:', error);
+                await ctx.editMessageTextWithMarkdown('❌ Произошла ошибка при включении уведомлений.');
+            }
         });
         this.bot.action('settings_menu', async (ctx) => {
             await ctx.answerCbQuery();
@@ -8774,9 +8870,8 @@ ${aiAdvice}
         else {
             try {
                 const habits = await this.habitService.findHabitsByUserId(ctx.userId);
-                let message = `🎯 *Мои привычки*\n\n`;
                 if (habits.length === 0) {
-                    message += `У вас пока нет привычек.\n\n💡 Добавьте первую привычку, чтобы начать отслеживание!`;
+                    const message = `🎯 *Мои привычки*\n\nУ вас пока нет привычек.\n\n💡 Добавьте первую привычку, чтобы начать отслеживание!`;
                     const keyboard = {
                         reply_markup: {
                             inline_keyboard: [
@@ -8793,55 +8888,45 @@ ${aiAdvice}
                     }
                 }
                 else {
-                    message += `📊 **Всего привычек:** ${habits.length}\n\n`;
-                    message += `*Выберите привычку для управления:*`;
+                    const today = new Date();
+                    let message = `🎯 *Мои привычки*\n\n📅 **Сегодня, ${today.toLocaleDateString('ru-RU')}**\n\n`;
+                    for (const habit of habits.slice(0, 10)) {
+                        const animationBar = this.getHabitProgressAnimation(habit.totalCompletions || 0);
+                        message += `🎯 **${habit.title}**\n`;
+                        message += `${animationBar} Выполнено: ${habit.totalCompletions || 0} раз\n`;
+                        message += `🔥 Серия: ${habit.currentStreak || 0} дней\n\n`;
+                    }
+                    if (habits.length > 10) {
+                        message += `*... и еще ${habits.length - 10} привычек*\n\n`;
+                    }
+                    const user = await this.userService.findByTelegramId(ctx.userId);
+                    message += `� **Общая серия:** ${user.currentStreak || 0} дней подряд\n`;
+                    message += `⭐ **Общий XP:** ${user.totalXp || 0}`;
                     const keyboard = {
-                        inline_keyboard: [
-                            ...habits.slice(0, 8).map((habit) => [
-                                {
-                                    text: `${habit.title.substring(0, 30)}${habit.title.length > 30 ? '...' : ''}`,
-                                    callback_data: `habit_view_${habit.id}`,
-                                },
-                            ]),
-                            ...(habits.length > 8
-                                ? [
-                                    [
-                                        {
-                                            text: `... и еще ${habits.length - 8} привычек`,
-                                            callback_data: 'habits_list_more',
-                                        },
-                                    ],
-                                ]
-                                : []),
-                            [
-                                { text: '➕ Добавить', callback_data: 'habits_add' },
-                                {
-                                    text: '🛠️ Управление',
-                                    callback_data: 'habits_manage',
-                                },
+                        reply_markup: {
+                            inline_keyboard: [
+                                ...habits.slice(0, 6).map((habit) => [
+                                    {
+                                        text: `✅ ${habit.title.substring(0, 25)}${habit.title.length > 25 ? '...' : ''}`,
+                                        callback_data: `habit_quick_complete_${habit.id}`,
+                                    },
+                                ]),
+                                [
+                                    { text: '⚙️ Управление', callback_data: 'habits_manage' },
+                                    { text: '➕ Добавить', callback_data: 'habits_add' },
+                                ],
+                                [
+                                    { text: '📊 Статистика', callback_data: 'habits_stats' },
+                                    { text: '🏠 Главное меню', callback_data: 'back_to_menu' },
+                                ],
                             ],
-                            [
-                                {
-                                    text: '🔔 Уведомления',
-                                    callback_data: 'habits_notifications_settings',
-                                },
-                                {
-                                    text: '🤖 AI-совет',
-                                    callback_data: 'habits_ai_advice',
-                                },
-                            ],
-                            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
-                        ],
+                        },
                     };
                     if (ctx.callbackQuery) {
-                        await ctx.editMessageTextWithMarkdown(message, {
-                            reply_markup: keyboard,
-                        });
+                        await ctx.editMessageTextWithMarkdown(message, keyboard);
                     }
                     else {
-                        await ctx.replyWithMarkdown(message, {
-                            reply_markup: keyboard,
-                        });
+                        await ctx.replyWithMarkdown(message, keyboard);
                     }
                 }
             }
@@ -8863,6 +8948,30 @@ ${aiAdvice}
                 }
             }
         }
+    }
+    getHabitProgressAnimation(completionCount) {
+        const maxBars = 8;
+        const levels = [5, 15, 30, 50, 100];
+        let currentLevel = 0;
+        for (let i = 0; i < levels.length; i++) {
+            if (completionCount >= levels[i]) {
+                currentLevel = i + 1;
+            }
+        }
+        const filledBars = Math.min(currentLevel * 2, maxBars);
+        const emptyBars = maxBars - filledBars;
+        let barChar = '▓';
+        let emptyChar = '░';
+        if (currentLevel >= 4) {
+            barChar = '🔥';
+        }
+        else if (currentLevel >= 3) {
+            barChar = '⭐';
+        }
+        else if (currentLevel >= 2) {
+            barChar = '💪';
+        }
+        return `${barChar.repeat(Math.max(1, filledBars))}${emptyChar.repeat(emptyBars)}`;
     }
     async showHabitDetails(ctx, habitId) {
         try {
@@ -9832,6 +9941,42 @@ ${this.getItemActivationMessage(itemType)}`, {
         }
         catch (error) {
             this.logger.error('Error completing habit:', error);
+            await ctx.editMessageTextWithMarkdown('❌ Ошибка при выполнении привычки');
+        }
+    }
+    async quickCompleteHabit(ctx, habitId) {
+        try {
+            const habit = await this.habitService.findHabitById(ctx.userId, habitId);
+            if (!habit) {
+                await ctx.editMessageTextWithMarkdown('❌ Привычка не найдена');
+                return;
+            }
+            await this.prisma.habit.update({
+                where: { id: habitId },
+                data: {
+                    totalCompletions: (habit.totalCompletions || 0) + 1,
+                    currentStreak: (habit.currentStreak || 0) + 1,
+                    maxStreak: Math.max(habit.maxStreak || 0, (habit.currentStreak || 0) + 1),
+                },
+            });
+            const user = await this.userService.findByTelegramId(ctx.userId);
+            await this.userService.updateUser(ctx.userId, {
+                totalXp: (user.totalXp || 0) + (habit.xpReward || 5),
+            });
+            await this.showHabitsMenu(ctx);
+            if (ctx.chat?.id) {
+                setTimeout(async () => {
+                    try {
+                        await ctx.telegram.sendMessage(ctx.chat.id, `🎉 **Привычка выполнена!**\n\n🎯 ${habit.title}\n⭐ +${habit.xpReward || 5} XP\n🔥 Серия: ${(habit.currentStreak || 0) + 1} дней\n\nТак держать! 💪`, { parse_mode: 'Markdown' });
+                    }
+                    catch (error) {
+                        this.logger.error('Error sending completion message:', error);
+                    }
+                }, 500);
+            }
+        }
+        catch (error) {
+            this.logger.error('Error in quickCompleteHabit:', error);
             await ctx.editMessageTextWithMarkdown('❌ Ошибка при выполнении привычки');
         }
     }
@@ -12798,6 +12943,67 @@ ${todayTasks > 0 || todayHabits > 0 ? '🟢 Активный день!' : '🔴 
                     ],
                 },
             });
+        }
+    }
+    async showHabitsStatistics(ctx) {
+        try {
+            const habits = await this.habitService.findHabitsByUserId(ctx.userId);
+            const user = await this.userService.findByTelegramId(ctx.userId);
+            if (habits.length === 0) {
+                await ctx.editMessageTextWithMarkdown(`📊 *Статистика привычек*\n\nУ вас пока нет привычек для анализа.\n\n💡 Добавьте первую привычку, чтобы начать отслеживание!`, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '🎯 Добавить привычку', callback_data: 'habits_add' }],
+                            [{ text: '🔙 К привычкам', callback_data: 'menu_habits' }],
+                        ],
+                    },
+                });
+                return;
+            }
+            const totalCompletions = habits.reduce((sum, h) => sum + (h.totalCompletions || 0), 0);
+            const avgCompletions = Math.round(totalCompletions / habits.length);
+            const maxStreak = Math.max(...habits.map((h) => h.maxStreak || 0));
+            const activeHabits = habits.filter((h) => h.isActive).length;
+            const topHabit = habits.reduce((top, current) => (current.totalCompletions || 0) > (top.totalCompletions || 0)
+                ? current
+                : top);
+            let message = `📊 *Статистика привычек*\n\n`;
+            message += `🎯 **Общий обзор:**\n`;
+            message += `📋 Всего привычек: ${habits.length}\n`;
+            message += `✅ Активных: ${activeHabits}\n`;
+            message += `🏆 Всего выполнений: ${totalCompletions}\n`;
+            message += `📈 Средние выполнения: ${avgCompletions}\n`;
+            message += `🔥 Максимальная серия: ${maxStreak} дней\n\n`;
+            message += `👑 **Топ привычка:**\n`;
+            message += `🎯 ${topHabit.title}\n`;
+            message += `✅ ${topHabit.totalCompletions || 0} выполнений\n`;
+            message += `🔥 Серия: ${topHabit.currentStreak || 0} дней\n\n`;
+            message += `📊 **Детальная статистика:**\n`;
+            for (const habit of habits.slice(0, 5)) {
+                const progress = this.getHabitProgressAnimation(habit.totalCompletions || 0);
+                message += `\n🎯 **${habit.title}**\n`;
+                message += `${progress}\n`;
+                message += `✅ Выполнений: ${habit.totalCompletions || 0}\n`;
+                message += `🔥 Серия: ${habit.currentStreak}/${habit.maxStreak} дней\n`;
+            }
+            if (habits.length > 5) {
+                message += `\n*... и еще ${habits.length - 5} привычек*`;
+            }
+            await ctx.editMessageTextWithMarkdown(message, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            { text: '🎯 К привычкам', callback_data: 'menu_habits' },
+                            { text: '📊 Общая статистика', callback_data: 'my_progress' },
+                        ],
+                        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                    ],
+                },
+            });
+        }
+        catch (error) {
+            this.logger.error('Error in showHabitsStatistics:', error);
+            await ctx.editMessageTextWithMarkdown('❌ Ошибка при загрузке статистики привычек');
         }
     }
 };
