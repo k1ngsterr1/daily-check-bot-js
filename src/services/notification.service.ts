@@ -217,12 +217,29 @@ export class NotificationService {
         return;
       }
 
+      // Проверяем настройки уведомлений пользователя
+      if (!user.dailyReminders) {
+        this.logger.log(
+          `User ${user.id} has disabled reminders, skipping habit reminder`,
+        );
+        return;
+      }
+
       // Проверка пропуска привычки на сегодня
       if (
         await this.telegramBotService.isHabitSkippedToday(habit.id, user.id)
       ) {
         this.logger.log(
           `Habit ${habit.id} is skipped for today, not sending reminder`,
+        );
+        return;
+      }
+
+      // Проверяем, не отправляли ли уже напоминание в последние 30 минут
+      const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+      if (habit.updatedAt && habit.updatedAt > thirtyMinutesAgo) {
+        this.logger.log(
+          `Habit reminder for ${habit.id} was already sent recently, skipping`,
         );
         return;
       }
@@ -305,6 +322,12 @@ export class NotificationService {
             callback_data: `skip_habit_${habitId}`,
           },
         ],
+        [
+          {
+            text: '🔕 Отключить уведомления',
+            callback_data: 'disable_all_reminders',
+          },
+        ],
       ],
     };
   }
@@ -364,15 +387,19 @@ export class NotificationService {
   async checkAndSendReminders() {
     try {
       const now = new Date();
-      const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
+      // Ищем напоминания, которые должны быть отправлены в текущую минуту
+      const currentMinuteStart = new Date(now);
+      currentMinuteStart.setSeconds(0, 0);
+      const currentMinuteEnd = new Date(currentMinuteStart);
+      currentMinuteEnd.setMinutes(currentMinuteEnd.getMinutes() + 1);
 
       // Находим напоминания, которые должны быть отправлены сейчас
       const remindersToSend = await this.prisma.reminder.findMany({
         where: {
           status: 'ACTIVE',
           scheduledTime: {
-            gte: oneMinuteAgo,
-            lte: now,
+            gte: currentMinuteStart,
+            lt: currentMinuteEnd,
           },
         },
         include: {
@@ -382,6 +409,19 @@ export class NotificationService {
 
       for (const reminder of remindersToSend) {
         try {
+          // Проверяем настройки пользователя на уведомления
+          if (!reminder.user.dailyReminders) {
+            this.logger.log(
+              `User ${reminder.userId} has disabled reminders, skipping`,
+            );
+            // Помечаем как пропущенное
+            await this.prisma.reminder.update({
+              where: { id: reminder.id },
+              data: { status: 'DISMISSED' },
+            });
+            continue;
+          }
+
           await this.sendGeneralReminder(reminder);
 
           // Обновляем статус напоминания
@@ -438,6 +478,12 @@ export class NotificationService {
               {
                 text: '⏰ Через час',
                 callback_data: `reminder_snooze_60_${reminder.id.substring(0, 20)}`,
+              },
+            ],
+            [
+              {
+                text: '🔕 Отключить уведомления',
+                callback_data: 'disable_all_reminders',
               },
             ],
           ],

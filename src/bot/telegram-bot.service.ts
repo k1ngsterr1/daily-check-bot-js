@@ -2797,6 +2797,110 @@ ${
       await this.handleDeleteReminder(ctx, reminderId);
     });
 
+    // Handle disabling all reminders
+    this.bot.action('disable_all_reminders', async (ctx) => {
+      await ctx.answerCbQuery();
+      try {
+        // Отключаем уведомления у пользователя
+        await this.userService.updateUser(ctx.userId, {
+          dailyReminders: false,
+        });
+
+        // Отключаем все активные напоминания
+        await this.prisma.reminder.updateMany({
+          where: {
+            userId: ctx.userId,
+            status: 'ACTIVE',
+          },
+          data: {
+            status: 'DISMISSED',
+          },
+        });
+
+        await ctx.editMessageTextWithMarkdown(
+          `🔕 *Уведомления отключены*
+
+Все ваши напоминания были отключены. Вы больше не будете получать уведомления.
+
+💡 Вы можете включить их обратно в настройках бота.`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: '🔔 Включить обратно',
+                    callback_data: 'enable_all_reminders',
+                  },
+                ],
+                [
+                  {
+                    text: '⚙️ Настройки',
+                    callback_data: 'settings_menu',
+                  },
+                ],
+                [
+                  {
+                    text: '🏠 Главное меню',
+                    callback_data: 'back_to_menu',
+                  },
+                ],
+              ],
+            },
+          },
+        );
+      } catch (error) {
+        this.logger.error('Error disabling reminders:', error);
+        await ctx.editMessageTextWithMarkdown(
+          '❌ Произошла ошибка при отключении уведомлений.',
+        );
+      }
+    });
+
+    // Handle enabling all reminders
+    this.bot.action('enable_all_reminders', async (ctx) => {
+      await ctx.answerCbQuery();
+      try {
+        await this.userService.updateUser(ctx.userId, {
+          dailyReminders: true,
+        });
+
+        await ctx.editMessageTextWithMarkdown(
+          `🔔 *Уведомления включены*
+
+Уведомления снова активированы. Вы будете получать напоминания согласно расписанию.`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: '🔔 Мои напоминания',
+                    callback_data: 'reminders',
+                  },
+                ],
+                [
+                  {
+                    text: '⚙️ Настройки',
+                    callback_data: 'settings_menu',
+                  },
+                ],
+                [
+                  {
+                    text: '🏠 Главное меню',
+                    callback_data: 'back_to_menu',
+                  },
+                ],
+              ],
+            },
+          },
+        );
+      } catch (error) {
+        this.logger.error('Error enabling reminders:', error);
+        await ctx.editMessageTextWithMarkdown(
+          '❌ Произошла ошибка при включении уведомлений.',
+        );
+      }
+    });
+
     this.bot.action('settings_menu', async (ctx) => {
       await ctx.answerCbQuery();
       await ctx.editMessageTextWithMarkdown(
