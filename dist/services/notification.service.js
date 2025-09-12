@@ -67,7 +67,8 @@ let NotificationService = NotificationService_1 = class NotificationService {
         this.schedulerRegistry = schedulerRegistry;
     }
     async onModuleInit() {
-        this.logger.log('Notification service initialized (habit reminders disabled to avoid duplicates)');
+        this.logger.log('Notification service initialized');
+        await this.loadActiveHabitReminders();
     }
     async loadActiveHabitReminders() {
         const activeHabits = await this.prisma.habit.findMany({
@@ -287,6 +288,75 @@ let NotificationService = NotificationService_1 = class NotificationService {
         }, delayMs);
         this.logger.log(`Snoozed habit ${habitId} for ${minutes} minutes`);
     }
+    async checkAndSendReminders() {
+        try {
+            const now = new Date();
+            const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
+            const remindersToSend = await this.prisma.reminder.findMany({
+                where: {
+                    status: 'ACTIVE',
+                    scheduledTime: {
+                        gte: oneMinuteAgo,
+                        lte: now,
+                    },
+                },
+                include: {
+                    user: true,
+                },
+            });
+            for (const reminder of remindersToSend) {
+                try {
+                    await this.sendGeneralReminder(reminder);
+                    await this.prisma.reminder.update({
+                        where: { id: reminder.id },
+                        data: {
+                            status: 'COMPLETED',
+                        },
+                    });
+                    this.logger.log(`Sent reminder "${reminder.title}" to user ${reminder.userId}`);
+                }
+                catch (error) {
+                    this.logger.error(`Failed to send reminder ${reminder.id}:`, error);
+                    await this.prisma.reminder.update({
+                        where: { id: reminder.id },
+                        data: { status: 'DISMISSED' },
+                    });
+                }
+            }
+            if (remindersToSend.length > 0) {
+                this.logger.log(`Processed ${remindersToSend.length} reminders`);
+            }
+        }
+        catch (error) {
+            this.logger.error('Error in checkAndSendReminders:', error);
+        }
+    }
+    async sendGeneralReminder(reminder) {
+        const message = `🔔 *Напоминание!*\n\n${reminder.message}`;
+        await this.telegramBotService.sendMessageToUser(parseInt(reminder.user.id), message, {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        {
+                            text: '✅ Готово',
+                            callback_data: `reminder_done_${reminder.id.substring(0, 20)}`,
+                        },
+                    ],
+                    [
+                        {
+                            text: '⏰ Через 15 мин',
+                            callback_data: `reminder_snooze_15_${reminder.id.substring(0, 20)}`,
+                        },
+                        {
+                            text: '⏰ Через час',
+                            callback_data: `reminder_snooze_60_${reminder.id.substring(0, 20)}`,
+                        },
+                    ],
+                ],
+            },
+        });
+    }
     async cleanupOldJobs() {
         this.logger.log('Running daily cleanup of notification jobs');
         const inactiveHabits = await this.prisma.habit.findMany({
@@ -352,11 +422,11 @@ let NotificationService = NotificationService_1 = class NotificationService {
                                 [
                                     {
                                         text: '💪 Держусь',
-                                        callback_data: `evening_success_${dependency.type.toLowerCase()}`,
+                                        callback_data: `evening_holding_${dependency.type.toLowerCase()}`,
                                     },
                                     {
                                         text: '😔 Сдался',
-                                        callback_data: `evening_fail_${dependency.type.toLowerCase()}`,
+                                        callback_data: `evening_failed_${dependency.type.toLowerCase()}`,
                                     },
                                 ],
                             ],
@@ -417,6 +487,12 @@ let NotificationService = NotificationService_1 = class NotificationService {
     }
 };
 exports.NotificationService = NotificationService;
+__decorate([
+    (0, schedule_1.Cron)(schedule_1.CronExpression.EVERY_MINUTE),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], NotificationService.prototype, "checkAndSendReminders", null);
 __decorate([
     (0, schedule_1.Cron)(schedule_1.CronExpression.EVERY_DAY_AT_MIDNIGHT),
     __metadata("design:type", Function),

@@ -184,4 +184,6 @@ export declare class TelegramBotService implements OnModuleInit, OnModuleDestroy
     private showSystemInfo;
     private getDependencyTypeRussian;
     private testMotivationSystem;
+    private showMainStatistics;
+    showDetailedStatistics(ctx: any): Promise<void>;
 }
