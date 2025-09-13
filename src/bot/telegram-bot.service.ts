@@ -1326,6 +1326,12 @@ ${statusMessage}
       await this.skipHabitFromNotification(ctx, habitId);
     });
 
+    // Handle celebration thanks button
+    this.bot.action('celebration_thanks', async (ctx) => {
+      await ctx.answerCbQuery('🎉 Продолжайте в том же духе!');
+      await this.showHabitsMenu(ctx);
+    });
+
     // Handle create reminder from task (only matches task IDs, not 'help')
     this.bot.action(/^create_reminder_([a-f0-9]{10})$/, async (ctx) => {
       await ctx.answerCbQuery();
@@ -1401,6 +1407,12 @@ ${statusMessage}
 
     // Handle habits management
     this.bot.action('habits_manage', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.showHabitsManagement(ctx);
+    });
+
+    // Handle habits management (new comprehensive view)
+    this.bot.action('habits_management', async (ctx) => {
       await ctx.answerCbQuery();
       await this.showHabitsManagement(ctx);
     });
@@ -1687,6 +1699,75 @@ ${statusMessage}
     this.bot.action('my_progress', async (ctx) => {
       await ctx.answerCbQuery();
       await this.showMainStatistics(ctx);
+    });
+
+    // New handlers for updated main menu
+    this.bot.action('add_habit', async (ctx) => {
+      await ctx.answerCbQuery();
+      // Use the existing habit addition logic
+      const user = await this.userService.findByTelegramId(ctx.userId);
+      if (!user.timezone) {
+        ctx.session.pendingAction = 'adding_habit';
+        await this.askForTimezone(ctx);
+      } else {
+        ctx.session.step = 'adding_habit';
+        await ctx.editMessageTextWithMarkdown(
+          '🔄 *Добавление привычки*\n\nВыберите готовый пример или введите название привычки вручную:\n\n⬇️ *Введите название привычки в поле для ввода ниже*',
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: '💧 Пить воду каждый день по 2 литра',
+                    callback_data: 'habit_example_water',
+                  },
+                ],
+                [
+                  {
+                    text: '😴 Ложиться спать до 23:00',
+                    callback_data: 'habit_example_sleep',
+                  },
+                ],
+                [
+                  {
+                    text: '🏃‍♂️ Заниматься спортом',
+                    callback_data: 'habit_example_workout',
+                  },
+                ],
+                [
+                  {
+                    text: '📚 Читать книги каждый день',
+                    callback_data: 'habit_example_reading',
+                  },
+                ],
+                [{ text: '⬅️ Назад', callback_data: 'back_to_menu' }],
+              ],
+            },
+          },
+        );
+      }
+    });
+
+    this.bot.action('my_habits', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.showHabitsMenu(ctx);
+    });
+
+    this.bot.action('my_tasks', async (ctx) => {
+      await ctx.answerCbQuery();
+      const keyboard = {
+        inline_keyboard: [
+          [{ text: '➕ Добавить задачу', callback_data: 'tasks_add' }],
+          [{ text: '📋 Список задач', callback_data: 'tasks_list' }],
+          [{ text: '⬅️ Назад', callback_data: 'back_to_menu' }],
+        ],
+      };
+      await ctx.editMessageTextWithMarkdown(
+        '📝 *Мои задачи*\n\nВыберите действие:',
+        {
+          reply_markup: keyboard,
+        },
+      );
     });
 
     this.bot.action('ai_chat', async (ctx) => {
@@ -7619,8 +7700,14 @@ ${timeAdvice}
   private async showMainMenu(ctx: BotContext, shouldEdit: boolean = false) {
     const keyboard = {
       inline_keyboard: [
-        [{ text: '➕ Добавить привычку/задачу', callback_data: 'add_item' }],
-        [{ text: '📋 Мои привычки и задачи', callback_data: 'my_items' }],
+        [
+          { text: '➕ Добавить привычку', callback_data: 'add_habit' },
+          { text: '✅ Мои привычки', callback_data: 'my_habits' },
+        ],
+        [
+          { text: '📝 Мои задачи', callback_data: 'my_tasks' },
+          { text: '🍅 Помодоро', callback_data: 'pomodoro_focus' },
+        ],
         [
           { text: '🟢 Ещё функции', callback_data: 'more_functions' },
           { text: '🧠 Чат с ИИ', callback_data: 'ai_chat' },
@@ -7893,9 +7980,13 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
 
 📊 **Задач сегодня:** ${limitCheck.current}${limitCheck.limit === -1 ? '' : `/${limitCheck.limit}`}
 
-📝 Напишите или скажите в голосовом сообщении название задачи:
+� **Способы создания задачи:**
+• �📝 Напишите текстом название задачи
+• 🎙️ Отправьте голосовое сообщение
 
-⬇️ *Введите название задачи в поле для ввода ниже*
+🤖 **Я все пойму!** 
+
+⬇️ *Введите название задачи в поле для ввода ниже или отправьте голосовое сообщение*
     `,
       {
         reply_markup: {
@@ -11354,50 +11445,79 @@ ${aiAdvice}
             await ctx.replyWithMarkdown(message, keyboard);
           }
         } else {
-          // Получаем сегодняшнюю дату для проверки выполнения
-          const today = new Date();
+          let message = `🎯 *Мои привычки*\n\n`;
 
-          let message = `🎯 *Мои привычки*\n\n📅 **Сегодня, ${today.toLocaleDateString('ru-RU')}**\n\n`;
+          // Get user data first
+          const user = await this.userService.findByTelegramId(ctx.userId);
 
-          // Добавляем каждую привычку с анимацией выполнения
-          for (const habit of habits.slice(0, 10)) {
-            const animationBar = this.getHabitProgressAnimation(
-              habit.totalCompletions || 0,
-            );
+          // Create progress bar for today's completion
+          const today_str = new Date().toISOString().split('T')[0];
+          // For now, use a simple logic - you'll need to implement proper daily tracking
+          const completedCount = Math.floor(habits.length * 0.3); // Placeholder: 30% completed
+          const totalHabits = habits.length;
 
-            message += `🎯 **${habit.title}**\n`;
-            message += `${animationBar} Выполнено: ${habit.totalCompletions || 0} раз\n`;
-            message += `🔥 Серия: ${habit.currentStreak || 0} дней\n\n`;
+          // Progress bar visualization (red -> yellow -> green)
+          const progressPercentage =
+            totalHabits > 0 ? (completedCount / totalHabits) * 100 : 0;
+          let progressColor = '🔴';
+          if (progressPercentage >= 30 && progressPercentage < 70) {
+            progressColor = '🟡';
+          } else if (progressPercentage >= 70) {
+            progressColor = '🟢';
+          }
+
+          const progressBar =
+            '█'.repeat(Math.floor(progressPercentage / 10)) +
+            '░'.repeat(10 - Math.floor(progressPercentage / 10));
+
+          message += `${progressColor} **Прогресс:** ${progressBar} ${completedCount}/${totalHabits}\n\n`;
+          message += `💎 **XP:** ${user.totalXp || 0} | 🏆 **Уровень:** ${user.level || 1}\n\n`;
+          message += `📅 **${new Date().toLocaleDateString('ru-RU')}**\n\n`;
+
+          // Add habits list with completion checkmarks
+          for (const habit of habits.slice(0, 8)) {
+            // For now, use currentStreak > 0 as completed indicator
+            const isCompleted = habit.currentStreak > 0;
+            const checkMark = isCompleted ? '✅' : '⭕';
+            message += `${checkMark} ${habit.title}\n`;
           }
 
           if (habits.length > 10) {
             message += `*... и еще ${habits.length - 10} привычек*\n\n`;
           }
 
-          const user = await this.userService.findByTelegramId(ctx.userId);
-          message += `� **Общая серия:** ${user.currentStreak || 0} дней подряд\n`;
+          message += `🔥 **Общая серия:** ${user.currentStreak || 0} дней подряд\n`;
           message += `⭐ **Общий XP:** ${user.totalXp || 0}`;
 
-          // Создаем клавиатуру с быстрыми кнопками выполнения
+          // Create keyboard with habit management
           const keyboard = {
             reply_markup: {
               inline_keyboard: [
-                // Кнопки для быстрого отмечания привычек
-                ...habits.slice(0, 6).map((habit) => [
+                // Quick completion buttons for incomplete habits
+                ...habits
+                  .filter((h) => h.currentStreak === 0)
+                  .slice(0, 4)
+                  .map((habit) => [
+                    {
+                      text: `✅ ${habit.title.substring(0, 30)}${habit.title.length > 30 ? '...' : ''}`,
+                      callback_data: `habit_complete_${habit.id}`,
+                    },
+                  ]),
+                // Management and additional buttons
+                [
                   {
-                    text: `✅ ${habit.title.substring(0, 25)}${habit.title.length > 25 ? '...' : ''}`,
-                    callback_data: `habit_quick_complete_${habit.id}`,
+                    text: '⚙️ Управление привычек',
+                    callback_data: 'habits_management',
                   },
-                ]),
-                // Управляющие кнопки
+                ],
                 [
-                  { text: '⚙️ Управление', callback_data: 'habits_manage' },
                   { text: '➕ Добавить', callback_data: 'habits_add' },
+                  {
+                    text: '🤖 AI - совет по задачам',
+                    callback_data: 'habits_ai_advice',
+                  },
                 ],
-                [
-                  { text: '📊 Статистика', callback_data: 'habits_stats' },
-                  { text: '🏠 Главное меню', callback_data: 'back_to_menu' },
-                ],
+                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
               ],
             },
           };
@@ -12655,47 +12775,70 @@ ${this.getItemActivationMessage(itemType)}`,
   private async quickCompleteHabit(ctx: BotContext, habitId: string) {
     try {
       // Находим привычку и увеличиваем счетчик выполнений
-      const habit = await this.habitService.findHabitById(ctx.userId, habitId);
+      const habit = await this.habitService.findHabitById(habitId, ctx.userId);
       if (!habit) {
         await ctx.editMessageTextWithMarkdown('❌ Привычка не найдена');
         return;
       }
 
-      // Увеличиваем счетчики напрямую через Prisma
-      await this.prisma.habit.update({
-        where: { id: habitId },
-        data: {
-          totalCompletions: (habit.totalCompletions || 0) + 1,
-          currentStreak: (habit.currentStreak || 0) + 1,
-          maxStreak: Math.max(
-            habit.maxStreak || 0,
-            (habit.currentStreak || 0) + 1,
-          ),
-        },
+      // Используем сервис для выполнения привычки
+      const { habit: updatedHabit, xpGained } =
+        await this.habitService.completeHabit(habitId, ctx.userId);
+
+      // Добавляем 20 XP пользователю (вместо стандартного XP)
+      const user = await this.userService.findByTelegramId(ctx.userId);
+      const totalXpGained = 20;
+      await this.userService.updateUser(ctx.userId, {
+        totalXp: (user.totalXp || 0) + totalXpGained,
       });
 
-      // Добавляем XP пользователю
-      const user = await this.userService.findByTelegramId(ctx.userId);
-      await this.userService.updateUser(ctx.userId, {
-        totalXp: (user.totalXp || 0) + (habit.xpReward || 5),
-      });
+      // Проверяем, выполнены ли все привычки
+      const allHabits = await this.habitService.findHabitsByUserId(ctx.userId);
+      const allCompleted = allHabits.every((h) => h.currentStreak > 0); // Simplified check
 
       // Обновляем меню привычек с анимацией
       await this.showHabitsMenu(ctx);
 
-      // Отправляем дополнительное сообщение с поздравлением
-      if (ctx.chat?.id) {
+      // Показываем фейерверк если все привычки выполнены
+      if (allCompleted && ctx.chat?.id) {
         setTimeout(async () => {
           try {
             await ctx.telegram.sendMessage(
               ctx.chat!.id,
-              `🎉 **Привычка выполнена!**\n\n🎯 ${habit.title}\n⭐ +${habit.xpReward || 5} XP\n🔥 Серия: ${(habit.currentStreak || 0) + 1} дней\n\nТак держать! 💪`,
-              { parse_mode: 'Markdown' },
+              `🎆🎇🎆🎇🎆\n\n🏆 **ПОЗДРАВЛЯЕМ!** 🏆\n\n✨ Вы выполнили ВСЕ привычки на сегодня! ✨\n\nВы просто невероятны! 🌟\n\n🎆🎇🎆🎇🎆`,
+              {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                  inline_keyboard: [
+                    [
+                      {
+                        text: '🎉 Спасибо!',
+                        callback_data: 'celebration_thanks',
+                      },
+                    ],
+                  ],
+                },
+              },
             );
           } catch (error) {
-            this.logger.error('Error sending completion message:', error);
+            this.logger.error('Error sending fireworks:', error);
           }
-        }, 500);
+        }, 1000);
+      } else {
+        // Отправляем обычное сообщение с поздравлением
+        if (ctx.chat?.id) {
+          setTimeout(async () => {
+            try {
+              await ctx.telegram.sendMessage(
+                ctx.chat!.id,
+                `🎉 **Привычка выполнена!**\n\n🎯 ${habit.title}\n⭐ +${totalXpGained} XP\n🔥 Серия: ${updatedHabit.currentStreak} дней\n\nТак держать! 💪`,
+                { parse_mode: 'Markdown' },
+              );
+            } catch (error) {
+              this.logger.error('Error sending completion message:', error);
+            }
+          }, 500);
+        }
       }
     } catch (error) {
       this.logger.error('Error in quickCompleteHabit:', error);

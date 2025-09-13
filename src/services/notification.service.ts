@@ -3,6 +3,8 @@ import { Cron, CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { PrismaService } from '../database/prisma.service';
 import { TelegramBotService } from '../bot/telegram-bot.service';
 import { HabitService } from './habit.service';
+import { OpenAIService } from './openai.service';
+import { TaskService } from './task.service';
 import * as cron from 'node-cron';
 
 interface HabitReminder {
@@ -23,6 +25,8 @@ export class NotificationService {
     @Inject(forwardRef(() => TelegramBotService))
     private readonly telegramBotService: TelegramBotService,
     private readonly habitService: HabitService,
+    private readonly openaiService: OpenAIService,
+    private readonly taskService: TaskService,
     private readonly schedulerRegistry: SchedulerRegistry,
   ) {}
 
@@ -33,21 +37,24 @@ export class NotificationService {
   }
 
   async loadActiveHabitReminders() {
-    const activeHabits = await this.prisma.habit.findMany({
-      where: {
-        isActive: true,
-        reminderTime: { not: null },
-      },
-      include: {
-        user: true,
-      },
-    });
+    // Individual habit reminders are disabled - using only morning and evening AI notifications
+    // const activeHabits = await this.prisma.habit.findMany({
+    //   where: {
+    //     isActive: true,
+    //     reminderTime: { not: null },
+    //   },
+    //   include: {
+    //     user: true,
+    //   },
+    // });
 
-    for (const habit of activeHabits) {
-      await this.scheduleHabitReminder(habit);
-    }
+    // for (const habit of activeHabits) {
+    //   await this.scheduleHabitReminder(habit);
+    // }
 
-    this.logger.log(`Loaded ${activeHabits.length} habit reminders`);
+    this.logger.log(
+      'Individual habit reminders disabled - using AI notifications only',
+    );
   }
 
   async scheduleHabitReminder(habit: any) {
@@ -346,22 +353,27 @@ export class NotificationService {
   }
 
   async updateHabitReminder(habitId: string) {
-    const habit = await this.prisma.habit.findUnique({
-      where: { id: habitId },
-      include: { user: true },
-    });
+    // Individual habit reminders are disabled - using only morning and evening AI notifications
+    this.logger.log(
+      `Individual habit reminder update skipped for habit ${habitId} - using AI notifications only`,
+    );
 
-    if (!habit) {
-      return;
-    }
+    // const habit = await this.prisma.habit.findUnique({
+    //   where: { id: habitId },
+    //   include: { user: true },
+    // });
 
-    // Отменяем старое напоминание
-    await this.cancelHabitReminder(habitId);
+    // if (!habit) {
+    //   return;
+    // }
 
-    // Создаем новое, если привычка активна и есть время напоминания
-    if (habit.isActive && habit.reminderTime) {
-      await this.scheduleHabitReminder(habit);
-    }
+    // // Отменяем старое напоминание
+    // await this.cancelHabitReminder(habitId);
+
+    // // Создаем новое, если привычка активна и есть время напоминания
+    // if (habit.isActive && habit.reminderTime) {
+    //   await this.scheduleHabitReminder(habit);
+    // }
   }
 
   // Метод для обработки snooze (отложить напоминание)
@@ -663,5 +675,162 @@ export class NotificationService {
     };
 
     return checks[dependencyType] || checks.SMOKING;
+  }
+
+  // New AI-powered morning and evening notifications for all users
+  @Cron('0 9 * * *')
+  async sendMorningAINotifications() {
+    this.logger.log('Running morning AI notifications for all users');
+
+    try {
+      // Get all users with timezone and active tasks/habits
+      const users = await this.prisma.user.findMany({
+        where: {
+          timezone: { not: null },
+          OR: [
+            { habits: { some: { isActive: true } } },
+            { tasks: { some: { status: 'PENDING' } } },
+          ],
+        },
+        include: {
+          habits: { where: { isActive: true } },
+          tasks: { where: { status: 'PENDING' } },
+        },
+      });
+
+      for (const user of users) {
+        try {
+          // Generate AI advice based on user's tasks and habits
+          const tasksText = user.tasks.map((t) => t.title).join(', ');
+          const habitsText = user.habits.map((h) => h.title).join(', ');
+
+          const aiPrompt = `
+Создай короткое (не более 2-3 предложений) мотивационное утреннее сообщение на русском языке для пользователя.
+
+Задачи на сегодня: ${tasksText || 'Нет задач'}
+Привычки: ${habitsText || 'Нет привычек'}
+
+Сообщение должно быть:
+- Энергичным и мотивирующим
+- Кратким и емким
+- Содержать практические советы
+- Начинаться с эмодзи утра (🌅 или ☀️)
+`;
+
+          const aiAdvice = await this.openaiService.getAIResponse(aiPrompt);
+
+          await this.telegramBotService.sendMessageToUser(
+            parseInt(user.id),
+            `${aiAdvice}\n\n💪 Удачного дня!`,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🎯 Мои привычки', callback_data: 'my_habits' }],
+                  [{ text: '📝 Мои задачи', callback_data: 'my_tasks' }],
+                ],
+              },
+              parse_mode: 'Markdown',
+            },
+          );
+
+          this.logger.log(`Sent morning AI notification to user ${user.id}`);
+        } catch (error) {
+          this.logger.error(
+            `Failed to send morning AI notification to ${user.id}:`,
+            error,
+          );
+        }
+      }
+
+      this.logger.log(`Sent morning AI notifications to ${users.length} users`);
+    } catch (error) {
+      this.logger.error('Error in morning AI notifications job:', error);
+    }
+  }
+
+  @Cron('0 21 * * *')
+  async sendEveningAISummary() {
+    this.logger.log('Running evening AI summary for all users');
+
+    try {
+      // Get all users with completed tasks and habit data
+      const users = await this.prisma.user.findMany({
+        where: {
+          timezone: { not: null },
+          OR: [
+            { habits: { some: { isActive: true } } },
+            {
+              tasks: {
+                some: {
+                  status: 'COMPLETED',
+                  updatedAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+                },
+              },
+            },
+          ],
+        },
+        include: {
+          habits: { where: { isActive: true } },
+          tasks: {
+            where: {
+              status: 'COMPLETED',
+              updatedAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+            },
+          },
+        },
+      });
+
+      for (const user of users) {
+        try {
+          const completedTasksText = user.tasks.map((t) => t.title).join(', ');
+          const habitsText = user.habits.map((h) => h.title).join(', ');
+
+          const aiPrompt = `
+Создай короткий (не более 3-4 предложений) вечерний анализ дня на русском языке для пользователя.
+
+Выполненные задачи сегодня: ${completedTasksText || 'Нет выполненных задач'}
+Привычки пользователя: ${habitsText || 'Нет привычек'}
+
+Сообщение должно быть:
+- Анализирующим прогресс
+- Поддерживающим
+- Содержать рекомендации на завтра
+- Начинаться с вечернего эмодзи (🌙 или 🌆)
+`;
+
+          const aiAnalysis = await this.openaiService.getAIResponse(aiPrompt);
+
+          await this.telegramBotService.sendMessageToUser(
+            parseInt(user.id),
+            `${aiAnalysis}\n\n😴 Спокойной ночи!`,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '📊 Мой прогресс', callback_data: 'my_progress' }],
+                  [
+                    {
+                      text: '🎯 Завтра начнем сначала!',
+                      callback_data: 'back_to_menu',
+                    },
+                  ],
+                ],
+              },
+              parse_mode: 'Markdown',
+            },
+          );
+
+          this.logger.log(`Sent evening AI summary to user ${user.id}`);
+        } catch (error) {
+          this.logger.error(
+            `Failed to send evening AI summary to ${user.id}:`,
+            error,
+          );
+        }
+      }
+
+      this.logger.log(`Sent evening AI summaries to ${users.length} users`);
+    } catch (error) {
+      this.logger.error('Error in evening AI summary job:', error);
+    }
   }
 }
