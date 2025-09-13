@@ -7,7 +7,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  url      = "postgresql://delta:Delta2005@localhost:5432/delta"
 }
 
 enum TaskStatus {
