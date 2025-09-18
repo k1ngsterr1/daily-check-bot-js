@@ -87,6 +87,7 @@ export class HabitService {
         totalCompletions: habit.totalCompletions + 1,
         currentStreak: habit.currentStreak + 1,
         maxStreak: Math.max(habit.maxStreak, habit.currentStreak + 1),
+        updatedAt: new Date(), // Use updatedAt to track when it was last completed
       },
     });
 
@@ -94,6 +95,21 @@ export class HabitService {
       `Completed habit: ${habitId}, XP gained: ${habit.xpReward}`,
     );
     return { habit: updatedHabit, xpGained: habit.xpReward };
+  }
+
+  // Helper function to check if habit was completed today
+  isCompletedToday(habit: Habit): boolean {
+    if (!habit.updatedAt) return false;
+
+    const today = new Date();
+    const lastUpdate = new Date(habit.updatedAt);
+
+    // Check if the habit was updated today (assuming update means completion)
+    return (
+      today.getFullYear() === lastUpdate.getFullYear() &&
+      today.getMonth() === lastUpdate.getMonth() &&
+      today.getDate() === lastUpdate.getDate()
+    );
   }
 
   async getHabitStats(userId: string): Promise<{

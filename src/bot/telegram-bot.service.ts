@@ -1740,6 +1740,12 @@ ${statusMessage}
                     callback_data: 'habit_example_reading',
                   },
                 ],
+                [
+                  {
+                    text: '📝 Ввести свою привычку',
+                    callback_data: 'habit_custom_input',
+                  },
+                ],
                 [{ text: '⬅️ Назад', callback_data: 'back_to_menu' }],
               ],
             },
@@ -11452,8 +11458,10 @@ ${aiAdvice}
 
           // Create progress bar for today's completion
           const today_str = new Date().toISOString().split('T')[0];
-          // For now, use a simple logic - you'll need to implement proper daily tracking
-          const completedCount = Math.floor(habits.length * 0.3); // Placeholder: 30% completed
+          // Count habits completed today
+          const completedCount = habits.filter((h) =>
+            this.habitService.isCompletedToday(h),
+          ).length;
           const totalHabits = habits.length;
 
           // Progress bar visualization (red -> yellow -> green)
@@ -11476,9 +11484,9 @@ ${aiAdvice}
 
           // Add habits list with completion checkmarks
           for (const habit of habits.slice(0, 8)) {
-            // For now, use currentStreak > 0 as completed indicator
-            const isCompleted = habit.currentStreak > 0;
-            const checkMark = isCompleted ? '✅' : '⭕';
+            // Check if habit was completed today using updatedAt field
+            const isCompletedToday = this.habitService.isCompletedToday(habit);
+            const checkMark = isCompletedToday ? '✅' : '⬜';
             message += `${checkMark} ${habit.title}\n`;
           }
 
@@ -11495,7 +11503,7 @@ ${aiAdvice}
               inline_keyboard: [
                 // Quick completion buttons for incomplete habits
                 ...habits
-                  .filter((h) => h.currentStreak === 0)
+                  .filter((h) => !this.habitService.isCompletedToday(h))
                   .slice(0, 4)
                   .map((habit) => [
                     {

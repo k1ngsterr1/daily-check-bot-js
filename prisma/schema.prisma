@@ -213,6 +213,7 @@ model Habit {
   icon              String?
   color             String?
   difficulty        Int            @default(0) // 1-5 scale
+  lastCompletedAt   DateTime?      @map("last_completed_at")
   createdAt         DateTime       @default(now()) @map("created_at")
   updatedAt         DateTime       @updatedAt @map("updated_at")
 
