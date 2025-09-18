@@ -1763,46 +1763,90 @@ ${statusMessage}
         await this.askForTimezone(ctx);
       } else {
         ctx.session.step = 'adding_habit';
-        await ctx.editMessageTextWithMarkdown(
-          '🔄 *Добавление привычки*\n\nВыберите готовый пример или введите название привычки вручную:\n\n⬇️ *Введите название привычки в поле для ввода ниже*',
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  {
-                    text: '💧 Пить воду каждый день по 2 литра',
-                    callback_data: 'habit_example_water',
-                  },
+        try {
+          await ctx.editMessageTextWithMarkdown(
+            '🔄 *Добавление привычки*\n\nВыберите готовый пример или введите название привычки вручную:\n\n⬇️ *Введите название привычки в поле для ввода ниже*',
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: '💧 Пить воду каждый день по 2 литра',
+                      callback_data: 'habit_example_water',
+                    },
+                  ],
+                  [
+                    {
+                      text: '😴 Ложиться спать до 23:00',
+                      callback_data: 'habit_example_sleep',
+                    },
+                  ],
+                  [
+                    {
+                      text: '🏃‍♂️ Заниматься спортом',
+                      callback_data: 'habit_example_workout',
+                    },
+                  ],
+                  [
+                    {
+                      text: '📚 Читать книги каждый день',
+                      callback_data: 'habit_example_reading',
+                    },
+                  ],
+                  [
+                    {
+                      text: '📝 Ввести свою привычку',
+                      callback_data: 'habit_custom_input',
+                    },
+                  ],
+                  [{ text: '⬅️ Назад', callback_data: 'back_to_menu' }],
                 ],
-                [
-                  {
-                    text: '😴 Ложиться спать до 23:00',
-                    callback_data: 'habit_example_sleep',
-                  },
-                ],
-                [
-                  {
-                    text: '🏃‍♂️ Заниматься спортом',
-                    callback_data: 'habit_example_workout',
-                  },
-                ],
-                [
-                  {
-                    text: '📚 Читать книги каждый день',
-                    callback_data: 'habit_example_reading',
-                  },
-                ],
-                [
-                  {
-                    text: '📝 Ввести свою привычку',
-                    callback_data: 'habit_custom_input',
-                  },
-                ],
-                [{ text: '⬅️ Назад', callback_data: 'back_to_menu' }],
-              ],
+              },
             },
-          },
-        );
+          );
+        } catch (error) {
+          // If editing fails (e.g., trying to edit a photo message), send a new message
+          await ctx.replyWithMarkdown(
+            '🔄 *Добавление привычки*\n\nВыберите готовый пример или введите название привычки вручную:\n\n⬇️ *Введите название привычки в поле для ввода ниже*',
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: '💧 Пить воду каждый день по 2 литра',
+                      callback_data: 'habit_example_water',
+                    },
+                  ],
+                  [
+                    {
+                      text: '😴 Ложиться спать до 23:00',
+                      callback_data: 'habit_example_sleep',
+                    },
+                  ],
+                  [
+                    {
+                      text: '🏃‍♂️ Заниматься спортом',
+                      callback_data: 'habit_example_workout',
+                    },
+                  ],
+                  [
+                    {
+                      text: '📚 Читать книги каждый день',
+                      callback_data: 'habit_example_reading',
+                    },
+                  ],
+                  [
+                    {
+                      text: '📝 Ввести свою привычку',
+                      callback_data: 'habit_custom_input',
+                    },
+                  ],
+                  [{ text: '⬅️ Назад', callback_data: 'back_to_menu' }],
+                ],
+              },
+            },
+          );
+        }
       }
     });
 
@@ -1820,12 +1864,19 @@ ${statusMessage}
           [{ text: '⬅️ Назад', callback_data: 'back_to_menu' }],
         ],
       };
-      await ctx.editMessageTextWithMarkdown(
-        '📝 *Мои задачи*\n\nВыберите действие:',
-        {
+      try {
+        await ctx.editMessageTextWithMarkdown(
+          '📝 *Мои задачи*\n\nВыберите действие:',
+          {
+            reply_markup: keyboard,
+          },
+        );
+      } catch (error) {
+        // If editing fails (e.g., trying to edit a photo message), send a new message
+        await ctx.replyWithMarkdown('📝 *Мои задачи*\n\nВыберите действие:', {
           reply_markup: keyboard,
-        },
-      );
+        });
+      }
     });
 
     this.bot.action('ai_chat', async (ctx) => {
@@ -1863,13 +1914,23 @@ ${statusMessage}
           ],
         ],
       };
-      await ctx.editMessageText(
-        '🚀 *Дополнительные функции*\n\nВыберите интересующий раздел:',
-        {
-          parse_mode: 'Markdown',
-          reply_markup: keyboard,
-        },
-      );
+      try {
+        await ctx.editMessageText(
+          '🚀 *Дополнительные функции*\n\nВыберите интересующий раздел:',
+          {
+            parse_mode: 'Markdown',
+            reply_markup: keyboard,
+          },
+        );
+      } catch (error) {
+        // If editing fails (e.g., trying to edit a photo message), send a new message
+        await ctx.replyWithMarkdown(
+          '🚀 *Дополнительные функции*\n\nВыберите интересующий раздел:',
+          {
+            reply_markup: keyboard,
+          },
+        );
+      }
     });
 
     // Additional functions handlers
