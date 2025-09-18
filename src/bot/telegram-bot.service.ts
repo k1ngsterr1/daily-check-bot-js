@@ -2477,7 +2477,7 @@ ${statusMessage}
 
       // Создаем прогресс-бар для достижения 5 друзей
       const progress = Math.min(referralStats.totalReferrals, 5);
-      const progressBar = '█'.repeat(progress) + '░'.repeat(5 - progress);
+      const progressBar = '█'.repeat(progress) + '⬜'.repeat(5 - progress);
 
       // Определяем следующее достижение
       let nextMilestone = '';
@@ -8801,7 +8801,7 @@ ${habitsProgressBar}${pomodoroStatus}${userStats}
   private createProgressBar(progress: number, length: number = 10): string {
     const filled = Math.round(progress * length);
     const empty = length - filled;
-    return '█'.repeat(filled) + '░'.repeat(empty);
+    return '█'.repeat(filled) + '⬜'.repeat(empty);
   }
 
   // Feedback system methods
@@ -11687,7 +11687,7 @@ ${aiAdvice}
 
           const progressBar =
             '█'.repeat(Math.floor(progressPercentage / 10)) +
-            '░'.repeat(10 - Math.floor(progressPercentage / 10));
+            '⬜'.repeat(10 - Math.floor(progressPercentage / 10));
 
           message += `${progressColor} **Прогресс:** ${progressBar} ${completedCount}/${totalHabits}\n\n`;
           message += `💎 **XP:** ${user.totalXp || 0} | 🏆 **Уровень:** ${user.level || 1}\n\n`;
@@ -11786,7 +11786,7 @@ ${aiAdvice}
 
     // Разные виды анимации в зависимости от уровня
     let barChar = '▓';
-    let emptyChar = '░';
+    let emptyChar = '⬜';
 
     if (currentLevel >= 4) {
       barChar = '🔥'; // Огонь для высокого уровня
@@ -16594,7 +16594,7 @@ ${this.getItemActivationMessage(itemType)}`,
       const progressBarLength = 10;
       const filledBars = Math.floor(progressRatio * progressBarLength);
       const emptyBars = progressBarLength - filledBars;
-      const progressBar = '█'.repeat(filledBars) + '░'.repeat(emptyBars);
+      const progressBar = '█'.repeat(filledBars) + '⬜'.repeat(emptyBars);
 
       const message = `
 📊 *Ваша статистика*
