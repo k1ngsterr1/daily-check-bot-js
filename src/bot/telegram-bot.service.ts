@@ -7788,25 +7788,36 @@ ${timeAdvice}
       ctx.userId,
     );
 
-    // Получаем статистику задач на сегодня
-    const todayTasks = await this.taskService.getTodayTasks(ctx.userId);
-    const completedTasks = todayTasks.filter(
-      (task) => task.status === 'COMPLETED',
+    // Получаем статистику привычек на сегодня
+    const todayHabits = await this.habitService.findHabitsByUserId(
+      ctx.userId,
+      true,
     );
-    const totalTasks = todayTasks.length;
+    const activeHabits = todayHabits.filter((habit) => habit.isActive);
+    const completedHabits: any[] = [];
 
-    // Создаем прогресс-бар для задач
-    let tasksProgressBar = '';
-    if (totalTasks > 0) {
-      // Создаем визуальный прогресс для каждой задачи — заполняется слева направо
-      const completedCount = completedTasks.length;
-      const taskProgress =
+    // Проверяем какие привычки выполнены сегодня
+    for (const habit of activeHabits) {
+      const isCompleted = await this.habitService.isCompletedToday(habit);
+      if (isCompleted) {
+        completedHabits.push(habit);
+      }
+    }
+
+    const totalHabits = activeHabits.length;
+
+    // Создаем прогресс-бар для привычек
+    let habitsProgressBar = '';
+    if (totalHabits > 0) {
+      // Создаем визуальный прогресс для каждой привычки — заполняется слева направо
+      const completedCount = completedHabits.length;
+      const habitProgress =
         '🟩'.repeat(completedCount) +
-        '⬜'.repeat(Math.max(0, totalTasks - completedCount));
+        '⬜'.repeat(Math.max(0, totalHabits - completedCount));
 
-      tasksProgressBar = `\n📋 **Задачи на ${new Date().toLocaleDateString('ru-RU')}:**\nПрогресс: ${taskProgress} ${completedCount}/${totalTasks}`;
+      habitsProgressBar = `\n🎯 **Привычки на ${new Date().toLocaleDateString('ru-RU')}:**\nПрогресс: ${habitProgress} ${completedCount}/${totalHabits}`;
     } else {
-      tasksProgressBar = `\n📋 **Задачи на сегодня:** Пока нет задач`;
+      habitsProgressBar = `\n🎯 **Привычки на сегодня:** Пока нет привычек`;
     }
 
     // Проверяем активную помодоро сессию
@@ -7851,7 +7862,7 @@ ${timeAdvice}
 👋 *Привет, ${this.userService.getDisplayName(user)}!*
 
 ${statusText}🤖 Я Ticky AI – твой личный AI помощник для управления задачами и привычками.
-${tasksProgressBar}${pomodoroStatus}${userStats}
+${habitsProgressBar}${pomodoroStatus}${userStats}
     `;
 
     if (shouldEdit) {

@@ -394,9 +394,14 @@ export class NotificationService {
     this.logger.log(`Snoozed habit ${habitId} for ${minutes} minutes`);
   }
 
-  // Cron job для проверки и отправки напоминаний каждую минуту
-  @Cron(CronExpression.EVERY_MINUTE)
+  // Cron job для проверки и отправки напоминаний каждую минуту - ОТКЛЮЧЕН
+  // Теперь уведомления только для пользователей с активной зависимостью
+  // @Cron(CronExpression.EVERY_MINUTE)
   async checkAndSendReminders() {
+    // DISABLED: This was sending notifications to ALL users
+    // Now only dependency support users get morning/evening messages
+    return;
+
     try {
       const now = new Date();
       // Ищем напоминания, которые должны быть отправлены в текущую минуту
@@ -532,8 +537,15 @@ export class NotificationService {
     this.logger.log('Running morning motivation messages');
 
     try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Start of today
+
       const activeDependencies = await this.prisma.dependencySupport.findMany({
-        where: { status: 'ACTIVE' },
+        where: {
+          status: 'ACTIVE',
+          // Only send if we haven't sent a morning message today
+          OR: [{ lastMorningSent: null }, { lastMorningSent: { lt: today } }],
+        },
         include: { user: true },
       });
 
@@ -559,10 +571,13 @@ export class NotificationService {
             },
           );
 
-          // Обновляем статистику
+          // Обновляем статистику и отмечаем время отправки
           await this.prisma.dependencySupport.update({
             where: { id: dependency.id },
-            data: { totalPromises: dependency.totalPromises + 1 },
+            data: {
+              totalPromises: dependency.totalPromises + 1,
+              lastMorningSent: new Date(), // Mark when we sent morning message
+            },
           });
         } catch (error) {
           this.logger.error(

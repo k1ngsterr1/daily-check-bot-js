@@ -445,6 +445,10 @@ model DependencySupport {
   lastPromiseDate DateTime?        @map("last_promise_date")
   lastCheckDate   DateTime?        @map("last_check_date")
   
+  // Notification tracking - avoid duplicate messages
+  lastMorningSent DateTime?        @map("last_morning_sent")
+  lastEveningSent DateTime?        @map("last_evening_sent")
+  
   // Timestamps
   createdAt       DateTime         @default(now()) @map("created_at")
   updatedAt       DateTime         @updatedAt @map("updated_at")
