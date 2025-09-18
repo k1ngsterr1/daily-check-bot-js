@@ -11693,11 +11693,11 @@ ${aiAdvice}
           message += `💎 **XP:** ${user.totalXp || 0} | 🏆 **Уровень:** ${user.level || 1}\n\n`;
           message += `📅 **${new Date().toLocaleDateString('ru-RU')}**\n\n`;
 
-          // Add habits list with completion checkmarks
+          // Add habits list with checkbox indicators
           for (const habit of habits.slice(0, 8)) {
             // Check if habit was completed today using updatedAt field
             const isCompletedToday = this.habitService.isCompletedToday(habit);
-            const checkMark = isCompletedToday ? '✅' : '⬜';
+            const checkMark = isCompletedToday ? '☑️' : '⬜';
             message += `${checkMark} ${habit.title}\n`;
           }
 
