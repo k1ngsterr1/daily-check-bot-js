@@ -263,6 +263,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 /start - Начать работу с ботом
 /help - Показать эту справку
 /menu - Главное меню
+/home - Быстро в главное меню
 /feedback - Оставить отзыв о боте
 /tasks - Управление задачами
 /habits - Управление привычками
@@ -270,6 +271,9 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 /focus - Сессия фокуса
 /stats - Статистика
 /settings - Настройки
+
+*Быстрый доступ:*
+🏠 Напишите "меню", "домой" или "главная" для быстрого возврата в главное меню
 
 *Быстрые действия:*
 📝 Добавить задачу
@@ -307,6 +311,25 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         this.logger.error('Error in menu command:', error);
         await ctx.replyWithMarkdown(
           '❌ Произошла ошибка при открытии меню. Попробуйте еще раз.',
+        );
+      }
+    });
+
+    // Home command - quick access to main menu
+    this.bot.command('home', async (ctx) => {
+      try {
+        await ctx.answerCbQuery?.();
+
+        // Clear session state when going to main menu
+        ctx.session.step = undefined;
+        ctx.session.pendingAction = undefined;
+        ctx.session.tempData = undefined;
+
+        await this.showMainMenu(ctx);
+      } catch (error) {
+        this.logger.error('Error in home command:', error);
+        await ctx.replyWithMarkdown(
+          '❌ Произошла ошибка при открытии главного меню. Попробуйте еще раз.',
         );
       }
     });
@@ -716,6 +739,26 @@ ${statusMessage}
         return; // Let command handlers process it
       }
 
+      // Quick navigation to main menu
+      const lowerText = ctx.message.text.toLowerCase().trim();
+      if (
+        lowerText === 'меню' ||
+        lowerText === 'главное меню' ||
+        lowerText === 'домой' ||
+        lowerText === 'главная' ||
+        lowerText === 'начало' ||
+        lowerText === 'home' ||
+        lowerText === 'menu'
+      ) {
+        // Clear session state
+        ctx.session.step = undefined;
+        ctx.session.pendingAction = undefined;
+        ctx.session.tempData = undefined;
+
+        await this.showMainMenu(ctx);
+        return;
+      }
+
       // Handle AI Chat mode
       if (ctx.session.aiChatMode) {
         await this.handleAIChatMessage(ctx, ctx.message.text);
@@ -969,6 +1012,7 @@ ${statusMessage}
 
           // Сбрасываем шаг
           ctx.session.step = undefined;
+          ctx.session.pendingAction = undefined;
 
           // Проверяем статус онбординга в БД — если пользователь ещё не завершил онбординг,
           // отправляем короткое подтверждение и кнопку к FAQ (далее в онбординге)
@@ -1048,6 +1092,7 @@ ${statusMessage}
           });
 
           ctx.session.step = undefined;
+          ctx.session.pendingAction = undefined;
 
           await ctx.replyWithMarkdown(
             `
@@ -5041,6 +5086,12 @@ XP (опыт) начисляется за выполнение задач. С к
 
     this.bot.action('back_to_menu', async (ctx) => {
       await ctx.answerCbQuery();
+
+      // Clear session state when returning to main menu
+      ctx.session.step = undefined;
+      ctx.session.pendingAction = undefined;
+      ctx.session.tempData = undefined;
+
       await this.showMainMenu(ctx, true);
     });
 
@@ -7704,6 +7755,11 @@ ${timeAdvice}
   }
 
   private async showMainMenu(ctx: BotContext, shouldEdit: boolean = false) {
+    // Clear any session state when showing main menu
+    ctx.session.step = undefined;
+    ctx.session.pendingAction = undefined;
+    ctx.session.tempData = undefined;
+
     const keyboard = {
       inline_keyboard: [
         [
@@ -7832,6 +7888,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
       await this.bot.telegram.setMyCommands([
         { command: 'start', description: '🎬 Начать работу с ботом' },
         { command: 'menu', description: '🏠 Главное меню' },
+        { command: 'home', description: '🏠 Быстро в главное меню' },
         { command: 'tasks', description: '📝 Мои задачи' },
         { command: 'habits', description: '🎯 Мои привычки' },
         { command: 'reminders', description: '⏰ Активные напоминания' },
@@ -7908,7 +7965,7 @@ ${tasksProgressBar}${pomodoroStatus}${userStats}
           { text: '📋 Все задачи', callback_data: 'tasks_list' },
         ],
         [{ text: '🤖 AI-совет по задачам', callback_data: 'tasks_ai_advice' }],
-        [{ text: '🔙 Назад в меню', callback_data: 'back_to_main' }],
+        [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
       ],
     };
 
@@ -9507,8 +9564,18 @@ _Попробуйте еще раз_
 
       const transcribedText = await this.transcribeAudio(ctx, type);
       if (!transcribedText) {
+        this.logger.error(
+          `Failed to transcribe ${messageType} for user ${ctx.userId}`,
+        );
         await ctx.replyWithMarkdown(
-          `❌ Не удалось распознать ${messageType}. Попробуйте еще раз.`,
+          `❌ Не удалось распознать ${messageType}. Возможные причины:\n\n• Слишком тихий звук\n• Плохое качество записи\n• Проблемы с сервисом распознавания\n\nПопробуйте еще раз или напишите текстом.`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+              ],
+            },
+          },
         );
         return;
       }
@@ -9556,6 +9623,15 @@ _Попробуйте еще раз_
         return;
       }
 
+      // Check if this might be a task based on keywords and patterns
+      if (this.isTaskRequest(normalizedTranscribed)) {
+        this.logger.log(
+          `Audio: treating as task, normalizedText="${normalizedTranscribed}"`,
+        );
+        await this.createTaskFromText(ctx, normalizedTranscribed);
+        return;
+      }
+
       // Handle voice commands for menu
       if (
         normalizedTranscribed.toLowerCase().includes('меню') ||
@@ -9579,6 +9655,7 @@ _Попробуйте еще раз_
 /start - Начать работу с ботом
 /help - Показать эту справку  
 /menu - Главное меню
+/home - Быстро в главное меню
 /feedback - Оставить отзыв о боте
 
 *Голосовые команды:*
@@ -9586,6 +9663,9 @@ _Попробуйте еще раз_
 🎤 "Добавить задачу" - создать новую задачу
 🎤 "Показать меню" - открыть главное меню
 🎤 "Что ты умеешь?" - показать справку
+
+*Быстрый доступ:*
+🏠 Напишите "меню" или "домой" для возврата в главное меню
 
 *Быстрые действия:*
 📝 Добавить задачу или напоминание
@@ -9641,6 +9721,7 @@ _Попробуйте еще раз_
     try {
       // Check if message exists and has the right type
       if (!ctx.message) {
+        this.logger.error(`No message found for ${type} transcription`);
         return null;
       }
 
@@ -9648,16 +9729,32 @@ _Попробуйте еще раз_
 
       if (type === 'voice' && 'voice' in ctx.message) {
         fileId = ctx.message.voice.file_id;
+        this.logger.log(`Processing voice message with file_id: ${fileId}`);
       } else if (type === 'audio' && 'audio' in ctx.message) {
         fileId = ctx.message.audio.file_id;
+        this.logger.log(`Processing audio message with file_id: ${fileId}`);
       } else {
+        this.logger.error(`Invalid message type for ${type} transcription`);
         return null;
       }
 
       // Get file info and download
+      this.logger.log(`Getting file link for ${type} message...`);
       const fileLink = await ctx.telegram.getFileLink(fileId);
+      this.logger.log(`File link obtained: ${fileLink.href}`);
+
       const response = await fetch(fileLink.href);
+      if (!response.ok) {
+        this.logger.error(
+          `Failed to download ${type} file: ${response.status} ${response.statusText}`,
+        );
+        return null;
+      }
+
       const buffer = await response.arrayBuffer();
+      this.logger.log(
+        `Downloaded ${type} file, size: ${buffer.byteLength} bytes`,
+      );
 
       // Create a File object for OpenAI
       const fileName = type === 'voice' ? 'voice.ogg' : 'audio.mp3';
@@ -9665,7 +9762,9 @@ _Попробуйте еще раз_
       const file = new File([buffer], fileName, { type: mimeType });
 
       // Use OpenAI Whisper for transcription
+      this.logger.log(`Sending ${type} file to OpenAI for transcription...`);
       const transcription = await this.openaiService.transcribeAudio(file);
+      this.logger.log(`Transcription result: "${transcription}"`);
 
       return transcription;
     } catch (error) {
@@ -10992,6 +11091,18 @@ _Просто напишите время в удобном формате_
 
     // Проверяем, что это задача БЕЗ конкретного времени или С временными паттернами
     const taskPatterns = [
+      // Прямые указания на задачи
+      /нужно\s+/i,
+      /надо\s+/i,
+      /должен\s+/i,
+      /хочу\s+/i,
+      /планирую\s+/i,
+      /собираюсь\s+/i,
+      /требуется\s+/i,
+      /необходимо\s+/i,
+      /важно\s+/i,
+      /срочно\s+/i,
+
       // Универсальный паттерн для глаголов в начале фразы (инфинитив)
       /^[а-яё]+ать\s+/i, // глаголы на -ать: делать, читать, писать
       /^[а-яё]+еть\s+/i, // глаголы на -еть: смотреть, видеть
@@ -13932,6 +14043,10 @@ ${this.getItemActivationMessage(itemType)}`,
         targetCount: 1,
       });
 
+      // Clear session state after successful habit creation
+      ctx.session.step = undefined;
+      ctx.session.pendingAction = undefined;
+
       await ctx.replyWithMarkdown(
         `✅ *Привычка "${habitName}" создана!*
 
@@ -15596,6 +15711,10 @@ ${this.getItemActivationMessage(itemType)}`,
 
       // Increment usage counter for habits
       await this.billingService.incrementUsage(ctx.userId, 'dailyHabits');
+
+      // Clear session state after successful habit creation
+      ctx.session.step = undefined;
+      ctx.session.pendingAction = undefined;
 
       // Get current usage for display
       const usageInfo = await this.billingService.checkUsageLimit(

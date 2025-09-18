@@ -104,6 +104,10 @@ export class OpenAIService {
 
   async transcribeAudio(audioFile: File): Promise<string | null> {
     try {
+      this.logger.log(
+        `Starting audio transcription for file: ${audioFile.name}, size: ${audioFile.size} bytes`,
+      );
+
       const transcription = await this.openai.audio.transcriptions.create({
         file: audioFile,
         model: 'whisper-1',
@@ -111,9 +115,19 @@ export class OpenAIService {
         response_format: 'text',
       });
 
+      this.logger.log(
+        `Transcription completed successfully: "${transcription}"`,
+      );
       return transcription || null;
     } catch (error) {
       this.logger.error('Error transcribing audio:', error);
+
+      // Log more details about the error
+      if (error instanceof Error) {
+        this.logger.error(`Error message: ${error.message}`);
+        this.logger.error(`Error stack: ${error.stack}`);
+      }
+
       return null;
     }
   }
