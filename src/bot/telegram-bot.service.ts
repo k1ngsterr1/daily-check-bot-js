@@ -1057,6 +1057,12 @@ ${statusMessage}
                         callback_data: 'back_to_menu',
                       },
                     ],
+                    [
+                      {
+                        text: '❓ Что еще я умею?',
+                        callback_data: 'faq_support',
+                      },
+                    ],
                   ],
                 },
               },
@@ -6888,6 +6894,10 @@ ${recommendation}
               text: '🏠 Главное меню',
               callback_data: 'back_to_menu',
             },
+            {
+              text: '❓ Что еще я умею?',
+              callback_data: 'faq_support',
+            },
           ],
         ],
       };
@@ -11408,6 +11418,7 @@ _Просто напишите время в удобном формате_
               ],
               [{ text: '🎯 Мои привычки', callback_data: 'habits_list' }],
               [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+              [{ text: '❓ Что еще я умею?', callback_data: 'faq_support' }],
             ],
           },
         });
@@ -15777,6 +15788,12 @@ ${this.getItemActivationMessage(itemType)}`,
               {
                 text: '🏠 Главное меню',
                 callback_data: 'back_to_menu',
+              },
+            ],
+            [
+              {
+                text: '❓ Что еще я умею?',
+                callback_data: 'faq_support',
               },
             ],
           ],
