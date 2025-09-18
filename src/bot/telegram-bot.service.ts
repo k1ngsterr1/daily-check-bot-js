@@ -22,6 +22,7 @@ import { AiContextService } from '../services/ai-context.service';
 import { PaymentService } from '../services/payment.service';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationService } from '../services/notification.service';
+import * as path from 'path';
 
 @Injectable()
 export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
@@ -7880,13 +7881,29 @@ ${habitsProgressBar}${pomodoroStatus}${userStats}
           this.logger.log(
             'Edit resulted in no-op (all tasks identical), sending a new message instead',
           );
-          await ctx.replyWithMarkdown(message, { reply_markup: keyboard });
+          // Send photo with message for new messages
+          await ctx.replyWithPhoto(
+            { source: path.join(__dirname, '../../src/TickyAI.png') },
+            {
+              caption: message,
+              parse_mode: 'Markdown',
+              reply_markup: keyboard,
+            },
+          );
         } else {
           throw err;
         }
       }
     } else {
-      await ctx.replyWithMarkdown(message, { reply_markup: keyboard });
+      // Send photo with message for initial menu display
+      await ctx.replyWithPhoto(
+        { source: path.join(__dirname, '../../src/TickyAI.png') },
+        {
+          caption: message,
+          parse_mode: 'Markdown',
+          reply_markup: keyboard,
+        },
+      );
     }
 
     // Check if we should show feedback request
