@@ -15954,7 +15954,12 @@ ${this.getItemActivationMessage(itemType)}`,
 
     // Check if this is a callback query (can edit) or command (need to reply)
     if (ctx.callbackQuery) {
-      await ctx.editMessageTextWithMarkdown(message, keyboard);
+      try {
+        await ctx.editMessageTextWithMarkdown(message, keyboard);
+      } catch (error) {
+        // Fallback for photo messages - reply instead of edit
+        await ctx.replyWithMarkdown(message, keyboard);
+      }
     } else {
       await ctx.replyWithMarkdown(message, keyboard);
     }
