@@ -14,6 +14,7 @@ export declare class HabitService {
         habit: Habit;
         xpGained: number;
     }>;
+    isCompletedToday(habit: Habit): boolean;
     getHabitStats(userId: string): Promise<{
         total: number;
         active: number;

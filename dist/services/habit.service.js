@@ -76,10 +76,20 @@ let HabitService = HabitService_1 = class HabitService {
                 totalCompletions: habit.totalCompletions + 1,
                 currentStreak: habit.currentStreak + 1,
                 maxStreak: Math.max(habit.maxStreak, habit.currentStreak + 1),
+                updatedAt: new Date(),
             },
         });
         this.logger.log(`Completed habit: ${habitId}, XP gained: ${habit.xpReward}`);
         return { habit: updatedHabit, xpGained: habit.xpReward };
+    }
+    isCompletedToday(habit) {
+        if (!habit.updatedAt)
+            return false;
+        const today = new Date();
+        const lastUpdate = new Date(habit.updatedAt);
+        return (today.getFullYear() === lastUpdate.getFullYear() &&
+            today.getMonth() === lastUpdate.getMonth() &&
+            today.getDate() === lastUpdate.getDate());
     }
     async getHabitStats(userId) {
         const [total, active, habits] = await Promise.all([

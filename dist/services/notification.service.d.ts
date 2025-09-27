@@ -2,14 +2,18 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import { PrismaService } from '../database/prisma.service';
 import { TelegramBotService } from '../bot/telegram-bot.service';
 import { HabitService } from './habit.service';
+import { OpenAIService } from './openai.service';
+import { TaskService } from './task.service';
 export declare class NotificationService {
     private readonly prisma;
     private readonly telegramBotService;
     private readonly habitService;
+    private readonly openaiService;
+    private readonly taskService;
     private readonly schedulerRegistry;
     private readonly logger;
     private activeReminders;
-    constructor(prisma: PrismaService, telegramBotService: TelegramBotService, habitService: HabitService, schedulerRegistry: SchedulerRegistry);
+    constructor(prisma: PrismaService, telegramBotService: TelegramBotService, habitService: HabitService, openaiService: OpenAIService, taskService: TaskService, schedulerRegistry: SchedulerRegistry);
     onModuleInit(): Promise<void>;
     loadActiveHabitReminders(): Promise<void>;
     scheduleHabitReminder(habit: any): Promise<void>;
@@ -27,4 +31,6 @@ export declare class NotificationService {
     sendEveningCheck(): Promise<void>;
     private generateMorningMotivation;
     private generateEveningCheck;
+    sendMorningAINotifications(): Promise<void>;
+    sendEveningAISummary(): Promise<void>;
 }

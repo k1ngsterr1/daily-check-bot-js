@@ -52,18 +52,24 @@ const schedule_1 = require("@nestjs/schedule");
 const prisma_service_1 = require("../database/prisma.service");
 const telegram_bot_service_1 = require("../bot/telegram-bot.service");
 const habit_service_1 = require("./habit.service");
+const openai_service_1 = require("./openai.service");
+const task_service_1 = require("./task.service");
 const cron = __importStar(require("node-cron"));
 let NotificationService = NotificationService_1 = class NotificationService {
     prisma;
     telegramBotService;
     habitService;
+    openaiService;
+    taskService;
     schedulerRegistry;
     logger = new common_1.Logger(NotificationService_1.name);
     activeReminders = new Map();
-    constructor(prisma, telegramBotService, habitService, schedulerRegistry) {
+    constructor(prisma, telegramBotService, habitService, openaiService, taskService, schedulerRegistry) {
         this.prisma = prisma;
         this.telegramBotService = telegramBotService;
         this.habitService = habitService;
+        this.openaiService = openaiService;
+        this.taskService = taskService;
         this.schedulerRegistry = schedulerRegistry;
     }
     async onModuleInit() {
@@ -71,19 +77,7 @@ let NotificationService = NotificationService_1 = class NotificationService {
         await this.loadActiveHabitReminders();
     }
     async loadActiveHabitReminders() {
-        const activeHabits = await this.prisma.habit.findMany({
-            where: {
-                isActive: true,
-                reminderTime: { not: null },
-            },
-            include: {
-                user: true,
-            },
-        });
-        for (const habit of activeHabits) {
-            await this.scheduleHabitReminder(habit);
-        }
-        this.logger.log(`Loaded ${activeHabits.length} habit reminders`);
+        this.logger.log('Individual habit reminders disabled - using AI notifications only');
     }
     async scheduleHabitReminder(habit) {
         const cronPattern = this.parseReminderPattern(habit.reminderTime, habit.frequency);
@@ -278,17 +272,7 @@ let NotificationService = NotificationService_1 = class NotificationService {
         }
     }
     async updateHabitReminder(habitId) {
-        const habit = await this.prisma.habit.findUnique({
-            where: { id: habitId },
-            include: { user: true },
-        });
-        if (!habit) {
-            return;
-        }
-        await this.cancelHabitReminder(habitId);
-        if (habit.isActive && habit.reminderTime) {
-            await this.scheduleHabitReminder(habit);
-        }
+        this.logger.log(`Individual habit reminder update skipped for habit ${habitId} - using AI notifications only`);
     }
     async snoozeHabitReminder(habitId, minutes) {
         const delayMs = minutes * 60 * 1000;
@@ -304,6 +288,7 @@ let NotificationService = NotificationService_1 = class NotificationService {
         this.logger.log(`Snoozed habit ${habitId} for ${minutes} minutes`);
     }
     async checkAndSendReminders() {
+        return;
         try {
             const now = new Date();
             const currentMinuteStart = new Date(now);
@@ -403,8 +388,13 @@ let NotificationService = NotificationService_1 = class NotificationService {
     async sendMorningMotivation() {
         this.logger.log('Running morning motivation messages');
         try {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
             const activeDependencies = await this.prisma.dependencySupport.findMany({
-                where: { status: 'ACTIVE' },
+                where: {
+                    status: 'ACTIVE',
+                    OR: [{ lastMorningSent: null }, { lastMorningSent: { lt: today } }],
+                },
                 include: { user: true },
             });
             for (const dependency of activeDependencies) {
@@ -425,7 +415,10 @@ let NotificationService = NotificationService_1 = class NotificationService {
                     });
                     await this.prisma.dependencySupport.update({
                         where: { id: dependency.id },
-                        data: { totalPromises: dependency.totalPromises + 1 },
+                        data: {
+                            totalPromises: dependency.totalPromises + 1,
+                            lastMorningSent: new Date(),
+                        },
                     });
                 }
                 catch (error) {
@@ -517,14 +510,133 @@ let NotificationService = NotificationService_1 = class NotificationService {
         };
         return checks[dependencyType] || checks.SMOKING;
     }
+    async sendMorningAINotifications() {
+        this.logger.log('Running morning AI notifications for all users');
+        try {
+            const users = await this.prisma.user.findMany({
+                where: {
+                    timezone: { not: null },
+                    OR: [
+                        { habits: { some: { isActive: true } } },
+                        { tasks: { some: { status: 'PENDING' } } },
+                    ],
+                },
+                include: {
+                    habits: { where: { isActive: true } },
+                    tasks: { where: { status: 'PENDING' } },
+                },
+            });
+            for (const user of users) {
+                try {
+                    const tasksText = user.tasks.map((t) => t.title).join(', ');
+                    const habitsText = user.habits.map((h) => h.title).join(', ');
+                    const aiPrompt = `
+Создай короткое (не более 2-3 предложений) мотивационное утреннее сообщение на русском языке для пользователя.
+
+Задачи на сегодня: ${tasksText || 'Нет задач'}
+Привычки: ${habitsText || 'Нет привычек'}
+
+Сообщение должно быть:
+- Энергичным и мотивирующим
+- Кратким и емким
+- Содержать практические советы
+- Начинаться с эмодзи утра (🌅 или ☀️)
+`;
+                    const aiAdvice = await this.openaiService.getAIResponse(aiPrompt);
+                    await this.telegramBotService.sendMessageToUser(parseInt(user.id), `${aiAdvice}\n\n💪 Удачного дня!`, {
+                        reply_markup: {
+                            inline_keyboard: [
+                                [{ text: '🎯 Мои привычки', callback_data: 'my_habits' }],
+                                [{ text: '📝 Мои задачи', callback_data: 'my_tasks' }],
+                            ],
+                        },
+                        parse_mode: 'Markdown',
+                    });
+                    this.logger.log(`Sent morning AI notification to user ${user.id}`);
+                }
+                catch (error) {
+                    this.logger.error(`Failed to send morning AI notification to ${user.id}:`, error);
+                }
+            }
+            this.logger.log(`Sent morning AI notifications to ${users.length} users`);
+        }
+        catch (error) {
+            this.logger.error('Error in morning AI notifications job:', error);
+        }
+    }
+    async sendEveningAISummary() {
+        this.logger.log('Running evening AI summary for all users');
+        try {
+            const users = await this.prisma.user.findMany({
+                where: {
+                    timezone: { not: null },
+                    OR: [
+                        { habits: { some: { isActive: true } } },
+                        {
+                            tasks: {
+                                some: {
+                                    status: 'COMPLETED',
+                                    updatedAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+                                },
+                            },
+                        },
+                    ],
+                },
+                include: {
+                    habits: { where: { isActive: true } },
+                    tasks: {
+                        where: {
+                            status: 'COMPLETED',
+                            updatedAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+                        },
+                    },
+                },
+            });
+            for (const user of users) {
+                try {
+                    const completedTasksText = user.tasks.map((t) => t.title).join(', ');
+                    const habitsText = user.habits.map((h) => h.title).join(', ');
+                    const aiPrompt = `
+Создай короткий (не более 3-4 предложений) вечерний анализ дня на русском языке для пользователя.
+
+Выполненные задачи сегодня: ${completedTasksText || 'Нет выполненных задач'}
+Привычки пользователя: ${habitsText || 'Нет привычек'}
+
+Сообщение должно быть:
+- Анализирующим прогресс
+- Поддерживающим
+- Содержать рекомендации на завтра
+- Начинаться с вечернего эмодзи (🌙 или 🌆)
+`;
+                    const aiAnalysis = await this.openaiService.getAIResponse(aiPrompt);
+                    await this.telegramBotService.sendMessageToUser(parseInt(user.id), `${aiAnalysis}\n\n😴 Спокойной ночи!`, {
+                        reply_markup: {
+                            inline_keyboard: [
+                                [{ text: '📊 Мой прогресс', callback_data: 'my_progress' }],
+                                [
+                                    {
+                                        text: '🎯 Завтра начнем сначала!',
+                                        callback_data: 'back_to_menu',
+                                    },
+                                ],
+                            ],
+                        },
+                        parse_mode: 'Markdown',
+                    });
+                    this.logger.log(`Sent evening AI summary to user ${user.id}`);
+                }
+                catch (error) {
+                    this.logger.error(`Failed to send evening AI summary to ${user.id}:`, error);
+                }
+            }
+            this.logger.log(`Sent evening AI summaries to ${users.length} users`);
+        }
+        catch (error) {
+            this.logger.error('Error in evening AI summary job:', error);
+        }
+    }
 };
 exports.NotificationService = NotificationService;
-__decorate([
-    (0, schedule_1.Cron)(schedule_1.CronExpression.EVERY_MINUTE),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", []),
-    __metadata("design:returntype", Promise)
-], NotificationService.prototype, "checkAndSendReminders", null);
 __decorate([
     (0, schedule_1.Cron)(schedule_1.CronExpression.EVERY_DAY_AT_MIDNIGHT),
     __metadata("design:type", Function),
@@ -543,12 +655,26 @@ __decorate([
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", Promise)
 ], NotificationService.prototype, "sendEveningCheck", null);
+__decorate([
+    (0, schedule_1.Cron)('0 9 * * *'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], NotificationService.prototype, "sendMorningAINotifications", null);
+__decorate([
+    (0, schedule_1.Cron)('0 21 * * *'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], NotificationService.prototype, "sendEveningAISummary", null);
 exports.NotificationService = NotificationService = NotificationService_1 = __decorate([
     (0, common_1.Injectable)(),
     __param(1, (0, common_1.Inject)((0, common_1.forwardRef)(() => telegram_bot_service_1.TelegramBotService))),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         telegram_bot_service_1.TelegramBotService,
         habit_service_1.HabitService,
+        openai_service_1.OpenAIService,
+        task_service_1.TaskService,
         schedule_1.SchedulerRegistry])
 ], NotificationService);
 //# sourceMappingURL=notification.service.js.map
