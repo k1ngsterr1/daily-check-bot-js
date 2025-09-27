@@ -12,6 +12,7 @@ import {
   OpenAIService,
   AiContextService,
   PaymentService,
+  SubscriptionService,
 } from './services';
 import { NotificationService } from './services/notification.service';
 import { TelegramBotModule } from './bot/telegram-bot.module';
@@ -35,6 +36,7 @@ import { TelegramBotModule } from './bot/telegram-bot.module';
     OpenAIService,
     AiContextService,
     PaymentService,
+    SubscriptionService,
     NotificationService,
   ],
 })
