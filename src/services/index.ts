@@ -7,3 +7,4 @@ export { OpenAIService } from './openai.service';
 export { AiContextService } from './ai-context.service';
 export { PaymentService } from './payment.service';
 export { BillingService } from './billing.service';
+export { SubscriptionService } from './subscription.service';

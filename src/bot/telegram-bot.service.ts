@@ -20,6 +20,7 @@ import { HabitService } from '../services/habit.service';
 import { BillingService } from '../services/billing.service';
 import { AiContextService } from '../services/ai-context.service';
 import { PaymentService } from '../services/payment.service';
+import { SubscriptionService } from '../services/subscription.service';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationService } from '../services/notification.service';
 import * as path from 'path';
@@ -93,6 +94,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     private readonly billingService: BillingService,
     private readonly aiContextService: AiContextService,
     private readonly paymentService: PaymentService,
+    private readonly subscriptionService: SubscriptionService,
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => NotificationService))
     private readonly notificationService: NotificationService,
@@ -728,6 +730,48 @@ ${statusMessage}
       await this.showOnboardingStep3(ctx);
     });
 
+    // 🔧 Обработчики подписки и лимитов
+    this.bot.action('subscription_status', async (ctx) => {
+      await ctx.answerCbQuery();
+      await this.subscriptionService.showSubscriptionStatus(ctx);
+    });
+
+    this.bot.action('get_premium', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown(
+        `💎 **Premium подписка**\n\n🚀 **Получите все возможности бота:**\n• ♾️ Неограниченные задачи и привычки\n• 🤖 Безлимитные запросы к ИИ\n• 🍅 Неограниченные сессии помодоро\n• 🎭 Неограниченные зависимости\n• ⚡ Приоритетная поддержка\n\n💰 **Цена:** 199₽/месяц\n\n🎁 **Первые 7 дней бесплатно!**`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '💳 Оплатить Premium', callback_data: 'pay_premium' }],
+              [{ text: '📊 Мои лимиты', callback_data: 'subscription_status' }],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    });
+
+    this.bot.action('pay_premium', async (ctx) => {
+      await ctx.answerCbQuery();
+      await ctx.editMessageTextWithMarkdown(
+        `💳 **Оплата Premium**\n\nВ разработке... Скоро будет доступна оплата через:\n• 💳 Банковские карты\n• 📱 СБП\n• 🥝 QIWI\n\n📞 **Пока что свяжитесь с поддержкой** для активации Premium`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '📞 Связаться с поддержкой',
+                  url: 'https://t.me/your_support_bot',
+                },
+              ],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        },
+      );
+    });
+
     // Handle text input during onboarding
     this.bot.on('text', async (ctx) => {
       const user = await this.getOrCreateUser(ctx);
@@ -755,6 +799,8 @@ ${statusMessage}
         ctx.session.step = undefined;
         ctx.session.pendingAction = undefined;
         ctx.session.tempData = undefined;
+        ctx.session.aiChatMode = false; // 🔧 Автоматически завершаем AI чат при переходе в главное меню
+        ctx.session.aiHabitCreationMode = false;
 
         await this.showMainMenu(ctx);
         return;
@@ -1089,6 +1135,40 @@ ${statusMessage}
         }
 
         try {
+          // 🔧 Проверяем лимит привычек перед созданием
+          const habitLimitCheck = await this.subscriptionService.checkLimit(
+            ctx.userId,
+            'habits',
+          );
+
+          if (!habitLimitCheck.allowed) {
+            const limitMessage = this.subscriptionService.getLimitMessage(
+              'habits',
+              habitLimitCheck.current,
+              habitLimitCheck.limit,
+            );
+            await ctx.replyWithMarkdown(limitMessage, {
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: '💎 Получить Premium',
+                      callback_data: 'get_premium',
+                    },
+                  ],
+                  [
+                    {
+                      text: '📊 Мои лимиты',
+                      callback_data: 'subscription_status',
+                    },
+                  ],
+                  [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+                ],
+              },
+            });
+            return;
+          }
+
           // Create the habit using the habit service
           await this.habitService.createHabit({
             userId: ctx.userId,
@@ -1140,6 +1220,17 @@ ${statusMessage}
           `Processing reminder request: "${ctx.message.text}" for user ${ctx.userId}`,
         );
         await this.processReminderFromText(ctx, ctx.message.text);
+        return;
+      }
+
+      // 🔧 Handle reply keyboard button commands (clear AI chat mode first)
+      const buttonText = ctx.message.text.trim();
+      if (this.isReplyKeyboardButton(buttonText)) {
+        // Автоматически завершаем AI чат при нажатии любой кнопки клавиатуры
+        ctx.session.aiChatMode = false;
+        ctx.session.aiHabitCreationMode = false;
+
+        await this.handleReplyKeyboardButton(ctx, buttonText);
         return;
       }
 
@@ -5159,6 +5250,8 @@ XP (опыт) начисляется за выполнение задач. С к
       ctx.session.step = undefined;
       ctx.session.pendingAction = undefined;
       ctx.session.tempData = undefined;
+      ctx.session.aiChatMode = false; // 🔧 Автоматически завершаем AI чат при переходе в главное меню
+      ctx.session.aiHabitCreationMode = false;
 
       await this.showMainMenu(ctx, true);
     });
@@ -8167,15 +8260,36 @@ ${habitsProgressBar}${pomodoroStatus}${userStats}
 
   private async handleTaskCreation(ctx: BotContext, taskTitle: string) {
     try {
+      // 🔧 Проверяем лимит задач перед созданием
+      const taskLimitCheck = await this.subscriptionService.checkLimit(
+        ctx.userId,
+        'tasks',
+      );
+
+      if (!taskLimitCheck.allowed) {
+        const limitMessage = this.subscriptionService.getLimitMessage(
+          'tasks',
+          taskLimitCheck.current,
+          taskLimitCheck.limit,
+        );
+        await ctx.replyWithMarkdown(limitMessage, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '💎 Получить Premium', callback_data: 'get_premium' }],
+              [{ text: '📊 Мои лимиты', callback_data: 'subscription_status' }],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        });
+        return;
+      }
+
       const task = await this.taskService.createTask({
         userId: ctx.userId,
         title: taskTitle.trim(),
         description: '',
         priority: 'MEDIUM' as any,
       });
-
-      // Increment daily tasks counter
-      await this.billingService.incrementUsage(ctx.userId, 'dailyTasks');
 
       // Get current user stats to increment
       const user = await this.userService.findByTelegramId(ctx.userId);
@@ -8184,9 +8298,9 @@ ${habitsProgressBar}${pomodoroStatus}${userStats}
       });
 
       // Get current usage for display
-      const usageInfo = await this.billingService.checkUsageLimit(
+      const usageInfo = await this.subscriptionService.checkLimit(
         ctx.userId,
-        'dailyTasks',
+        'tasks',
       );
 
       await ctx.replyWithMarkdown(
@@ -8195,7 +8309,7 @@ ${habitsProgressBar}${pomodoroStatus}${userStats}
 
 📝 *${task.title}*
 ⚡ XP за выполнение: ${task.xpReward}
-📊 **Задач сегодня:** ${usageInfo.current}${usageInfo.limit === -1 ? '' : `/${usageInfo.limit}`}
+📊 **Задач:** ${usageInfo.current}${usageInfo.limit === -1 ? '/♾️' : `/${usageInfo.limit}`} (осталось: ${usageInfo.remaining === -1 ? '♾️' : usageInfo.remaining})
 
 Задача добавлена в ваш список!
       `,
@@ -9031,11 +9145,37 @@ ${ratingEmoji} Ваша оценка: ${rating}/5
   }
 
   private async startAIChat(ctx: BotContext) {
+    // 🔧 Проверяем лимит AI запросов
+    const aiLimitCheck = await this.subscriptionService.checkLimit(
+      ctx.userId,
+      'aiRequests',
+    );
+
+    if (!aiLimitCheck.allowed) {
+      const limitMessage = this.subscriptionService.getLimitMessage(
+        'aiRequests',
+        aiLimitCheck.current,
+        aiLimitCheck.limit,
+      );
+      await ctx.editMessageTextWithMarkdown(limitMessage, {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '💎 Получить Premium', callback_data: 'get_premium' }],
+            [{ text: '📊 Мои лимиты', callback_data: 'subscription_status' }],
+            [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+          ],
+        },
+      });
+      return;
+    }
+
     await ctx.editMessageTextWithMarkdown(
       `
 🧠 *ИИ Консультант*
 
 Выберите тему или задайте вопрос:
+
+📊 **Использование:** ${aiLimitCheck.current}/${aiLimitCheck.limit === -1 ? '♾️' : aiLimitCheck.limit} запросов${aiLimitCheck.limit !== -1 ? ` (осталось: ${aiLimitCheck.remaining})` : ''}
     `,
       {
         reply_markup: {
@@ -9134,30 +9274,27 @@ ${
       return;
     }
     try {
-      // Check billing limits for AI queries
-      const limitCheck = await this.billingService.checkUsageLimit(
+      // 🔧 Проверяем лимит AI запросов с новой системой подписок
+      const aiLimitCheck = await this.subscriptionService.checkLimit(
         ctx.userId,
-        'dailyAiQueries',
+        'aiRequests',
       );
 
-      if (!limitCheck.allowed) {
-        await ctx.replyWithMarkdown(
-          limitCheck.message || '🚫 Превышен лимит ИИ-запросов',
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  {
-                    text: '💎 Обновиться до Premium',
-                    callback_data: 'upgrade_premium',
-                  },
-                ],
-                [{ text: '📊 Мои лимиты', callback_data: 'show_limits' }],
-                [{ text: '⬅️ Назад в меню', callback_data: 'back_to_menu' }],
-              ],
-            },
-          },
+      if (!aiLimitCheck.allowed) {
+        const limitMessage = this.subscriptionService.getLimitMessage(
+          'aiRequests',
+          aiLimitCheck.current,
+          aiLimitCheck.limit,
         );
+        await ctx.replyWithMarkdown(limitMessage, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '💎 Получить Premium', callback_data: 'get_premium' }],
+              [{ text: '📊 Мои лимиты', callback_data: 'subscription_status' }],
+              [{ text: '🏠 Главное меню', callback_data: 'back_to_menu' }],
+            ],
+          },
+        });
         return;
       }
 
@@ -9250,13 +9387,13 @@ ${
 
       // Проверка: не похоже ли сообщение на задачу или напоминание
 
-      // Increment AI usage counter
-      await this.billingService.incrementUsage(ctx.userId, 'dailyAiQueries');
+      // 🔧 Увеличиваем счетчик использования AI в новой системе
+      await this.subscriptionService.incrementUsage(ctx.userId, 'aiRequests');
 
       // Get current usage for display
-      const usageInfo = await this.billingService.checkUsageLimit(
+      const usageInfo = await this.subscriptionService.checkLimit(
         ctx.userId,
-        'dailyAiQueries',
+        'aiRequests',
       );
 
       await ctx.replyWithMarkdown(
@@ -9265,7 +9402,7 @@ ${
 
 ${personalizedResponse}
 
-📊 ИИ-запросов: ${usageInfo.current}${usageInfo.limit === -1 ? '' : `/${usageInfo.limit}`}
+📊 ИИ-запросов: ${usageInfo.current}${usageInfo.limit === -1 ? '/♾️' : `/${usageInfo.limit}`} (осталось: ${usageInfo.remaining === -1 ? '♾️' : usageInfo.remaining})
       `,
         {
           reply_markup: {
@@ -13958,6 +14095,9 @@ ${this.getItemActivationMessage(itemType)}`,
 
         const aiRaw = await this.openaiService.getAIResponse(prompt);
 
+        // 🔧 Увеличиваем счетчик использования AI
+        await this.subscriptionService.incrementUsage(ctx.userId, 'aiRequests');
+
         // Try to extract JSON object from AI response
         let aiJson: any = null;
         try {
@@ -16930,6 +17070,92 @@ ${todayTasks > 0 || todayHabits > 0 ? '🟢 Активный день!' : '🔴 
       await ctx.editMessageTextWithMarkdown(
         '❌ Ошибка при загрузке статистики привычек',
       );
+    }
+  }
+
+  // 🔧 Методы для обработки кнопок reply клавиатуры
+  private isReplyKeyboardButton(text: string): boolean {
+    const buttons = [
+      '📝 Мои задачи',
+      '+ Добавить задачу',
+      '✅ Отметить выполнение',
+      '📊 Статистика',
+      '🏆 Достижения',
+      '👥 Друзья',
+      '🤖 AI Чат',
+      '⏰ Таймер',
+    ];
+    return buttons.includes(text);
+  }
+
+  private async handleReplyKeyboardButton(
+    ctx: BotContext,
+    buttonText: string,
+  ): Promise<void> {
+    this.logger.log(
+      `Handling reply keyboard button: "${buttonText}" for user ${ctx.userId}`,
+    );
+
+    switch (buttonText) {
+      case '📝 Мои задачи':
+        const user = await this.userService.findByTelegramId(ctx.userId);
+        if (!user.timezone) {
+          ctx.session.step = 'adding_task';
+          await this.askForTimezone(ctx);
+        } else {
+          await this.showTasksMenu(ctx);
+        }
+        break;
+
+      case '+ Добавить задачу':
+        const userForTask = await this.userService.findByTelegramId(ctx.userId);
+        if (!userForTask.timezone) {
+          ctx.session.pendingAction = 'adding_task';
+          await this.askForTimezone(ctx);
+        } else {
+          ctx.session.step = 'waiting_for_task_title';
+          await ctx.replyWithMarkdown(
+            '✍️ *Добавление задачи*\n\nВведите название задачи:\n\n⬇️ *Введите текст в поле для ввода ниже*',
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '❌ Отмена', callback_data: 'back_to_menu' }],
+                ],
+              },
+            },
+          );
+        }
+        break;
+
+      case '✅ Отметить выполнение':
+        await this.showTasksMenu(ctx); // Используем существующий метод
+        break;
+
+      case '📊 Статистика':
+        await this.showDetailedStatistics(ctx);
+        break;
+
+      case '🏆 Достижения':
+        await ctx.replyWithMarkdown('🏆 *Достижения* - функция в разработке');
+        break;
+
+      case '👥 Друзья':
+        await ctx.replyWithMarkdown('👥 *Друзья* - функция в разработке');
+        break;
+
+      case '🤖 AI Чат':
+        await this.startAIChat(ctx);
+        break;
+
+      case '⏰ Таймер':
+        await this.showFocusSession(ctx); // Используем существующий метод
+        break;
+
+      default:
+        await ctx.replyWithMarkdown(
+          '🤔 Неизвестная команда. Используйте кнопки меню.',
+        );
+        break;
     }
   }
 }

@@ -7,7 +7,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = "postgresql://delta:Delta2005@localhost:5432/delta"
+  url      = env("DATABASE_URL")
 }
 
 enum TaskStatus {
@@ -146,12 +146,18 @@ model User {
   trialEnds           DateTime?        @map("trial_ends")
   isTrialActive       Boolean          @default(true) @map("is_trial_active")
   
+  // Premium subscription
+  isPremium           Boolean          @default(false) @map("is_premium")
+  
   // Usage limits (daily)
   dailyRemindersUsed  Int              @default(0) @map("daily_reminders_used")
   dailyTasksUsed      Int              @default(0) @map("daily_tasks_used")
   dailyHabitsUsed     Int              @default(0) @map("daily_habits_used")
   dailyAiQueriesUsed  Int              @default(0) @map("daily_ai_queries_used")
+  dailyAiRequests     Int              @default(0) @map("daily_ai_requests")
+  dailyPomodoroSessions Int            @default(0) @map("daily_pomodoro_sessions")
   lastUsageReset      DateTime?        @map("last_usage_reset")
+  lastDailyReset      DateTime?        @map("last_daily_reset")
 
   // Relations
   tasks             Task[]
